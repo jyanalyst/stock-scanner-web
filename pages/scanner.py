@@ -15,6 +15,44 @@ import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 
+def get_full_analysis_columns():
+    """Get the standard column order for all CSV exports and detailed displays"""
+    return [
+        'Analysis_Date', 'Ticker', 'Name', 'Weekly_Open', 'CRT_High', 'CRT_Low', 
+        'Close', 'VW_Range_Percentile', 'VW_Range_Velocity', 'CRT_Qualifying_Velocity',
+        'Rel_Range_Signal', 'Valid_CRT', 'Wick_Below', 'Close_Above', 'IBS', 'Buy_Signal'
+    ]
+
+def get_column_config():
+    """Get the standard column configuration for all dataframes"""
+    return {
+        'Analysis_Date': st.column_config.TextColumn('Date', width='small'),
+        'Ticker': st.column_config.TextColumn('Ticker', width='small'),
+        'Name': st.column_config.TextColumn('Company Name', width='medium'),
+        'Weekly_Open': st.column_config.NumberColumn('Weekly Open', format='$%.2f'),
+        'CRT_High': st.column_config.NumberColumn('CRT High', format='$%.2f'),
+        'CRT_Low': st.column_config.NumberColumn('CRT Low', format='$%.2f'),
+        'Close': st.column_config.NumberColumn('Close', format='$%.2f'),
+        'VW_Range_Percentile': st.column_config.NumberColumn('VW Range %ile', format='%.4f'),
+        'VW_Range_Velocity': st.column_config.NumberColumn('VW Velocity', format='%+.4f pp'),
+        'CRT_Qualifying_Velocity': st.column_config.NumberColumn('CRT Velocity', format='%+.4f pp'),
+        'Rel_Range_Signal': st.column_config.NumberColumn('Range Signal', width='small'),
+        'Valid_CRT': st.column_config.NumberColumn('Valid CRT', width='small'),
+        'Wick_Below': st.column_config.NumberColumn('Wick Below', width='small'),
+        'Close_Above': st.column_config.NumberColumn('Close Above', width='small'),
+        'IBS': st.column_config.NumberColumn('IBS', format='%.3f'),
+        'Buy_Signal': st.column_config.NumberColumn('Buy Signal', width='small')
+    }
+
+def export_to_csv(dataframe, columns=None):
+    """Standard CSV export function with consistent column ordering"""
+    if columns is None:
+        columns = get_full_analysis_columns()
+    
+    # Only include columns that exist in the dataframe
+    available_columns = [col for col in columns if col in dataframe.columns]
+    return dataframe[available_columns].to_csv(index=False)
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -349,8 +387,8 @@ def show_velocity_filter(valid_crt_stocks):
             height=100
         )
         
-        # Export filtered data
-        csv_data = filtered_stocks_sorted.to_csv(index=False)
+        # Export filtered data with standard column order
+        csv_data = export_to_csv(filtered_stocks_sorted)
         st.download_button(
             label="📥 Download Filtered Data (CSV)",
             data=csv_data,
@@ -1035,32 +1073,10 @@ def display_scan_results(results_df: pd.DataFrame):
         # Full Results Table with Custom Column Order
         with st.expander("📋 Full Analysis Results", expanded=False):
             # Reorder columns for better analysis flow
-            full_results_cols = [
-                'Analysis_Date', 'Ticker', 'Name', 'Weekly_Open', 'CRT_High', 'CRT_Low', 
-                'Close', 'VW_Range_Percentile', 'VW_Range_Velocity', 'CRT_Qualifying_Velocity',
-                'Rel_Range_Signal', 'Valid_CRT', 'Wick_Below', 'Close_Above', 'IBS', 'Buy_Signal'
-            ]
-            
-            # Configure column display
-            full_results_column_config = {
-                'Analysis_Date': st.column_config.TextColumn('Date', width='small'),
-                'Ticker': st.column_config.TextColumn('Ticker', width='small'),
-                'Name': st.column_config.TextColumn('Company Name', width='medium'),
-                'Weekly_Open': st.column_config.NumberColumn('Weekly Open', format='$%.2f'),
-                'CRT_High': st.column_config.NumberColumn('CRT High', format='$%.2f'),
-                'CRT_Low': st.column_config.NumberColumn('CRT Low', format='$%.2f'),
-                'Close': st.column_config.NumberColumn('Close', format='$%.2f'),
-                'VW_Range_Percentile': st.column_config.NumberColumn('VW Range %ile', format='%.4f'),
-                'VW_Range_Velocity': st.column_config.NumberColumn('VW Velocity', format='%+.4f pp'),
-                'CRT_Qualifying_Velocity': st.column_config.NumberColumn('CRT Velocity', format='%+.4f pp'),
-                'Rel_Range_Signal': st.column_config.NumberColumn('Range Signal', width='small'),
-                'Valid_CRT': st.column_config.NumberColumn('Valid CRT', width='small'),
-                'Wick_Below': st.column_config.NumberColumn('Wick Below', width='small'),
-                'Close_Above': st.column_config.NumberColumn('Close Above', width='small'),
-                'IBS': st.column_config.NumberColumn('IBS', format='%.3f'),
-                'Buy_Signal': st.column_config.NumberColumn('Buy Signal', width='small')
-            }
-            
+            # Use global column configuration
+            full_results_cols = get_full_analysis_columns()
+            full_results_column_config = get_column_config()
+
             st.dataframe(
                 results_df[full_results_cols],
                 column_config=full_results_column_config,
