@@ -46,6 +46,9 @@ def add_enhanced_columns(df_daily: pd.DataFrame, ticker: str, rolling_window: in
     # 5. Calculate volume-weighted range percentile
     df['VW_Range_Percentile'] = df['Volume_Weighted_Range'].rolling(window=50, min_periods=20).rank(pct=True)
     
+    # 5a. Calculate velocity (absolute difference in percentage points)
+    df['VW_Range_Velocity'] = df['VW_Range_Percentile'] - df['VW_Range_Percentile'].shift(1)
+    
     # 6. Range Expansion Signal (Simplified - no threshold)
     range_expanding = (df['VW_Range_Percentile'] > df['VW_Range_Percentile'].shift(1))
     df['Rel_Range_Signal'] = np.where(range_expanding, 1, 0)
