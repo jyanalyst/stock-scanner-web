@@ -1,5 +1,5 @@
 """
-Enhanced Live Scanner Page with Comprehensive Error Logging and Velocity Filtering
+Enhanced Live Scanner Page with Comprehensive Error Logging and Working Velocity Filtering
 Real-time stock scanning functionality with detailed error tracking and dynamic filtering
 """
 
@@ -112,7 +112,7 @@ if 'error_logger' not in st.session_state:
 
 def show_velocity_filter(valid_crt_stocks):
     """
-    Display dynamic velocity filtering for Valid CRT watchlist with proper state management
+    Display dynamic velocity filtering - WORKING VERSION WITH RADIO BUTTONS
     """
     
     if valid_crt_stocks.empty or 'CRT_Qualifying_Velocity' not in valid_crt_stocks.columns:
@@ -124,21 +124,20 @@ def show_velocity_filter(valid_crt_stocks):
     # Get velocity statistics
     velocities = valid_crt_stocks['CRT_Qualifying_Velocity']
     
-    # Create filter tabs
-    filter_tab1, filter_tab2, filter_tab3, filter_tab4 = st.tabs([
-        "📊 Percentile Filter", 
-        "📈 Quartile Filter", 
-        "🎚️ Custom Range", 
-        "📋 Distribution View"
-    ])
+    # Filter selection OUTSIDE of tabs - this is the key fix
+    st.markdown("**Choose Filter Type:**")
+    filter_type = st.radio(
+        "Select filtering method:",
+        ["Percentile Filter", "Quartile Filter", "Custom Range", "No Filter"],
+        horizontal=True,
+        key="velocity_filter_type"
+    )
     
-    # Initialize filtered_stocks to avoid UnboundLocalError
+    # Initialize filtered stocks
     filtered_stocks = valid_crt_stocks.copy()
     
-    with filter_tab1:
-        st.markdown("**Filter by Velocity Percentiles**")
-        st.caption("Select top performers by percentile ranking")
-        
+    # Apply filtering based on selection
+    if filter_type == "Percentile Filter":
         col1, col2 = st.columns(2)
         
         with col1:
@@ -151,7 +150,6 @@ def show_velocity_filter(valid_crt_stocks):
                 "Custom percentile": None
             }
             
-            # Use unique key to prevent conflicts
             selected_percentile = st.selectbox(
                 "Choose percentile filter:", 
                 list(percentile_options.keys()),
@@ -195,21 +193,18 @@ def show_velocity_filter(valid_crt_stocks):
             }
             st.dataframe(pd.DataFrame(stats_data), hide_index=True, use_container_width=True)
     
-    with filter_tab2:
-        st.markdown("**Filter by Quartiles**")
-        st.caption("Group stocks into performance quartiles")
-        
+    elif filter_type == "Quartile Filter":
         q1 = np.percentile(velocities, 25)
         q2 = np.percentile(velocities, 50) 
         q3 = np.percentile(velocities, 75)
         
         quartile_options = {
-            "Q4 - Top Quartile (75th-100th percentile)": (q3, velocities.max()),
-            "Q3 - Upper Middle (50th-75th percentile)": (q2, q3),
-            "Q2 - Lower Middle (25th-50th percentile)": (q1, q2),
-            "Q1 - Bottom Quartile (0th-25th percentile)": (velocities.min(), q1),
-            "Top Half (Q3 + Q4)": (q2, velocities.max()),
-            "Bottom Half (Q1 + Q2)": (velocities.min(), q2)
+            "Q4 - Top Quartile (75th-100th percentile)": (q3, velocities.max(), ">="),
+            "Q3 - Upper Middle (50th-75th percentile)": (q2, q3, "range"),
+            "Q2 - Lower Middle (25th-50th percentile)": (q1, q2, "range"),
+            "Q1 - Bottom Quartile (0th-25th percentile)": (velocities.min(), q1, "<="),
+            "Top Half (Q3 + Q4)": (q2, velocities.max(), ">="),
+            "Bottom Half (Q1 + Q2)": (velocities.min(), q2, "<=")
         }
         
         selected_quartile = st.selectbox(
@@ -217,13 +212,15 @@ def show_velocity_filter(valid_crt_stocks):
             list(quartile_options.keys()),
             key="quartile_filter_selectbox"
         )
-        min_vel, max_vel = quartile_options[selected_quartile]
         
-        if "Top Half" in selected_quartile or "Q4" in selected_quartile:
+        min_vel, max_vel, operation = quartile_options[selected_quartile]
+        
+        # Apply quartile filtering
+        if operation == ">=":
             filtered_stocks = valid_crt_stocks[valid_crt_stocks['CRT_Qualifying_Velocity'] >= min_vel]
-        elif "Bottom Half" in selected_quartile or "Q1" in selected_quartile:
+        elif operation == "<=":
             filtered_stocks = valid_crt_stocks[valid_crt_stocks['CRT_Qualifying_Velocity'] <= max_vel]
-        else:
+        else:  # range
             filtered_stocks = valid_crt_stocks[
                 (valid_crt_stocks['CRT_Qualifying_Velocity'] >= min_vel) &
                 (valid_crt_stocks['CRT_Qualifying_Velocity'] < max_vel)
@@ -231,6 +228,7 @@ def show_velocity_filter(valid_crt_stocks):
         
         st.info(f"Velocity range: {min_vel:+.4f} to {max_vel:+.4f} pp ({len(filtered_stocks)} stocks)")
         
+        # Show quartile breakdown
         col1, col2, col3, col4 = st.columns(4)
         q1_count = len(valid_crt_stocks[valid_crt_stocks['CRT_Qualifying_Velocity'] <= q1])
         q2_count = len(valid_crt_stocks[(valid_crt_stocks['CRT_Qualifying_Velocity'] > q1) & 
@@ -248,9 +246,7 @@ def show_velocity_filter(valid_crt_stocks):
         with col4:
             st.metric("Q4", q4_count, f"{velocities.max():+.4f} pp")
     
-    with filter_tab3:
-        st.markdown("**Custom Velocity Range Filter**")
-        
+    elif filter_type == "Custom Range":
         col1, col2 = st.columns(2)
         
         with col1:
@@ -275,6 +271,7 @@ def show_velocity_filter(valid_crt_stocks):
                 key="max_velocity_input"
             )
         
+        # Apply custom range filtering
         filtered_stocks = valid_crt_stocks[
             (valid_crt_stocks['CRT_Qualifying_Velocity'] >= min_velocity) &
             (valid_crt_stocks['CRT_Qualifying_Velocity'] <= max_velocity)
@@ -294,52 +291,31 @@ def show_velocity_filter(valid_crt_stocks):
             with col3:
                 st.metric("Range Std", f"{range_velocities.std():.4f} pp")
     
-    with filter_tab4:
-        st.markdown("**Velocity Distribution Analysis**")
+    else:  # No Filter
+        filtered_stocks = valid_crt_stocks
+        st.info("Showing all Valid CRT stocks (no filtering applied)")
+    
+    # Show distribution charts (always visible)
+    with st.expander("📊 Velocity Distribution Analysis", expanded=False):
+        col1, col2 = st.columns(2)
         
-        fig_hist = px.histogram(
-            x=velocities,
-            nbins=20,
-            title="Velocity Distribution",
-            labels={'x': 'CRT Qualifying Velocity (pp)', 'y': 'Count'}
-        )
-        st.plotly_chart(fig_hist, use_container_width=True)
-        
-        fig_box = px.box(
-            y=velocities,
-            title="Velocity Box Plot"
-        )
-        st.plotly_chart(fig_box, use_container_width=True)
-        
-        # For distribution view, show all stocks but highlight potential filtering options
-        st.markdown("**Suggested Filters Based on Distribution:**")
-        
-        # Calculate natural breakpoints
-        q1 = np.percentile(velocities, 25)
-        q3 = np.percentile(velocities, 75)
-        mean_vel = velocities.mean()
-        
-        col1, col2, col3 = st.columns(3)
         with col1:
-            if st.button("🎯 Filter to Top Quartile", key="dist_top_quartile"):
-                filtered_stocks = valid_crt_stocks[valid_crt_stocks['CRT_Qualifying_Velocity'] >= q3]
-                st.success(f"Filtered to {len(filtered_stocks)} stocks (≥{q3:+.4f} pp)")
+            fig_hist = px.histogram(
+                x=velocities,
+                nbins=20,
+                title="Velocity Distribution",
+                labels={'x': 'CRT Qualifying Velocity (pp)', 'y': 'Count'}
+            )
+            st.plotly_chart(fig_hist, use_container_width=True)
         
         with col2:
-            if st.button("📈 Filter Above Average", key="dist_above_avg"):
-                filtered_stocks = valid_crt_stocks[valid_crt_stocks['CRT_Qualifying_Velocity'] >= mean_vel]
-                st.success(f"Filtered to {len(filtered_stocks)} stocks (≥{mean_vel:+.4f} pp)")
-        
-        with col3:
-            if st.button("🔄 Show All", key="dist_show_all"):
-                filtered_stocks = valid_crt_stocks
-                st.success(f"Showing all {len(filtered_stocks)} stocks")
-        
-        # If no button was pressed, show all stocks in distribution view
-        if 'filtered_stocks' not in locals() or len(filtered_stocks) == len(valid_crt_stocks):
-            filtered_stocks = valid_crt_stocks
+            fig_box = px.box(
+                y=velocities,
+                title="Velocity Box Plot"
+            )
+            st.plotly_chart(fig_box, use_container_width=True)
     
-    # Display filtered results - This section should always update
+    # Display filtered results - This will now update dynamically!
     st.subheader(f"📋 Filtered Results ({len(filtered_stocks)} stocks)")
     
     if len(filtered_stocks) > 0:
@@ -355,15 +331,12 @@ def show_velocity_filter(valid_crt_stocks):
             'CRT_Low': st.column_config.NumberColumn('CRT Low', format='$%.2f')
         }
         
-        # Use a container that will refresh when data changes
-        with st.container():
-            st.dataframe(
-                filtered_stocks_sorted[display_cols],
-                column_config=column_config,
-                use_container_width=True,
-                hide_index=True,
-                key=f"filtered_results_table_{len(filtered_stocks)}"  # Unique key forces refresh
-            )
+        st.dataframe(
+            filtered_stocks_sorted[display_cols],
+            column_config=column_config,
+            use_container_width=True,
+            hide_index=True
+        )
         
         # TradingView Export for filtered list
         st.subheader("📋 TradingView Export (Filtered)")
@@ -373,8 +346,7 @@ def show_velocity_filter(valid_crt_stocks):
         st.text_area(
             f"Filtered TradingView list ({len(tv_tickers)} stocks):",
             value=tv_string,
-            height=100,
-            key=f"tv_export_{len(tv_tickers)}"  # Unique key forces refresh
+            height=100
         )
         
         # Export filtered data
@@ -383,13 +355,11 @@ def show_velocity_filter(valid_crt_stocks):
             label="📥 Download Filtered Data (CSV)",
             data=csv_data,
             file_name=f"filtered_valid_crt_{len(filtered_stocks)}_stocks.csv",
-            mime="text/csv",
-            key=f"download_csv_{len(filtered_stocks)}"  # Unique key
+            mime="text/csv"
         )
     
     else:
         st.warning("No stocks match the current filter criteria")
-        filtered_stocks = pd.DataFrame()  # Return empty DataFrame
     
     return filtered_stocks
 
@@ -1056,16 +1026,44 @@ def display_scan_results(results_df: pd.DataFrame):
                     hide_index=True
                 )
             
-            # Dynamic Velocity Filtering
+            # Dynamic Velocity Filtering - RADIO BUTTON VERSION
             show_velocity_filter(valid_crt_stocks)
             
         else:
             st.info("No Valid CRT stocks detected in this analysis.")
         
-        # Full Results Table
+        # Full Results Table with Custom Column Order
         with st.expander("📋 Full Analysis Results", expanded=False):
+            # Reorder columns for better analysis flow
+            full_results_cols = [
+                'Analysis_Date', 'Ticker', 'Name', 'Weekly_Open', 'CRT_High', 'CRT_Low', 
+                'Close', 'VW_Range_Percentile', 'VW_Range_Velocity', 'CRT_Qualifying_Velocity',
+                'Rel_Range_Signal', 'Valid_CRT', 'Wick_Below', 'Close_Above', 'IBS', 'Buy_Signal'
+            ]
+            
+            # Configure column display
+            full_results_column_config = {
+                'Analysis_Date': st.column_config.TextColumn('Date', width='small'),
+                'Ticker': st.column_config.TextColumn('Ticker', width='small'),
+                'Name': st.column_config.TextColumn('Company Name', width='medium'),
+                'Weekly_Open': st.column_config.NumberColumn('Weekly Open', format='$%.2f'),
+                'CRT_High': st.column_config.NumberColumn('CRT High', format='$%.2f'),
+                'CRT_Low': st.column_config.NumberColumn('CRT Low', format='$%.2f'),
+                'Close': st.column_config.NumberColumn('Close', format='$%.2f'),
+                'VW_Range_Percentile': st.column_config.NumberColumn('VW Range %ile', format='%.4f'),
+                'VW_Range_Velocity': st.column_config.NumberColumn('VW Velocity', format='%+.4f pp'),
+                'CRT_Qualifying_Velocity': st.column_config.NumberColumn('CRT Velocity', format='%+.4f pp'),
+                'Rel_Range_Signal': st.column_config.NumberColumn('Range Signal', width='small'),
+                'Valid_CRT': st.column_config.NumberColumn('Valid CRT', width='small'),
+                'Wick_Below': st.column_config.NumberColumn('Wick Below', width='small'),
+                'Close_Above': st.column_config.NumberColumn('Close Above', width='small'),
+                'IBS': st.column_config.NumberColumn('IBS', format='%.3f'),
+                'Buy_Signal': st.column_config.NumberColumn('Buy Signal', width='small')
+            }
+            
             st.dataframe(
-                results_df,
+                results_df[full_results_cols],
+                column_config=full_results_column_config,
                 use_container_width=True,
                 hide_index=True
             )
