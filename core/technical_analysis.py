@@ -75,14 +75,22 @@ def add_enhanced_columns(df_daily: pd.DataFrame, ticker: str, rolling_window: in
     df['CRT_Low'] = df['CRT_Low'].ffill()
     df['CRT_Close'] = df['CRT_Close'].ffill()
     
-    # 11. Create Valid_CRT (only Mondays with range expansion)
+    # 11. Create Valid_CRT (Mondays with range expansion - no threshold)
     df['Valid_CRT'] = np.where(
         (df['Is_First_Trading_Day'] == 1) & (df['Rel_Range_Signal'] == 1), 1,
         np.where(df['Is_First_Trading_Day'] == 1, 0, np.nan)  # NaN for non-Mondays
     )
     
-    # 12. Forward fill Valid_CRT from Monday through Friday
+    # 11a. Capture the qualifying velocity on Mondays for Valid_CRT
+    df['CRT_Qualifying_Velocity'] = np.where(
+        (df['Is_First_Trading_Day'] == 1) & (df['Rel_Range_Signal'] == 1),
+        df['VW_Range_Velocity'],
+        np.nan
+    )
+    
+    # 12. Forward fill Valid_CRT and CRT_Qualifying_Velocity from Monday through Friday
     df['Valid_CRT'] = df['Valid_CRT'].ffill()
+    df['CRT_Qualifying_Velocity'] = df['CRT_Qualifying_Velocity'].ffill()
     
     # 13. Calculate IBS for all days
     df['IBS'] = np.where(
@@ -160,6 +168,10 @@ def add_enhanced_columns(df_daily: pd.DataFrame, ticker: str, rolling_window: in
         ((df['Wick_Below'] == 1) | (df['Close_Above'] == 1)),
         1, 0
     )
+    
+    # Debug print to verify column creation
+    print(f"DEBUG {ticker}: Created columns: {list(df.columns)}")
+    print(f"DEBUG {ticker}: CRT_Qualifying_Velocity sample: {df['CRT_Qualifying_Velocity'].tail().values}")
     
     return df
 
