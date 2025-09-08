@@ -1,7 +1,7 @@
 """
 Live Scanner Page
 Real-time stock scanning functionality
-With table format Valid CRT Watch List
+With table format Valid CRT Watch List and TradingView export
 """
 
 import streamlit as st
@@ -320,6 +320,31 @@ def display_scan_results(results_df: pd.DataFrame):
             width='stretch',
             hide_index=True
         )
+        
+        # Add TradingView format string
+        st.subheader("📋 TradingView Watchlist Format")
+        
+        # Create comma-separated list of tickers without .SI suffix for TradingView
+        # Remove .SI suffix as TradingView uses different format
+        tv_tickers = [ticker.replace('.SI', '') for ticker in valid_crt_stocks['Ticker'].tolist()]
+        tv_string = ','.join(tv_tickers)
+        
+        # Display in a text area for easy copying
+        st.text_area(
+            "Copy this list for TradingView:",
+            value=tv_string,
+            height=100,
+            help="Click to select all, then copy (Ctrl+C or Cmd+C). The .SI suffix has been removed for TradingView compatibility."
+        )
+        
+        # Also show with .SI suffix if needed
+        with st.expander("Show with .SI suffix (for other platforms)"):
+            si_string = ','.join(valid_crt_stocks['Ticker'].tolist())
+            st.text_area(
+                "With .SI suffix:",
+                value=si_string,
+                height=100
+            )
         
     else:
         st.info("No Valid CRT stocks detected. Stocks qualify on Monday with range expansion.")
