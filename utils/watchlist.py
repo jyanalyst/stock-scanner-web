@@ -8,13 +8,13 @@ Company names are now fetched from yfinance instead of manual mapping
 DEFAULT_WATCHLIST = [
     'A17U.SI', 'C38U.SI', 'M44U.SI', 'ME8U.SI', 'AJBU.SI', 
     'J69U.SI', 'N2IU.SI', 'BUOU.SI', 'K71U.SI', 'JYEU.SI',
-    'HMN.SI', 'AWX.SI', 'E28.SI', '558.SI', 'MZH.SI',
-    'BN2.SI', 'BS6.SI', '5E2.SI', 'Z74.SI', '9CI.SI',
+    'HMN.SI','AU8U.SI','9CI.SI', 'AWX.SI', 'E28.SI', '558.SI', 'MZH.SI',
+    'BN2.SI', 'BS6.SI', '5E2.SI', 'Z74.SI', 
     'C52.SI', 'YF8.SI', '5LY.SI', 'G13.SI', 'OV8.SI',
     'S56.SI', 'AP4.SI', '544.SI', 'G92.SI', 'Z25.SI',
     'RXS.SI', 'S58.SI', 'EB5.SI', '1MZ.SI', '41O.SI',
-    'OYY.SI', 'A50.SI', 'E3B.SI', 'OU8.SI', 'LCC.SI',
-    'AU8U.SI', 'A04.SI', 'ER0.SI', '5WH.SI', '1E3.SI', '5TP.SI'
+    'OYY.SI', 'E3B.SI', 'OU8.SI', 'LCC.SI',
+    'A04.SI', 'ER0.SI', '5WH.SI', '1E3.SI', '5TP.SI'
 ]
 
 def get_active_watchlist():
