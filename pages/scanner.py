@@ -1,7 +1,7 @@
 """
 Live Scanner Page
 Real-time stock scanning functionality
-Fixed function name references
+With table format Valid CRT Watch List
 """
 
 import streamlit as st
@@ -183,7 +183,12 @@ def run_stock_scan(scan_mode: str, days_back: int):
                     'Close_Above': int(latest_row.get('Close_Above', 0)),
                     'Buy_Signal': int(latest_row.get('Buy_Signal', 0)),
                     'Rel_Range_Signal': int(latest_row.get('Rel_Range_Signal', 0)),
-                    'VW_Range_Percentile': round(latest_row.get('VW_Range_Percentile', 0), 4)
+                    'VW_Range_Percentile': round(latest_row.get('VW_Range_Percentile', 0), 4),
+                    'VW_Range_Velocity': round(latest_row.get('VW_Range_Velocity', 0), 4),
+                    'CRT_Qualifying_Velocity': round(latest_row.get('CRT_Qualifying_Velocity', 0), 4) if not pd.isna(latest_row.get('CRT_Qualifying_Velocity', 0)) else 0,
+                    'Weekly_Open': round(latest_row.get('Weekly_Open', 0), 2) if not pd.isna(latest_row.get('Weekly_Open', 0)) else 0,
+                    'CRT_High': round(latest_row.get('CRT_High', 0), 2) if not pd.isna(latest_row.get('CRT_High', 0)) else 0,
+                    'CRT_Low': round(latest_row.get('CRT_Low', 0), 2) if not pd.isna(latest_row.get('CRT_Low', 0)) else 0
                 }
                 results.append(result)
                 
@@ -270,51 +275,60 @@ def display_scan_results(results_df: pd.DataFrame):
                     <h4 style="margin: 0; color: #2E8B57;">📈 {stock['Ticker']} - {stock['Name']}</h4>
                     <p style="margin: 5px 0; font-size: 18px; font-weight: bold;">${stock['Close']:.2f}</p>
                     <p style="margin: 5px 0;">IBS: {stock['IBS']:.3f} | Signal: {stock['Signal_Type']}</p>
+                    <p style="margin: 5px 0;">Velocity: {stock['VW_Range_Velocity']:+.4f} pp</p>
                 </div>
                 """, unsafe_allow_html=True)
         
         # Detailed table
         st.subheader("📋 Detailed Buy Signals")
-        display_cols = ['Ticker', 'Name', 'Close', 'IBS', 'Signal_Type', 'Valid_CRT']
+        display_cols = ['Ticker', 'Name', 'Close', 'IBS', 'Signal_Type', 'Valid_CRT', 'VW_Range_Velocity']
         st.dataframe(
             buy_signals_df[display_cols],
-            use_container_width=True,
+            width='stretch',
             hide_index=True
         )
         
     else:
         st.info("🔍 No buy signals detected in current scan. Keep monitoring for opportunities!")
     
-    # Watch List Section
-    st.subheader("👀 Range Expansion Watch List")
+    # Valid CRT Watch List Section (table format with CRT levels)
+    st.subheader("📋 Valid CRT Watch List")
     
-    expansion_df = results_df[
-        (results_df['Rel_Range_Signal'] == 1) & (results_df['Buy_Signal'] == 0)
-    ].copy()
+    # Get stocks with Valid_CRT = 1, sorted by CRT_Qualifying_Velocity (highest to lowest)
+    valid_crt_stocks = results_df[results_df['Valid_CRT'] == 1].copy()
     
-    if len(expansion_df) > 0:
-        for _, stock in expansion_df.iterrows():
-            st.markdown(f"""
-            <div style="background-color: #fff3cd; padding: 10px; border-radius: 5px; border-left: 4px solid #ffc107; margin: 5px 0;">
-                <strong>📊 {stock['Ticker']} - {stock['Name']}</strong> - ${stock['Close']:.2f}<br>
-                <small>IBS: {stock['IBS']:.3f} | Range expansion detected</small>
-            </div>
-            """, unsafe_allow_html=True)
+    if len(valid_crt_stocks) > 0:
+        # Sort by CRT qualifying velocity (highest to lowest)
+        valid_crt_stocks = valid_crt_stocks.sort_values('CRT_Qualifying_Velocity', ascending=False)
         
-        display_cols = ['Ticker', 'Name', 'Close', 'IBS', 'VW_Range_Percentile']
+        st.info("📅 Stocks that qualified for Valid CRT on Monday (sorted by qualifying velocity)")
+        
+        # Display table with requested columns (separate ticker and name)
+        display_cols = ['Ticker', 'Name', 'Weekly_Open', 'CRT_Qualifying_Velocity', 'CRT_High', 'CRT_Low']
+        column_config = {
+            'Ticker': st.column_config.TextColumn('Ticker', width='small'),
+            'Name': st.column_config.TextColumn('Company Name', width='large'),
+            'Weekly_Open': st.column_config.NumberColumn('Weekly_Open', format='$%.2f'),
+            'CRT_Qualifying_Velocity': st.column_config.NumberColumn('Velocity', format='%+.4f pp'),
+            'CRT_High': st.column_config.NumberColumn('CRT_High', format='$%.2f'),
+            'CRT_Low': st.column_config.NumberColumn('CRT_Low', format='$%.2f')
+        }
+        
         st.dataframe(
-            expansion_df[display_cols],
-            use_container_width=True,
+            valid_crt_stocks[display_cols],
+            column_config=column_config,
+            width='stretch',
             hide_index=True
         )
+        
     else:
-        st.info("No range expansion signals detected.")
+        st.info("No Valid CRT stocks detected. Stocks qualify on Monday with range expansion.")
     
     # Full Results Table
     with st.expander("📋 Full Scan Results", expanded=False):
         st.dataframe(
             results_df,
-            use_container_width=True,
+            width='stretch',
             hide_index=True
         )
 
@@ -344,7 +358,12 @@ def test_scanner_simple():
         'Close_Above': [1, 1, 1, 1, 1],
         'Buy_Signal': [1, 1, 1, 1, 1],
         'Rel_Range_Signal': [0, 1, 0, 0, 0],
-        'VW_Range_Percentile': [0.4523, 0.6789, 0.4123, 0.3241, 0.3456]
+        'VW_Range_Percentile': [0.4523, 0.6789, 0.4123, 0.3241, 0.3456],
+        'VW_Range_Velocity': [0.0234, 0.1456, -0.0123, 0.0567, 0.0089],
+        'CRT_Qualifying_Velocity': [0.0234, 0.1456, -0.0123, 0.0567, 0.0089],
+        'Weekly_Open': [2.75, 0.75, 1.45, 1.40, 0.74],
+        'CRT_High': [2.80, 0.80, 1.50, 1.45, 0.78],
+        'CRT_Low': [2.70, 0.72, 1.42, 1.38, 0.72]
     }
     
     results_df = pd.DataFrame(sample_data)
@@ -404,7 +423,12 @@ def test_scanner_with_actual_yfinance():
             'Close_Above': [1, 1, 1, 1, 1],
             'Buy_Signal': [1, 1, 1, 1, 1],
             'Rel_Range_Signal': [0, 1, 0, 0, 0],
-            'VW_Range_Percentile': [0.4523, 0.6789, 0.4123, 0.3241, 0.3456]
+            'VW_Range_Percentile': [0.4523, 0.6789, 0.4123, 0.3241, 0.3456],
+            'VW_Range_Velocity': [0.0234, 0.1456, -0.0123, 0.0567, 0.0089],
+            'CRT_Qualifying_Velocity': [0.0234, 0.1456, -0.0123, 0.0567, 0.0089],
+            'Weekly_Open': [2.75, 0.75, 1.45, 1.40, 0.74],
+            'CRT_High': [2.80, 0.80, 1.50, 1.45, 0.78],
+            'CRT_Low': [2.70, 0.72, 1.42, 1.38, 0.72]
         }
         
         results_df = pd.DataFrame(sample_data)
