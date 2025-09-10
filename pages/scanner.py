@@ -1,6 +1,7 @@
 """
 Enhanced Live Scanner Page with Buy Signals Dynamic Filtering
 Real-time stock scanning functionality with buy signals filtering capability
+Updated to display CRT_IBS alongside CRT_Velocity
 """
 
 import streamlit as st
@@ -265,8 +266,8 @@ def show_buy_signals_filter(buy_signals_stocks):
         # Sort by CRT Velocity (descending)
         filtered_stocks_sorted = filtered_stocks.sort_values('CRT_Velocity', ascending=False)
         
-        # Use consistent display columns with Valid CRT
-        display_cols = ['Ticker', 'Name', 'Close', 'CRT_Velocity', 'IBS', 'Signal_Type']
+        # Use updated display columns with CRT_IBS
+        display_cols = ['Ticker', 'Name', 'Close', 'CRT_Velocity', 'CRT_IBS', 'IBS', 'Signal_Type']
         
         # Add Signal_Type column for better readability
         filtered_stocks_sorted['Signal_Type'] = filtered_stocks_sorted.apply(
@@ -278,7 +279,8 @@ def show_buy_signals_filter(buy_signals_stocks):
             'Name': st.column_config.TextColumn('Company Name', width='large'),
             'Close': st.column_config.NumberColumn('Close Price', format='$%.2f'),
             'CRT_Velocity': st.column_config.NumberColumn('CRT Velocity', format='%+.4f pp'),
-            'IBS': st.column_config.NumberColumn('IBS', format='%.3f'),
+            'CRT_IBS': st.column_config.NumberColumn('CRT IBS', format='%.3f'),
+            'IBS': st.column_config.NumberColumn('Current IBS', format='%.3f'),
             'Signal_Type': st.column_config.TextColumn('Signal Type', width='medium')
         }
         
@@ -317,7 +319,7 @@ def show_buy_signals_filter(buy_signals_stocks):
 
 def show_velocity_filter(valid_crt_stocks):
     """
-    Display dynamic velocity filtering with simplified percentile options and IBS filter
+    Display dynamic velocity filtering - CRT Velocity only (no IBS filter)
     """
     
     if valid_crt_stocks.empty or 'CRT_Velocity' not in valid_crt_stocks.columns:
@@ -326,147 +328,73 @@ def show_velocity_filter(valid_crt_stocks):
     
     st.subheader("🎯 Dynamic Filtering")
     
-    # Create two columns for the two filters
-    col1, col2 = st.columns(2)
-    
     # Initialize filtered stocks
     filtered_stocks = valid_crt_stocks.copy()
     
-    # CRT VELOCITY PERCENTILE FILTER
-    with col1:
-        st.markdown("**CRT Velocity Filter:**")
+    # CRT VELOCITY PERCENTILE FILTER (single column layout)
+    st.markdown("**CRT Velocity Filter:**")
         
-        # Get velocity statistics
-        velocities = valid_crt_stocks['CRT_Velocity']
+    # Get velocity statistics
+    velocities = valid_crt_stocks['CRT_Velocity']
         
-        percentile_options = {
-            "Top 25%": 75,
-            "Top 50%": 50, 
-            "Top 75%": 25,
-            "No Filter": None
-        }
+    percentile_options = {
+        "Top 25%": 75,
+        "Top 50%": 50, 
+        "Top 75%": 25,
+        "No Filter": None
+    }
         
-        selected_percentile = st.radio(
-            "Select velocity filter:",
-            list(percentile_options.keys()),
-            key="percentile_filter_radio"
-        )
-        
-        # Apply percentile filtering
-        if selected_percentile != "No Filter":
-            percentile_val = percentile_options[selected_percentile]
-            threshold_value = np.percentile(velocities, percentile_val)
-            filtered_stocks = filtered_stocks[filtered_stocks['CRT_Velocity'] >= threshold_value]
-            st.info(f"CRT Velocity ≥ {threshold_value:+.4f} pp")
-        else:
-            st.info("All velocities included")
-        
-        # Show velocity statistics
-        with st.expander("CRT Velocity Statistics", expanded=False):
-            stats_data = {
-                "Metric": ["Count", "Min", "25th %ile", "Median", "75th %ile", "Max"],
-                "Value": [
-                    len(velocities),
-                    f"{velocities.min():+.4f} pp",
-                    f"{np.percentile(velocities, 25):+.4f} pp",
-                    f"{velocities.median():+.4f} pp", 
-                    f"{np.percentile(velocities, 75):+.4f} pp",
-                    f"{velocities.max():+.4f} pp"
-                ]
-            }
-            st.dataframe(pd.DataFrame(stats_data), hide_index=True, use_container_width=True)
+    selected_percentile = st.radio(
+        "Select velocity filter:",
+        list(percentile_options.keys()),
+        key="percentile_filter_radio"
+    )
     
-    # IBS FILTER
-    with col2:
-        st.markdown("**IBS Filter:**")
-        
-        # Check if IBS column exists
-        if 'IBS' not in filtered_stocks.columns:
-            st.warning("IBS data not available")
-        else:
-            ibs_options = {
-                "IBS ≥ 0.75": 0.75,
-                "IBS ≥ 0.5": 0.5,
-                "No Filter": None
-            }
-            
-            selected_ibs = st.radio(
-                "Select IBS filter:",
-                list(ibs_options.keys()),
-                key="ibs_filter_radio"
-            )
-            
-            # Apply IBS filtering
-            if selected_ibs != "No Filter":
-                ibs_threshold = ibs_options[selected_ibs]
-                filtered_stocks = filtered_stocks[filtered_stocks['IBS'] >= ibs_threshold]
-                st.info(f"IBS ≥ {ibs_threshold:.2f}")
-            else:
-                st.info("All IBS values included")
-            
-            # Show IBS statistics for the velocity-filtered stocks
-            with st.expander("IBS Statistics", expanded=False):
-                # Use the stocks that passed velocity filter for IBS stats
-                ibs_values = filtered_stocks['IBS'] if selected_percentile != "No Filter" else valid_crt_stocks['IBS']
-                ibs_stats = {
-                    "Metric": ["Count", "Min", "25th %ile", "Median", "75th %ile", "Max"],
-                    "Value": [
-                        len(ibs_values),
-                        f"{ibs_values.min():.3f}",
-                        f"{np.percentile(ibs_values, 25):.3f}",
-                        f"{ibs_values.median():.3f}",
-                        f"{np.percentile(ibs_values, 75):.3f}",
-                        f"{ibs_values.max():.3f}"
-                    ]
-                }
-                st.dataframe(pd.DataFrame(ibs_stats), hide_index=True, use_container_width=True)
-    
-    # Show combined filter summary
-    filter_summary = []
+    # Apply percentile filtering
     if selected_percentile != "No Filter":
-        filter_summary.append(f"CRT Velocity {selected_percentile}")
-    if selected_ibs != "No Filter":
-        filter_summary.append(f"{selected_ibs}")
+        percentile_val = percentile_options[selected_percentile]
+        threshold_value = np.percentile(velocities, percentile_val)
+        filtered_stocks = filtered_stocks[filtered_stocks['CRT_Velocity'] >= threshold_value]
+        st.info(f"CRT Velocity ≥ {threshold_value:+.4f} pp")
+    else:
+        st.info("All velocities included")
     
-    if filter_summary:
-        st.success(f"Active filters: {' + '.join(filter_summary)} → {len(filtered_stocks)} stocks")
+    # Show velocity statistics
+    with st.expander("CRT Velocity Statistics", expanded=False):
+        stats_data = {
+            "Metric": ["Count", "Min", "25th %ile", "Median", "75th %ile", "Max"],
+            "Value": [
+                len(velocities),
+                f"{velocities.min():+.4f} pp",
+                f"{np.percentile(velocities, 25):+.4f} pp",
+                f"{velocities.median():+.4f} pp", 
+                f"{np.percentile(velocities, 75):+.4f} pp",
+                f"{velocities.max():+.4f} pp"
+            ]
+        }
+        st.dataframe(pd.DataFrame(stats_data), hide_index=True, use_container_width=True)
+    
+    # Show filter summary (CRT Velocity only)
+    if selected_percentile != "No Filter":
+        st.success(f"Active filter: CRT Velocity {selected_percentile} → {len(filtered_stocks)} stocks")
     else:
         st.info(f"No filters applied → {len(filtered_stocks)} stocks")
     
-    # Show distribution charts
+    # Show single distribution chart (CRT Velocity only)
     with st.expander("📊 Distribution Analysis", expanded=False):
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            fig_hist = px.histogram(
-                x=velocities,
-                nbins=20,
-                title="CRT Velocity Distribution",
-                labels={'x': 'CRT Velocity (pp)', 'y': 'Count'}
-            )
-            # Add threshold lines if filter is active
-            if selected_percentile != "No Filter":
-                percentile_val = percentile_options[selected_percentile]
-                threshold_value = np.percentile(velocities, percentile_val)
-                fig_hist.add_vline(x=threshold_value, line_dash="dash", line_color="red", 
-                                 annotation_text=f"{selected_percentile} threshold")
-            st.plotly_chart(fig_hist, use_container_width=True)
-        
-        with col2:
-            # IBS distribution for valid CRT stocks
-            if 'IBS' in valid_crt_stocks.columns:
-                fig_ibs = px.histogram(
-                    x=valid_crt_stocks['IBS'],
-                    nbins=20,
-                    title="IBS Distribution",
-                    labels={'x': 'IBS', 'y': 'Count'}
-                )
-                # Add threshold line if filter is active
-                if selected_ibs != "No Filter":
-                    ibs_threshold = ibs_options[selected_ibs]
-                    fig_ibs.add_vline(x=ibs_threshold, line_dash="dash", line_color="red",
-                                    annotation_text=f"{selected_ibs} threshold")
-                st.plotly_chart(fig_ibs, use_container_width=True)
+        fig_hist = px.histogram(
+            x=velocities,
+            nbins=20,
+            title="CRT Velocity Distribution",
+            labels={'x': 'CRT Velocity (pp)', 'y': 'Count'}
+        )
+        # Add threshold line if filter is active
+        if selected_percentile != "No Filter":
+            percentile_val = percentile_options[selected_percentile]
+            threshold_value = np.percentile(velocities, percentile_val)
+            fig_hist.add_vline(x=threshold_value, line_dash="dash", line_color="red", 
+                             annotation_text=f"{selected_percentile} threshold")
+        st.plotly_chart(fig_hist, use_container_width=True)
     
     # Display filtered results
     st.subheader(f"📋 Filtered Results ({len(filtered_stocks)} stocks)")
@@ -475,16 +403,18 @@ def show_velocity_filter(valid_crt_stocks):
         # Sort by CRT Velocity (descending)
         filtered_stocks_sorted = filtered_stocks.sort_values('CRT_Velocity', ascending=False)
         
-        # Add IBS to display columns
-        display_cols = ['Ticker', 'Name', 'Weekly_Open', 'CRT_Velocity', 'IBS', 'CRT_High', 'CRT_Low']
+        # Display columns (no Current IBS)
+        display_cols = ['Ticker', 'Name', 'Weekly_Open', 'CRT_Velocity', 'CRT_High', 'CRT_Low', 'CRT_IBS', 'CRT_Higher_Low', 'CRT_Not_Purged']
         column_config = {
             'Ticker': st.column_config.TextColumn('Ticker', width='small'),
             'Name': st.column_config.TextColumn('Company Name', width='large'),
             'Weekly_Open': st.column_config.NumberColumn('Weekly Open', format='$%.2f'),
             'CRT_Velocity': st.column_config.NumberColumn('CRT Velocity', format='%+.4f pp'),
-            'IBS': st.column_config.NumberColumn('IBS', format='%.3f'),
             'CRT_High': st.column_config.NumberColumn('CRT High', format='$%.2f'),
-            'CRT_Low': st.column_config.NumberColumn('CRT Low', format='$%.2f')
+            'CRT_Low': st.column_config.NumberColumn('CRT Low', format='$%.2f'),
+            'CRT_IBS': st.column_config.NumberColumn('CRT IBS', format='%.3f'),
+            'CRT_Higher_Low': st.column_config.NumberColumn('Higher Low', width='small'),
+            'CRT_Not_Purged': st.column_config.NumberColumn('Not Purged', width='small')
         }
         
         st.dataframe(
@@ -973,6 +903,9 @@ def run_enhanced_stock_scan(stocks_to_scan, analysis_date=None, days_back=59, ro
                         'VW_Range_Percentile': round(float(analysis_row.get('VW_Range_Percentile', 0)), 4) if not pd.isna(analysis_row.get('VW_Range_Percentile', 0)) else 0,
                         'VW_Range_Velocity': round(float(analysis_row.get('VW_Range_Velocity', 0)), 4) if not pd.isna(analysis_row.get('VW_Range_Velocity', 0)) else 0,
                         'CRT_Velocity': round(float(analysis_row.get('CRT_Qualifying_Velocity', 0)), 4) if not pd.isna(analysis_row.get('CRT_Qualifying_Velocity', 0)) else 0,  # Renamed here
+                        'CRT_IBS': round(float(analysis_row.get('CRT_Qualifying_IBS', 0)), 3) if not pd.isna(analysis_row.get('CRT_Qualifying_IBS', 0)) else 0,  # NEW
+                        'CRT_Higher_Low': int(analysis_row.get('CRT_Higher_Low', 0)) if not pd.isna(analysis_row.get('CRT_Higher_Low', 0)) else 0,
+                        'CRT_Not_Purged': int(analysis_row.get('CRT_Not_Purged', 0)),
                         'Weekly_Open': round(float(analysis_row.get('Weekly_Open', 0)), 2) if not pd.isna(analysis_row.get('Weekly_Open', 0)) else 0,
                         'CRT_High': round(float(analysis_row.get('CRT_High', 0)), 2) if not pd.isna(analysis_row.get('CRT_High', 0)) else 0,
                         'CRT_Low': round(float(analysis_row.get('CRT_Low', 0)), 2) if not pd.isna(analysis_row.get('CRT_Low', 0)) else 0
@@ -1140,9 +1073,9 @@ def display_scan_results(results_df: pd.DataFrame):
             
             st.info("📅 Stocks that qualified for Valid CRT - Use filters below to refine your selection")
             
-            # Show basic table first
+            # Show basic table first with CRT_IBS included
             with st.expander("📊 Full Valid CRT List (Click to expand)", expanded=False):
-                display_cols = ['Ticker', 'Name', 'Analysis_Date', 'Weekly_Open', 'CRT_Velocity', 'CRT_High', 'CRT_Low']
+                display_cols = ['Ticker', 'Name', 'Analysis_Date', 'Weekly_Open', 'CRT_Velocity', 'CRT_High', 'CRT_Low', 'CRT_IBS', 'CRT_Higher_Low', 'CRT_Not_Purged']
                 column_config = {
                     'Ticker': st.column_config.TextColumn('Ticker', width='small'),
                     'Name': st.column_config.TextColumn('Company Name', width='large'),
@@ -1150,7 +1083,10 @@ def display_scan_results(results_df: pd.DataFrame):
                     'Weekly_Open': st.column_config.NumberColumn('Weekly_Open', format='$%.2f'),
                     'CRT_Velocity': st.column_config.NumberColumn('CRT Velocity', format='%+.4f pp'),
                     'CRT_High': st.column_config.NumberColumn('CRT_High', format='$%.2f'),
-                    'CRT_Low': st.column_config.NumberColumn('CRT_Low', format='$%.2f')
+                    'CRT_Low': st.column_config.NumberColumn('CRT_Low', format='$%.2f'),
+                    'CRT_IBS': st.column_config.NumberColumn('CRT IBS', format='%.3f'),
+                    'CRT_Higher_Low': st.column_config.NumberColumn('Higher Low', width='small'),
+                    'CRT_Not_Purged': st.column_config.NumberColumn('Not Purged', width='small')
                 }
                 
                 st.dataframe(
@@ -1166,13 +1102,14 @@ def display_scan_results(results_df: pd.DataFrame):
         else:
             st.info("No Valid CRT stocks detected in this analysis.")
         
-        # Full Results Table with Custom Column Order
+        # Full Results Table with Custom Column Order (including CRT_IBS)
         with st.expander("📋 Full Analysis Results", expanded=False):
-            # Reorder columns for better analysis flow
+            # Reorder columns for better analysis flow with CRT_IBS
             full_results_cols = [
                 'Analysis_Date', 'Ticker', 'Name', 'Weekly_Open', 'CRT_High', 'CRT_Low', 
                 'Close', 'VW_Range_Percentile', 'VW_Range_Velocity', 'CRT_Velocity',
-                'Rel_Range_Signal', 'Valid_CRT', 'Wick_Below', 'Close_Above', 'IBS', 'Buy_Signal'
+                'Rel_Range_Signal', 'Valid_CRT', 'CRT_IBS', 'CRT_Higher_Low', 'CRT_Not_Purged',
+                'Wick_Below', 'Close_Above', 'IBS', 'Buy_Signal'
             ]
             
             # Configure column display
@@ -1189,9 +1126,12 @@ def display_scan_results(results_df: pd.DataFrame):
                 'CRT_Velocity': st.column_config.NumberColumn('CRT Velocity', format='%+.4f pp'),
                 'Rel_Range_Signal': st.column_config.NumberColumn('Range Signal', width='small'),
                 'Valid_CRT': st.column_config.NumberColumn('Valid CRT', width='small'),
+                'CRT_IBS': st.column_config.NumberColumn('CRT IBS', format='%.3f'),
+                'CRT_Higher_Low': st.column_config.NumberColumn('Higher Low', width='small'),
+                'CRT_Not_Purged': st.column_config.NumberColumn('Not Purged', width='small'),
                 'Wick_Below': st.column_config.NumberColumn('Wick Below', width='small'),
                 'Close_Above': st.column_config.NumberColumn('Close Above', width='small'),
-                'IBS': st.column_config.NumberColumn('IBS', format='%.3f'),
+                'IBS': st.column_config.NumberColumn('Current IBS', format='%.3f'),
                 'Buy_Signal': st.column_config.NumberColumn('Buy Signal', width='small')
             }
             
