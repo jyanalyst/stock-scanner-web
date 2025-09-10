@@ -112,275 +112,174 @@ if 'error_logger' not in st.session_state:
 
 def show_buy_signals_filter(buy_signals_stocks):
     """
-    Display dynamic filtering for buy signals - same interface as Valid CRT filtering
+    Display dynamic filtering for buy signals - consistent with Valid CRT filtering
     """
     
     if buy_signals_stocks.empty:
         st.warning("No buy signals available for filtering")
         return buy_signals_stocks
     
-    st.subheader("🎯 Buy Signals Dynamic Filter")
+    st.subheader("🎯 Dynamic Filtering")
     
-    # Choose primary filtering column
-    st.markdown("**Choose Primary Filter:**")
-    filter_column_options = {
-        "IBS Score": "IBS",
-        "VW Range Velocity": "VW_Range_Velocity", 
-        "CRT Qualifying Velocity": "CRT_Qualifying_Velocity",
-        "VW Range Percentile": "VW_Range_Percentile",
-        "Stock Price": "Close"
-    }
-    
-    selected_filter_column = st.radio(
-        "Select metric to filter by:",
-        list(filter_column_options.keys()),
-        horizontal=True,
-        key="buy_signals_filter_column"
-    )
-    
-    filter_col = filter_column_options[selected_filter_column]
-    
-    # Get values for the selected column
-    filter_values = buy_signals_stocks[filter_col]
-    
-    if filter_values.empty or filter_values.isna().all():
-        st.warning(f"No valid data for {selected_filter_column}")
-        return buy_signals_stocks
-    
-    # Filter selection
-    st.markdown("**Choose Filter Type:**")
-    filter_type = st.radio(
-        "Select filtering method:",
-        ["Percentile Filter", "Quartile Filter", "Custom Range", "No Filter"],
-        horizontal=True,
-        key="buy_signals_filter_type"
-    )
+    # Create two columns for the two filters
+    col1, col2 = st.columns(2)
     
     # Initialize filtered stocks
     filtered_stocks = buy_signals_stocks.copy()
     
-    # Apply filtering based on selection
-    if filter_type == "Percentile Filter":
-        col1, col2 = st.columns(2)
+    # CRT VELOCITY PERCENTILE FILTER
+    with col1:
+        st.markdown("**CRT Velocity Filter:**")
         
-        with col1:
-            percentile_options = {
-                "Top 10% (90th percentile+)": 90,
-                "Top 25% (75th percentile+)": 75, 
-                "Top 50% (50th percentile+)": 50,
-                "Bottom 50% (Below 50th percentile)": -50,
-                "Bottom 25% (Below 25th percentile)": -25,
-                "Custom percentile": None
-            }
-            
-            selected_percentile = st.selectbox(
-                "Choose percentile filter:", 
-                list(percentile_options.keys()),
-                key="buy_signals_percentile_filter"
-            )
-            
-            if selected_percentile == "Custom percentile":
-                custom_percentile = st.slider(
-                    "Custom percentile threshold:", 
-                    0, 100, 75,
-                    key="buy_signals_custom_percentile"
-                )
-                threshold_value = np.percentile(filter_values, custom_percentile)
-                filtered_stocks = buy_signals_stocks[buy_signals_stocks[filter_col] >= threshold_value]
-                st.info(f"Showing top {100-custom_percentile:.0f}% (≥{threshold_value:.4f})")
-            else:
-                percentile_val = percentile_options[selected_percentile]
-                if percentile_val > 0:
-                    threshold_value = np.percentile(filter_values, percentile_val)
-                    filtered_stocks = buy_signals_stocks[buy_signals_stocks[filter_col] >= threshold_value]
-                    st.info(f"{selected_filter_column} ≥ {threshold_value:.4f}")
-                else:
-                    threshold_value = np.percentile(filter_values, abs(percentile_val))
-                    filtered_stocks = buy_signals_stocks[buy_signals_stocks[filter_col] < threshold_value]
-                    st.info(f"{selected_filter_column} < {threshold_value:.4f}")
+        # Get velocity statistics - now using CRT_Velocity
+        velocities = buy_signals_stocks['CRT_Velocity']
         
-        with col2:
-            st.markdown(f"**{selected_filter_column} Statistics**")
+        percentile_options = {
+            "Top 25%": 75,
+            "Top 50%": 50, 
+            "Top 75%": 25,
+            "No Filter": None
+        }
+        
+        selected_percentile = st.radio(
+            "Select velocity filter:",
+            list(percentile_options.keys()),
+            key="buy_signals_percentile_radio"
+        )
+        
+        # Apply percentile filtering
+        if selected_percentile != "No Filter":
+            percentile_val = percentile_options[selected_percentile]
+            threshold_value = np.percentile(velocities, percentile_val)
+            filtered_stocks = filtered_stocks[filtered_stocks['CRT_Velocity'] >= threshold_value]
+            st.info(f"CRT Velocity ≥ {threshold_value:+.4f} pp")
+        else:
+            st.info("All velocities included")
+        
+        # Show velocity statistics
+        with st.expander("CRT Velocity Statistics", expanded=False):
             stats_data = {
-                "Metric": ["Count", "Min", "25th %ile", "Median", "75th %ile", "Max", "Mean", "Std Dev"],
+                "Metric": ["Count", "Min", "25th %ile", "Median", "75th %ile", "Max"],
                 "Value": [
-                    len(filter_values),
-                    f"{filter_values.min():.4f}",
-                    f"{np.percentile(filter_values, 25):.4f}",
-                    f"{filter_values.median():.4f}", 
-                    f"{np.percentile(filter_values, 75):.4f}",
-                    f"{filter_values.max():.4f}",
-                    f"{filter_values.mean():.4f}",
-                    f"{filter_values.std():.4f}"
+                    len(velocities),
+                    f"{velocities.min():+.4f} pp",
+                    f"{np.percentile(velocities, 25):+.4f} pp",
+                    f"{velocities.median():+.4f} pp", 
+                    f"{np.percentile(velocities, 75):+.4f} pp",
+                    f"{velocities.max():+.4f} pp"
                 ]
             }
             st.dataframe(pd.DataFrame(stats_data), hide_index=True, use_container_width=True)
     
-    elif filter_type == "Quartile Filter":
-        q1 = np.percentile(filter_values, 25)
-        q2 = np.percentile(filter_values, 50) 
-        q3 = np.percentile(filter_values, 75)
+    # IBS FILTER
+    with col2:
+        st.markdown("**IBS Filter:**")
         
-        quartile_options = {
-            "Q4 - Top Quartile (75th-100th percentile)": (q3, filter_values.max(), ">="),
-            "Q3 - Upper Middle (50th-75th percentile)": (q2, q3, "range"),
-            "Q2 - Lower Middle (25th-50th percentile)": (q1, q2, "range"),
-            "Q1 - Bottom Quartile (0th-25th percentile)": (filter_values.min(), q1, "<="),
-            "Top Half (Q3 + Q4)": (q2, filter_values.max(), ">="),
-            "Bottom Half (Q1 + Q2)": (filter_values.min(), q2, "<=")
+        ibs_options = {
+            "IBS ≥ 0.75": 0.75,
+            "IBS ≥ 0.5": 0.5,
+            "No Filter": None
         }
         
-        selected_quartile = st.selectbox(
-            "Choose quartile filter:", 
-            list(quartile_options.keys()),
-            key="buy_signals_quartile_filter"
+        selected_ibs = st.radio(
+            "Select IBS filter:",
+            list(ibs_options.keys()),
+            key="buy_signals_ibs_radio"
         )
         
-        min_val, max_val, operation = quartile_options[selected_quartile]
+        # Apply IBS filtering
+        if selected_ibs != "No Filter":
+            ibs_threshold = ibs_options[selected_ibs]
+            filtered_stocks = filtered_stocks[filtered_stocks['IBS'] >= ibs_threshold]
+            st.info(f"IBS ≥ {ibs_threshold:.2f}")
+        else:
+            st.info("All IBS values included")
         
-        # Apply quartile filtering
-        if operation == ">=":
-            filtered_stocks = buy_signals_stocks[buy_signals_stocks[filter_col] >= min_val]
-        elif operation == "<=":
-            filtered_stocks = buy_signals_stocks[buy_signals_stocks[filter_col] <= max_val]
-        else:  # range
-            filtered_stocks = buy_signals_stocks[
-                (buy_signals_stocks[filter_col] >= min_val) &
-                (buy_signals_stocks[filter_col] < max_val)
-            ]
-        
-        st.info(f"{selected_filter_column} range: {min_val:.4f} to {max_val:.4f} ({len(filtered_stocks)} signals)")
-        
-        # Show quartile breakdown
-        col1, col2, col3, col4 = st.columns(4)
-        q1_count = len(buy_signals_stocks[buy_signals_stocks[filter_col] <= q1])
-        q2_count = len(buy_signals_stocks[(buy_signals_stocks[filter_col] > q1) & 
-                                       (buy_signals_stocks[filter_col] <= q2)])
-        q3_count = len(buy_signals_stocks[(buy_signals_stocks[filter_col] > q2) & 
-                                       (buy_signals_stocks[filter_col] <= q3)])
-        q4_count = len(buy_signals_stocks[buy_signals_stocks[filter_col] > q3])
-        
-        with col1:
-            st.metric("Q1", q1_count, f"{q1:.4f}")
-        with col2:
-            st.metric("Q2", q2_count, f"{q2:.4f}") 
-        with col3:
-            st.metric("Q3", q3_count, f"{q3:.4f}")
-        with col4:
-            st.metric("Q4", q4_count, f"{filter_values.max():.4f}")
+        # Show IBS statistics for the velocity-filtered stocks
+        with st.expander("IBS Statistics", expanded=False):
+            # Use the stocks that passed velocity filter for IBS stats
+            ibs_values = filtered_stocks['IBS'] if selected_percentile != "No Filter" else buy_signals_stocks['IBS']
+            ibs_stats = {
+                "Metric": ["Count", "Min", "25th %ile", "Median", "75th %ile", "Max"],
+                "Value": [
+                    len(ibs_values),
+                    f"{ibs_values.min():.3f}",
+                    f"{np.percentile(ibs_values, 25):.3f}",
+                    f"{ibs_values.median():.3f}",
+                    f"{np.percentile(ibs_values, 75):.3f}",
+                    f"{ibs_values.max():.3f}"
+                ]
+            }
+            st.dataframe(pd.DataFrame(ibs_stats), hide_index=True, use_container_width=True)
     
-    elif filter_type == "Custom Range":
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            min_value = st.number_input(
-                f"Minimum {selected_filter_column}:",
-                min_value=float(filter_values.min()),
-                max_value=float(filter_values.max()),
-                value=float(filter_values.min()),
-                step=0.0001,
-                format="%.4f",
-                key="buy_signals_min_value"
-            )
-        
-        with col2:
-            max_value = st.number_input(
-                f"Maximum {selected_filter_column}:",
-                min_value=float(filter_values.min()),
-                max_value=float(filter_values.max()), 
-                value=float(filter_values.max()),
-                step=0.0001,
-                format="%.4f",
-                key="buy_signals_max_value"
-            )
-        
-        # Apply custom range filtering
-        filtered_stocks = buy_signals_stocks[
-            (buy_signals_stocks[filter_col] >= min_value) &
-            (buy_signals_stocks[filter_col] <= max_value)
-        ]
-        
-        st.info(f"Custom range: {min_value:.4f} to {max_value:.4f} ({len(filtered_stocks)} signals)")
-        
-        # Show range statistics
-        if len(filtered_stocks) > 0:
-            range_values = filtered_stocks[filter_col]
-            col1, col2, col3 = st.columns(3)
-            
-            with col1:
-                st.metric("Count in Range", len(filtered_stocks))
-            with col2:
-                st.metric("Range Mean", f"{range_values.mean():.4f}")
-            with col3:
-                st.metric("Range Std", f"{range_values.std():.4f}")
+    # Show combined filter summary
+    filter_summary = []
+    if selected_percentile != "No Filter":
+        filter_summary.append(f"CRT Velocity {selected_percentile}")
+    if selected_ibs != "No Filter":
+        filter_summary.append(f"{selected_ibs}")
     
-    else:  # No Filter
-        filtered_stocks = buy_signals_stocks
-        st.info("Showing all buy signals (no filtering applied)")
+    if filter_summary:
+        st.success(f"Active filters: {' + '.join(filter_summary)} → {len(filtered_stocks)} signals")
+    else:
+        st.info(f"No filters applied → {len(filtered_stocks)} signals")
     
     # Show distribution charts
-    with st.expander(f"📊 {selected_filter_column} Distribution Analysis", expanded=False):
+    with st.expander("📊 Distribution Analysis", expanded=False):
         col1, col2 = st.columns(2)
         
         with col1:
             fig_hist = px.histogram(
-                x=filter_values,
+                x=velocities,
                 nbins=20,
-                title=f"{selected_filter_column} Distribution",
-                labels={'x': selected_filter_column, 'y': 'Count'}
+                title="CRT Velocity Distribution",
+                labels={'x': 'CRT Velocity (pp)', 'y': 'Count'}
             )
+            # Add threshold lines if filter is active
+            if selected_percentile != "No Filter":
+                percentile_val = percentile_options[selected_percentile]
+                threshold_value = np.percentile(velocities, percentile_val)
+                fig_hist.add_vline(x=threshold_value, line_dash="dash", line_color="red", 
+                                 annotation_text=f"{selected_percentile} threshold")
             st.plotly_chart(fig_hist, use_container_width=True)
         
         with col2:
-            fig_box = px.box(
-                y=filter_values,
-                title=f"{selected_filter_column} Box Plot"
+            # IBS distribution for buy signals
+            fig_ibs = px.histogram(
+                x=buy_signals_stocks['IBS'],
+                nbins=20,
+                title="IBS Distribution",
+                labels={'x': 'IBS', 'y': 'Count'}
             )
-            st.plotly_chart(fig_box, use_container_width=True)
+            # Add threshold line if filter is active
+            if selected_ibs != "No Filter":
+                ibs_threshold = ibs_options[selected_ibs]
+                fig_ibs.add_vline(x=ibs_threshold, line_dash="dash", line_color="red",
+                                annotation_text=f"{selected_ibs} threshold")
+            st.plotly_chart(fig_ibs, use_container_width=True)
     
     # Display filtered results
-    st.subheader(f"📋 Filtered Buy Signals ({len(filtered_stocks)} signals)")
+    st.subheader(f"📋 Filtered Results ({len(filtered_stocks)} signals)")
     
     if len(filtered_stocks) > 0:
-        # Sort by the filter column (descending for most metrics, ascending for some)
-        ascending = filter_col in ['Close']  # Price might be better sorted ascending
-        filtered_stocks_sorted = filtered_stocks.sort_values(filter_col, ascending=ascending)
+        # Sort by CRT Velocity (descending)
+        filtered_stocks_sorted = filtered_stocks.sort_values('CRT_Velocity', ascending=False)
         
-        # Use full analysis columns order
-        full_analysis_cols = [
-            'Analysis_Date', 'Ticker', 'Name', 'Weekly_Open', 'CRT_High', 'CRT_Low', 
-            'Close', 'VW_Range_Percentile', 'VW_Range_Velocity', 'CRT_Qualifying_Velocity',
-            'Rel_Range_Signal', 'Valid_CRT', 'Wick_Below', 'Close_Above', 'IBS', 'Buy_Signal'
-        ]
+        # Use consistent display columns with Valid CRT
+        display_cols = ['Ticker', 'Name', 'Close', 'CRT_Velocity', 'IBS', 'Signal_Type']
         
         # Add Signal_Type column for better readability
         filtered_stocks_sorted['Signal_Type'] = filtered_stocks_sorted.apply(
             lambda row: get_signal_description(row), axis=1
         )
         
-        # Insert Signal_Type after IBS
-        display_cols = full_analysis_cols.copy()
-        ibs_index = display_cols.index('IBS')
-        display_cols.insert(ibs_index + 1, 'Signal_Type')
-        
         column_config = {
-            'Analysis_Date': st.column_config.TextColumn('Date', width='small'),
             'Ticker': st.column_config.TextColumn('Ticker', width='small'),
-            'Name': st.column_config.TextColumn('Company Name', width='medium'),
-            'Weekly_Open': st.column_config.NumberColumn('Weekly Open', format='$%.2f'),
-            'CRT_High': st.column_config.NumberColumn('CRT High', format='$%.2f'),
-            'CRT_Low': st.column_config.NumberColumn('CRT Low', format='$%.2f'),
-            'Close': st.column_config.NumberColumn('Close', format='$%.2f'),
-            'VW_Range_Percentile': st.column_config.NumberColumn('VW Range %ile', format='%.4f'),
-            'VW_Range_Velocity': st.column_config.NumberColumn('VW Velocity', format='%+.4f pp'),
-            'CRT_Qualifying_Velocity': st.column_config.NumberColumn('CRT Velocity', format='%+.4f pp'),
-            'Rel_Range_Signal': st.column_config.NumberColumn('Range Signal', width='small'),
-            'Valid_CRT': st.column_config.NumberColumn('Valid CRT', width='small'),
-            'Wick_Below': st.column_config.NumberColumn('Wick Below', width='small'),
-            'Close_Above': st.column_config.NumberColumn('Close Above', width='small'),
+            'Name': st.column_config.TextColumn('Company Name', width='large'),
+            'Close': st.column_config.NumberColumn('Close Price', format='$%.2f'),
+            'CRT_Velocity': st.column_config.NumberColumn('CRT Velocity', format='%+.4f pp'),
             'IBS': st.column_config.NumberColumn('IBS', format='%.3f'),
-            'Signal_Type': st.column_config.TextColumn('Signal Type', width='medium'),
-            'Buy_Signal': st.column_config.NumberColumn('Buy Signal', width='small')
+            'Signal_Type': st.column_config.TextColumn('Signal Type', width='medium')
         }
         
         st.dataframe(
@@ -391,20 +290,21 @@ def show_buy_signals_filter(buy_signals_stocks):
         )
         
         # TradingView Export for filtered buy signals
-        st.subheader("📋 TradingView Export (Filtered Buy Signals)")
-        tv_tickers = [ticker.replace('.SI', '') for ticker in filtered_stocks_sorted['Ticker'].tolist()]
+        st.subheader("📋 TradingView Export (Filtered)")
+        tv_tickers = [f"SGX:{ticker.replace('.SI', '')}" for ticker in filtered_stocks_sorted['Ticker'].tolist()]
         tv_string = ','.join(tv_tickers)
         
         st.text_area(
-            f"Filtered Buy Signals TradingView list ({len(tv_tickers)} stocks):",
+            f"Singapore Exchange (SGX) Buy Signals ({len(tv_tickers)} stocks):",
             value=tv_string,
-            height=100
+            height=100,
+            help="Copy and paste into TradingView watchlist. SGX: prefix ensures Singapore Exchange stocks."
         )
         
         # Export filtered buy signals data
         csv_data = filtered_stocks_sorted.to_csv(index=False)
         st.download_button(
-            label="📥 Download Filtered Buy Signals (CSV)",
+            label="📥 Download Filtered Data (CSV)",
             data=csv_data,
             file_name=f"filtered_buy_signals_{len(filtered_stocks)}_stocks.csv",
             mime="text/csv"
@@ -417,221 +317,172 @@ def show_buy_signals_filter(buy_signals_stocks):
 
 def show_velocity_filter(valid_crt_stocks):
     """
-    Display dynamic velocity filtering - WORKING VERSION WITH RADIO BUTTONS
+    Display dynamic velocity filtering with simplified percentile options and IBS filter
     """
     
-    if valid_crt_stocks.empty or 'CRT_Qualifying_Velocity' not in valid_crt_stocks.columns:
+    if valid_crt_stocks.empty or 'CRT_Velocity' not in valid_crt_stocks.columns:
         st.warning("No Valid CRT stocks available for filtering")
         return valid_crt_stocks
     
-    st.subheader("🎯 Dynamic Velocity Filter")
+    st.subheader("🎯 Dynamic Filtering")
     
-    # Get velocity statistics
-    velocities = valid_crt_stocks['CRT_Qualifying_Velocity']
-    
-    # Filter selection OUTSIDE of tabs - this is the key fix
-    st.markdown("**Choose Filter Type:**")
-    filter_type = st.radio(
-        "Select filtering method:",
-        ["Percentile Filter", "Quartile Filter", "Custom Range", "No Filter"],
-        horizontal=True,
-        key="velocity_filter_type"
-    )
+    # Create two columns for the two filters
+    col1, col2 = st.columns(2)
     
     # Initialize filtered stocks
     filtered_stocks = valid_crt_stocks.copy()
     
-    # Apply filtering based on selection
-    if filter_type == "Percentile Filter":
-        col1, col2 = st.columns(2)
+    # CRT VELOCITY PERCENTILE FILTER
+    with col1:
+        st.markdown("**CRT Velocity Filter:**")
         
-        with col1:
-            percentile_options = {
-                "Top 10% (90th percentile+)": 90,
-                "Top 25% (75th percentile+)": 75, 
-                "Top 50% (50th percentile+)": 50,
-                "Bottom 50% (Below 50th percentile)": -50,
-                "Bottom 25% (Below 25th percentile)": -25,
-                "Custom percentile": None
-            }
-            
-            selected_percentile = st.selectbox(
-                "Choose percentile filter:", 
-                list(percentile_options.keys()),
-                key="percentile_filter_selectbox"
-            )
-            
-            if selected_percentile == "Custom percentile":
-                custom_percentile = st.slider(
-                    "Custom percentile threshold:", 
-                    0, 100, 75,
-                    key="custom_percentile_slider"
-                )
-                threshold_value = np.percentile(velocities, custom_percentile)
-                filtered_stocks = valid_crt_stocks[valid_crt_stocks['CRT_Qualifying_Velocity'] >= threshold_value]
-                st.info(f"Showing top {100-custom_percentile:.0f}% (≥{threshold_value:+.4f} pp)")
-            else:
-                percentile_val = percentile_options[selected_percentile]
-                if percentile_val > 0:
-                    threshold_value = np.percentile(velocities, percentile_val)
-                    filtered_stocks = valid_crt_stocks[valid_crt_stocks['CRT_Qualifying_Velocity'] >= threshold_value]
-                    st.info(f"Velocity ≥ {threshold_value:+.4f} pp")
-                else:
-                    threshold_value = np.percentile(velocities, abs(percentile_val))
-                    filtered_stocks = valid_crt_stocks[valid_crt_stocks['CRT_Qualifying_Velocity'] < threshold_value]
-                    st.info(f"Velocity < {threshold_value:+.4f} pp")
+        # Get velocity statistics
+        velocities = valid_crt_stocks['CRT_Velocity']
         
-        with col2:
-            st.markdown("**Velocity Statistics**")
+        percentile_options = {
+            "Top 25%": 75,
+            "Top 50%": 50, 
+            "Top 75%": 25,
+            "No Filter": None
+        }
+        
+        selected_percentile = st.radio(
+            "Select velocity filter:",
+            list(percentile_options.keys()),
+            key="percentile_filter_radio"
+        )
+        
+        # Apply percentile filtering
+        if selected_percentile != "No Filter":
+            percentile_val = percentile_options[selected_percentile]
+            threshold_value = np.percentile(velocities, percentile_val)
+            filtered_stocks = filtered_stocks[filtered_stocks['CRT_Velocity'] >= threshold_value]
+            st.info(f"CRT Velocity ≥ {threshold_value:+.4f} pp")
+        else:
+            st.info("All velocities included")
+        
+        # Show velocity statistics
+        with st.expander("CRT Velocity Statistics", expanded=False):
             stats_data = {
-                "Metric": ["Count", "Min", "25th %ile", "Median", "75th %ile", "Max", "Mean", "Std Dev"],
+                "Metric": ["Count", "Min", "25th %ile", "Median", "75th %ile", "Max"],
                 "Value": [
                     len(velocities),
                     f"{velocities.min():+.4f} pp",
                     f"{np.percentile(velocities, 25):+.4f} pp",
                     f"{velocities.median():+.4f} pp", 
                     f"{np.percentile(velocities, 75):+.4f} pp",
-                    f"{velocities.max():+.4f} pp",
-                    f"{velocities.mean():+.4f} pp",
-                    f"{velocities.std():.4f} pp"
+                    f"{velocities.max():+.4f} pp"
                 ]
             }
             st.dataframe(pd.DataFrame(stats_data), hide_index=True, use_container_width=True)
     
-    elif filter_type == "Quartile Filter":
-        q1 = np.percentile(velocities, 25)
-        q2 = np.percentile(velocities, 50) 
-        q3 = np.percentile(velocities, 75)
+    # IBS FILTER
+    with col2:
+        st.markdown("**IBS Filter:**")
         
-        quartile_options = {
-            "Q4 - Top Quartile (75th-100th percentile)": (q3, velocities.max(), ">="),
-            "Q3 - Upper Middle (50th-75th percentile)": (q2, q3, "range"),
-            "Q2 - Lower Middle (25th-50th percentile)": (q1, q2, "range"),
-            "Q1 - Bottom Quartile (0th-25th percentile)": (velocities.min(), q1, "<="),
-            "Top Half (Q3 + Q4)": (q2, velocities.max(), ">="),
-            "Bottom Half (Q1 + Q2)": (velocities.min(), q2, "<=")
-        }
-        
-        selected_quartile = st.selectbox(
-            "Choose quartile filter:", 
-            list(quartile_options.keys()),
-            key="quartile_filter_selectbox"
-        )
-        
-        min_vel, max_vel, operation = quartile_options[selected_quartile]
-        
-        # Apply quartile filtering
-        if operation == ">=":
-            filtered_stocks = valid_crt_stocks[valid_crt_stocks['CRT_Qualifying_Velocity'] >= min_vel]
-        elif operation == "<=":
-            filtered_stocks = valid_crt_stocks[valid_crt_stocks['CRT_Qualifying_Velocity'] <= max_vel]
-        else:  # range
-            filtered_stocks = valid_crt_stocks[
-                (valid_crt_stocks['CRT_Qualifying_Velocity'] >= min_vel) &
-                (valid_crt_stocks['CRT_Qualifying_Velocity'] < max_vel)
-            ]
-        
-        st.info(f"Velocity range: {min_vel:+.4f} to {max_vel:+.4f} pp ({len(filtered_stocks)} stocks)")
-        
-        # Show quartile breakdown
-        col1, col2, col3, col4 = st.columns(4)
-        q1_count = len(valid_crt_stocks[valid_crt_stocks['CRT_Qualifying_Velocity'] <= q1])
-        q2_count = len(valid_crt_stocks[(valid_crt_stocks['CRT_Qualifying_Velocity'] > q1) & 
-                                       (valid_crt_stocks['CRT_Qualifying_Velocity'] <= q2)])
-        q3_count = len(valid_crt_stocks[(valid_crt_stocks['CRT_Qualifying_Velocity'] > q2) & 
-                                       (valid_crt_stocks['CRT_Qualifying_Velocity'] <= q3)])
-        q4_count = len(valid_crt_stocks[valid_crt_stocks['CRT_Qualifying_Velocity'] > q3])
-        
-        with col1:
-            st.metric("Q1", q1_count, f"{q1:+.4f} pp")
-        with col2:
-            st.metric("Q2", q2_count, f"{q2:+.4f} pp") 
-        with col3:
-            st.metric("Q3", q3_count, f"{q3:+.4f} pp")
-        with col4:
-            st.metric("Q4", q4_count, f"{velocities.max():+.4f} pp")
-    
-    elif filter_type == "Custom Range":
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            min_velocity = st.number_input(
-                "Minimum Velocity (pp):",
-                min_value=float(velocities.min()),
-                max_value=float(velocities.max()),
-                value=float(velocities.min()),
-                step=0.0001,
-                format="%.4f",
-                key="min_velocity_input"
-            )
-        
-        with col2:
-            max_velocity = st.number_input(
-                "Maximum Velocity (pp):",
-                min_value=float(velocities.min()),
-                max_value=float(velocities.max()), 
-                value=float(velocities.max()),
-                step=0.0001,
-                format="%.4f",
-                key="max_velocity_input"
-            )
-        
-        # Apply custom range filtering
-        filtered_stocks = valid_crt_stocks[
-            (valid_crt_stocks['CRT_Qualifying_Velocity'] >= min_velocity) &
-            (valid_crt_stocks['CRT_Qualifying_Velocity'] <= max_velocity)
-        ]
-        
-        st.info(f"Custom range: {min_velocity:+.4f} to {max_velocity:+.4f} pp ({len(filtered_stocks)} stocks)")
-        
-        # Show range statistics
-        if len(filtered_stocks) > 0:
-            range_velocities = filtered_stocks['CRT_Qualifying_Velocity']
-            col1, col2, col3 = st.columns(3)
+        # Check if IBS column exists
+        if 'IBS' not in filtered_stocks.columns:
+            st.warning("IBS data not available")
+        else:
+            ibs_options = {
+                "IBS ≥ 0.75": 0.75,
+                "IBS ≥ 0.5": 0.5,
+                "No Filter": None
+            }
             
-            with col1:
-                st.metric("Count in Range", len(filtered_stocks))
-            with col2:
-                st.metric("Range Mean", f"{range_velocities.mean():+.4f} pp")
-            with col3:
-                st.metric("Range Std", f"{range_velocities.std():.4f} pp")
+            selected_ibs = st.radio(
+                "Select IBS filter:",
+                list(ibs_options.keys()),
+                key="ibs_filter_radio"
+            )
+            
+            # Apply IBS filtering
+            if selected_ibs != "No Filter":
+                ibs_threshold = ibs_options[selected_ibs]
+                filtered_stocks = filtered_stocks[filtered_stocks['IBS'] >= ibs_threshold]
+                st.info(f"IBS ≥ {ibs_threshold:.2f}")
+            else:
+                st.info("All IBS values included")
+            
+            # Show IBS statistics for the velocity-filtered stocks
+            with st.expander("IBS Statistics", expanded=False):
+                # Use the stocks that passed velocity filter for IBS stats
+                ibs_values = filtered_stocks['IBS'] if selected_percentile != "No Filter" else valid_crt_stocks['IBS']
+                ibs_stats = {
+                    "Metric": ["Count", "Min", "25th %ile", "Median", "75th %ile", "Max"],
+                    "Value": [
+                        len(ibs_values),
+                        f"{ibs_values.min():.3f}",
+                        f"{np.percentile(ibs_values, 25):.3f}",
+                        f"{ibs_values.median():.3f}",
+                        f"{np.percentile(ibs_values, 75):.3f}",
+                        f"{ibs_values.max():.3f}"
+                    ]
+                }
+                st.dataframe(pd.DataFrame(ibs_stats), hide_index=True, use_container_width=True)
     
-    else:  # No Filter
-        filtered_stocks = valid_crt_stocks
-        st.info("Showing all Valid CRT stocks (no filtering applied)")
+    # Show combined filter summary
+    filter_summary = []
+    if selected_percentile != "No Filter":
+        filter_summary.append(f"CRT Velocity {selected_percentile}")
+    if selected_ibs != "No Filter":
+        filter_summary.append(f"{selected_ibs}")
     
-    # Show distribution charts (always visible)
-    with st.expander("📊 Velocity Distribution Analysis", expanded=False):
+    if filter_summary:
+        st.success(f"Active filters: {' + '.join(filter_summary)} → {len(filtered_stocks)} stocks")
+    else:
+        st.info(f"No filters applied → {len(filtered_stocks)} stocks")
+    
+    # Show distribution charts
+    with st.expander("📊 Distribution Analysis", expanded=False):
         col1, col2 = st.columns(2)
         
         with col1:
             fig_hist = px.histogram(
                 x=velocities,
                 nbins=20,
-                title="Velocity Distribution",
-                labels={'x': 'CRT Qualifying Velocity (pp)', 'y': 'Count'}
+                title="CRT Velocity Distribution",
+                labels={'x': 'CRT Velocity (pp)', 'y': 'Count'}
             )
+            # Add threshold lines if filter is active
+            if selected_percentile != "No Filter":
+                percentile_val = percentile_options[selected_percentile]
+                threshold_value = np.percentile(velocities, percentile_val)
+                fig_hist.add_vline(x=threshold_value, line_dash="dash", line_color="red", 
+                                 annotation_text=f"{selected_percentile} threshold")
             st.plotly_chart(fig_hist, use_container_width=True)
         
         with col2:
-            fig_box = px.box(
-                y=velocities,
-                title="Velocity Box Plot"
-            )
-            st.plotly_chart(fig_box, use_container_width=True)
+            # IBS distribution for valid CRT stocks
+            if 'IBS' in valid_crt_stocks.columns:
+                fig_ibs = px.histogram(
+                    x=valid_crt_stocks['IBS'],
+                    nbins=20,
+                    title="IBS Distribution",
+                    labels={'x': 'IBS', 'y': 'Count'}
+                )
+                # Add threshold line if filter is active
+                if selected_ibs != "No Filter":
+                    ibs_threshold = ibs_options[selected_ibs]
+                    fig_ibs.add_vline(x=ibs_threshold, line_dash="dash", line_color="red",
+                                    annotation_text=f"{selected_ibs} threshold")
+                st.plotly_chart(fig_ibs, use_container_width=True)
     
-    # Display filtered results - This will now update dynamically!
+    # Display filtered results
     st.subheader(f"📋 Filtered Results ({len(filtered_stocks)} stocks)")
     
     if len(filtered_stocks) > 0:
-        filtered_stocks_sorted = filtered_stocks.sort_values('CRT_Qualifying_Velocity', ascending=False)
+        # Sort by CRT Velocity (descending)
+        filtered_stocks_sorted = filtered_stocks.sort_values('CRT_Velocity', ascending=False)
         
-        display_cols = ['Ticker', 'Name', 'Weekly_Open', 'CRT_Qualifying_Velocity', 'CRT_High', 'CRT_Low']
+        # Add IBS to display columns
+        display_cols = ['Ticker', 'Name', 'Weekly_Open', 'CRT_Velocity', 'IBS', 'CRT_High', 'CRT_Low']
         column_config = {
             'Ticker': st.column_config.TextColumn('Ticker', width='small'),
             'Name': st.column_config.TextColumn('Company Name', width='large'),
             'Weekly_Open': st.column_config.NumberColumn('Weekly Open', format='$%.2f'),
-            'CRT_Qualifying_Velocity': st.column_config.NumberColumn('Velocity', format='%+.4f pp'),
+            'CRT_Velocity': st.column_config.NumberColumn('CRT Velocity', format='%+.4f pp'),
+            'IBS': st.column_config.NumberColumn('IBS', format='%.3f'),
             'CRT_High': st.column_config.NumberColumn('CRT High', format='$%.2f'),
             'CRT_Low': st.column_config.NumberColumn('CRT Low', format='$%.2f')
         }
@@ -645,13 +496,14 @@ def show_velocity_filter(valid_crt_stocks):
         
         # TradingView Export for filtered list
         st.subheader("📋 TradingView Export (Filtered)")
-        tv_tickers = [ticker.replace('.SI', '') for ticker in filtered_stocks_sorted['Ticker'].tolist()]
+        tv_tickers = [f"SGX:{ticker.replace('.SI', '')}" for ticker in filtered_stocks_sorted['Ticker'].tolist()]
         tv_string = ','.join(tv_tickers)
         
         st.text_area(
-            f"Filtered TradingView list ({len(tv_tickers)} stocks):",
+            f"Singapore Exchange (SGX) TradingView list ({len(tv_tickers)} stocks):",
             value=tv_string,
-            height=100
+            height=100,
+            help="Copy and paste into TradingView watchlist. SGX: prefix ensures Singapore Exchange stocks."
         )
         
         # Export filtered data
@@ -1120,7 +972,7 @@ def run_enhanced_stock_scan(stocks_to_scan, analysis_date=None, days_back=59, ro
                         'Rel_Range_Signal': int(analysis_row.get('Rel_Range_Signal', 0)),
                         'VW_Range_Percentile': round(float(analysis_row.get('VW_Range_Percentile', 0)), 4) if not pd.isna(analysis_row.get('VW_Range_Percentile', 0)) else 0,
                         'VW_Range_Velocity': round(float(analysis_row.get('VW_Range_Velocity', 0)), 4) if not pd.isna(analysis_row.get('VW_Range_Velocity', 0)) else 0,
-                        'CRT_Qualifying_Velocity': round(float(analysis_row.get('CRT_Qualifying_Velocity', 0)), 4) if not pd.isna(analysis_row.get('CRT_Qualifying_Velocity', 0)) else 0,
+                        'CRT_Velocity': round(float(analysis_row.get('CRT_Qualifying_Velocity', 0)), 4) if not pd.isna(analysis_row.get('CRT_Qualifying_Velocity', 0)) else 0,  # Renamed here
                         'Weekly_Open': round(float(analysis_row.get('Weekly_Open', 0)), 2) if not pd.isna(analysis_row.get('Weekly_Open', 0)) else 0,
                         'CRT_High': round(float(analysis_row.get('CRT_High', 0)), 2) if not pd.isna(analysis_row.get('CRT_High', 0)) else 0,
                         'CRT_Low': round(float(analysis_row.get('CRT_Low', 0)), 2) if not pd.isna(analysis_row.get('CRT_Low', 0)) else 0
@@ -1271,21 +1123,6 @@ def display_scan_results(results_df: pd.DataFrame):
         buy_signals_df = results_df[results_df['Buy_Signal'] == 1].copy()
         
         if len(buy_signals_df) > 0:
-            # Quick visual overview first
-            with st.expander("📈 Quick Buy Signals Overview", expanded=True):
-                for _, stock in buy_signals_df.iterrows():
-                    signal_description = get_signal_description(stock)
-                    
-                    with st.container():
-                        st.markdown(f"""
-                        <div style="background-color: #e8f5e8; padding: 15px; border-radius: 10px; border-left: 4px solid #2E8B57; margin: 10px 0;">
-                            <h4 style="margin: 0; color: #2E8B57;">📈 {stock['Ticker']} - {stock['Name']}</h4>
-                            <p style="margin: 5px 0; font-size: 18px; font-weight: bold;">${stock['Close']:.2f} on {stock['Analysis_Date']}</p>
-                            <p style="margin: 5px 0;">IBS: {stock['IBS']:.3f} | Signal: {signal_description}</p>
-                            <p style="margin: 5px 0;">Velocity: {stock['VW_Range_Velocity']:+.4f} pp</p>
-                        </div>
-                        """, unsafe_allow_html=True)
-            
             # Dynamic Filtering for Buy Signals
             show_buy_signals_filter(buy_signals_df)
             
@@ -1299,19 +1136,19 @@ def display_scan_results(results_df: pd.DataFrame):
         
         if len(valid_crt_stocks) > 0:
             # Sort by CRT qualifying velocity (highest to lowest)
-            valid_crt_stocks = valid_crt_stocks.sort_values('CRT_Qualifying_Velocity', ascending=False)
+            valid_crt_stocks = valid_crt_stocks.sort_values('CRT_Velocity', ascending=False)
             
             st.info("📅 Stocks that qualified for Valid CRT - Use filters below to refine your selection")
             
             # Show basic table first
             with st.expander("📊 Full Valid CRT List (Click to expand)", expanded=False):
-                display_cols = ['Ticker', 'Name', 'Analysis_Date', 'Weekly_Open', 'CRT_Qualifying_Velocity', 'CRT_High', 'CRT_Low']
+                display_cols = ['Ticker', 'Name', 'Analysis_Date', 'Weekly_Open', 'CRT_Velocity', 'CRT_High', 'CRT_Low']
                 column_config = {
                     'Ticker': st.column_config.TextColumn('Ticker', width='small'),
                     'Name': st.column_config.TextColumn('Company Name', width='large'),
                     'Analysis_Date': st.column_config.TextColumn('Date', width='small'),
                     'Weekly_Open': st.column_config.NumberColumn('Weekly_Open', format='$%.2f'),
-                    'CRT_Qualifying_Velocity': st.column_config.NumberColumn('Velocity', format='%+.4f pp'),
+                    'CRT_Velocity': st.column_config.NumberColumn('CRT Velocity', format='%+.4f pp'),
                     'CRT_High': st.column_config.NumberColumn('CRT_High', format='$%.2f'),
                     'CRT_Low': st.column_config.NumberColumn('CRT_Low', format='$%.2f')
                 }
@@ -1334,7 +1171,7 @@ def display_scan_results(results_df: pd.DataFrame):
             # Reorder columns for better analysis flow
             full_results_cols = [
                 'Analysis_Date', 'Ticker', 'Name', 'Weekly_Open', 'CRT_High', 'CRT_Low', 
-                'Close', 'VW_Range_Percentile', 'VW_Range_Velocity', 'CRT_Qualifying_Velocity',
+                'Close', 'VW_Range_Percentile', 'VW_Range_Velocity', 'CRT_Velocity',
                 'Rel_Range_Signal', 'Valid_CRT', 'Wick_Below', 'Close_Above', 'IBS', 'Buy_Signal'
             ]
             
@@ -1349,7 +1186,7 @@ def display_scan_results(results_df: pd.DataFrame):
                 'Close': st.column_config.NumberColumn('Close', format='$%.2f'),
                 'VW_Range_Percentile': st.column_config.NumberColumn('VW Range %ile', format='%.4f'),
                 'VW_Range_Velocity': st.column_config.NumberColumn('VW Velocity', format='%+.4f pp'),
-                'CRT_Qualifying_Velocity': st.column_config.NumberColumn('CRT Velocity', format='%+.4f pp'),
+                'CRT_Velocity': st.column_config.NumberColumn('CRT Velocity', format='%+.4f pp'),
                 'Rel_Range_Signal': st.column_config.NumberColumn('Range Signal', width='small'),
                 'Valid_CRT': st.column_config.NumberColumn('Valid CRT', width='small'),
                 'Wick_Below': st.column_config.NumberColumn('Wick Below', width='small'),
