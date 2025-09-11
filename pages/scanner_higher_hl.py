@@ -1,6 +1,6 @@
 """
 CRT Higher H/L Scanner
-Focus on stocks with Higher High AND Higher Low patterns
+Enhanced with flexible base filtering for Valid CRT and/or Higher H/L patterns
 """
 
 import streamlit as st
@@ -110,232 +110,272 @@ class ErrorLogger:
 if 'error_logger' not in st.session_state:
     st.session_state.error_logger = ErrorLogger()
 
-def show_higher_hl_filter(stocks_with_higher_hl):
+def apply_dynamic_filters(base_stocks, results_df):
     """
-    Display dynamic filtering for Higher H/L stocks
-    Focus on CRT Velocity and Higher H/L pattern
+    Apply dynamic filtering with CRT Velocity, IBS, and optional Higher H/L filters
+    Returns filtered stocks
     """
     
-    if stocks_with_higher_hl.empty:
-        st.warning("No Higher H/L patterns available for filtering")
-        return stocks_with_higher_hl
+    if base_stocks.empty:
+        st.warning("No stocks available for filtering")
+        return base_stocks
     
     st.subheader("🎯 Dynamic Filtering")
     
-    # Create two columns for filters
-    col1, col2 = st.columns(2)
+    # Create three columns for filters
+    col1, col2, col3 = st.columns(3)
     
     # Initialize filtered stocks
-    filtered_stocks = stocks_with_higher_hl.copy()
+    filtered_stocks = base_stocks.copy()
     
     # CRT VELOCITY PERCENTILE FILTER
     with col1:
         st.markdown("**CRT Velocity Filter:**")
         
-        # Get velocity statistics
-        velocities = stocks_with_higher_hl['CRT_Velocity']
+        # Get velocity statistics - handle both Valid CRT and non-Valid CRT stocks
+        if 'CRT_Velocity' in base_stocks.columns:
+            # For stocks with Valid CRT, use CRT_Velocity
+            velocities = base_stocks['CRT_Velocity']
+        else:
+            # If CRT_Velocity not in base_stocks, get from original results
+            velocities = base_stocks.index.map(lambda idx: results_df.loc[idx, 'CRT_Velocity'] if idx in results_df.index else 0)
+            velocities = pd.Series(velocities, index=base_stocks.index)
         
-        percentile_options = {
+        # Remove any zero velocities for percentile calculation
+        non_zero_velocities = velocities[velocities != 0]
+        
+        if len(non_zero_velocities) > 0:
+            percentile_options = {
+                "Top 25%": 75,
+                "Top 50%": 50, 
+                "Top 75%": 25,
+                "No Filter": None
+            }
+            
+            selected_percentile = st.radio(
+                "Select velocity filter:",
+                list(percentile_options.keys()),
+                key="higher_hl_percentile_radio"
+            )
+            
+            # Apply percentile filtering
+            if selected_percentile != "No Filter":
+                percentile_val = percentile_options[selected_percentile]
+                threshold_value = np.percentile(non_zero_velocities, percentile_val)
+                filtered_stocks = filtered_stocks[velocities >= threshold_value]
+                st.info(f"CRT Velocity ≥ {threshold_value:+.4f} pp")
+            else:
+                st.info("All velocities included")
+            
+            # Show velocity statistics
+            with st.expander("CRT Velocity Statistics", expanded=False):
+                stats_data = {
+                    "Metric": ["Count", "Min", "25th %ile", "Median", "75th %ile", "Max"],
+                    "Value": [
+                        len(non_zero_velocities),
+                        f"{non_zero_velocities.min():+.4f} pp",
+                        f"{np.percentile(non_zero_velocities, 25):+.4f} pp",
+                        f"{non_zero_velocities.median():+.4f} pp", 
+                        f"{np.percentile(non_zero_velocities, 75):+.4f} pp",
+                        f"{non_zero_velocities.max():+.4f} pp"
+                    ]
+                }
+                st.dataframe(pd.DataFrame(stats_data), hide_index=True, use_container_width=True)
+        else:
+            st.info("No CRT Velocity data available for filtering")
+    
+    # IBS FILTER
+    with col2:
+        st.markdown("**IBS Filter:**")
+        
+        # Get IBS values
+        ibs_values = filtered_stocks['IBS']
+        
+        # Percentile options
+        ibs_percentile_options = {
             "Top 25%": 75,
-            "Top 50%": 50, 
+            "Top 50%": 50,
             "Top 75%": 25,
+            "Custom": "custom",
             "No Filter": None
         }
         
-        selected_percentile = st.radio(
-            "Select velocity filter:",
-            list(percentile_options.keys()),
-            key="higher_hl_percentile_radio"
+        selected_ibs_option = st.radio(
+            "Select IBS filter:",
+            list(ibs_percentile_options.keys()),
+            key="higher_hl_ibs_radio"
         )
         
-        # Apply percentile filtering
-        if selected_percentile != "No Filter":
-            percentile_val = percentile_options[selected_percentile]
-            threshold_value = np.percentile(velocities, percentile_val)
-            filtered_stocks = filtered_stocks[filtered_stocks['CRT_Velocity'] >= threshold_value]
-            st.info(f"CRT Velocity ≥ {threshold_value:+.4f} pp")
+        # Handle custom input
+        if selected_ibs_option == "Custom":
+            custom_ibs_value = st.number_input(
+                "Enter minimum IBS value:",
+                min_value=0.0,
+                max_value=1.0,
+                value=0.3,
+                step=0.05,
+                format="%.2f",
+                key="higher_hl_custom_ibs"
+            )
+            filtered_stocks = filtered_stocks[filtered_stocks['IBS'] >= custom_ibs_value]
+            st.info(f"IBS ≥ {custom_ibs_value:.2f}")
+        elif selected_ibs_option != "No Filter":
+            # Percentile-based filtering
+            percentile_val = ibs_percentile_options[selected_ibs_option]
+            threshold_value = np.percentile(ibs_values, percentile_val)
+            filtered_stocks = filtered_stocks[filtered_stocks['IBS'] >= threshold_value]
+            st.info(f"IBS ≥ {threshold_value:.3f} ({selected_ibs_option})")
         else:
-            st.info("All velocities included")
+            st.info("All IBS values included")
         
-        # Show velocity statistics
-        with st.expander("CRT Velocity Statistics", expanded=False):
-            stats_data = {
+        # Show IBS statistics
+        with st.expander("IBS Statistics", expanded=False):
+            ibs_stats = {
                 "Metric": ["Count", "Min", "25th %ile", "Median", "75th %ile", "Max"],
                 "Value": [
-                    len(velocities),
-                    f"{velocities.min():+.4f} pp",
-                    f"{np.percentile(velocities, 25):+.4f} pp",
-                    f"{velocities.median():+.4f} pp", 
-                    f"{np.percentile(velocities, 75):+.4f} pp",
-                    f"{velocities.max():+.4f} pp"
+                    len(ibs_values),
+                    f"{ibs_values.min():.3f}",
+                    f"{np.percentile(ibs_values, 25):.3f}",
+                    f"{ibs_values.median():.3f}",
+                    f"{np.percentile(ibs_values, 75):.3f}",
+                    f"{ibs_values.max():.3f}"
                 ]
             }
-            st.dataframe(pd.DataFrame(stats_data), hide_index=True, use_container_width=True)
+            st.dataframe(pd.DataFrame(ibs_stats), hide_index=True, use_container_width=True)
     
-    # Price Pattern Filter
-    with col2:
-        st.markdown("**Price Pattern Filter:**")
+    # HIGHER H/L FILTER (only show if not already filtered by Higher H/L)
+    with col3:
+        # Check if we need this filter
+        base_filter_type = st.session_state.get('base_filter_type', 'All Stocks')
         
-        # Get price change statistics
-        price_changes = ((stocks_with_higher_hl['Close'] - stocks_with_higher_hl['Weekly_Open']) / 
-                        stocks_with_higher_hl['Weekly_Open'] * 100)
-        
-        pattern_options = {
-            "Strong Up (>2%)": lambda x: price_changes > 2,
-            "Moderate Up (0-2%)": lambda x: (price_changes >= 0) & (price_changes <= 2),
-            "Any Direction": None
-        }
-        
-        selected_pattern = st.radio(
-            "Select price pattern:",
-            list(pattern_options.keys()),
-            key="higher_hl_pattern_radio"
-        )
-        
-        # Apply pattern filtering
-        if selected_pattern != "Any Direction":
-            pattern_filter = pattern_options[selected_pattern]
-            mask = pattern_filter(price_changes)
-            filtered_stocks = filtered_stocks[mask.loc[filtered_stocks.index]]
+        if base_filter_type not in ["Valid CRT + Higher H/L", "Higher H/L Only"]:
+            st.markdown("**Higher H/L Filter:**")
             
-            if selected_pattern == "Strong Up (>2%)":
-                st.info("Price change > +2% from weekly open")
-            else:
-                st.info("Price change 0% to +2% from weekly open")
-        else:
-            st.info("All price movements included")
-        
-        # Show price pattern statistics
-        with st.expander("Price Pattern Statistics", expanded=False):
-            pattern_stats = {
-                "Pattern": ["Strong Up (>2%)", "Moderate Up (0-2%)", "Down (<0%)", "Total"],
-                "Count": [
-                    len(stocks_with_higher_hl[price_changes > 2]),
-                    len(stocks_with_higher_hl[(price_changes >= 0) & (price_changes <= 2)]),
-                    len(stocks_with_higher_hl[price_changes < 0]),
-                    len(stocks_with_higher_hl)
-                ],
-                "Percentage": [
-                    f"{len(stocks_with_higher_hl[price_changes > 2]) / len(stocks_with_higher_hl) * 100:.1f}%",
-                    f"{len(stocks_with_higher_hl[(price_changes >= 0) & (price_changes <= 2)]) / len(stocks_with_higher_hl) * 100:.1f}%",
-                    f"{len(stocks_with_higher_hl[price_changes < 0]) / len(stocks_with_higher_hl) * 100:.1f}%",
-                    "100.0%"
-                ]
+            higher_hl_options = {
+                "Higher H/L Only": 1,
+                "No Filter": None
             }
-            st.dataframe(pd.DataFrame(pattern_stats), hide_index=True, use_container_width=True)
+            
+            selected_higher_hl = st.radio(
+                "Select Higher H/L filter:",
+                list(higher_hl_options.keys()),
+                key="higher_hl_pattern_radio"
+            )
+            
+            # Apply Higher_HL filtering
+            if selected_higher_hl != "No Filter":
+                filtered_stocks = filtered_stocks[filtered_stocks['Higher_HL'] == 1]
+                st.info("Only showing Higher High/Low patterns")
+            else:
+                st.info("All patterns included")
+            
+            # Show Higher_HL statistics
+            with st.expander("Higher H/L Statistics", expanded=False):
+                higher_hl_count = (base_stocks['Higher_HL'] == 1).sum()
+                total_count = len(base_stocks)
+                higher_hl_pct = (higher_hl_count / total_count * 100) if total_count > 0 else 0
+                
+                hl_stats = {
+                    "Pattern": ["Higher H/L", "Not Higher H/L", "Total"],
+                    "Count": [
+                        higher_hl_count,
+                        total_count - higher_hl_count,
+                        total_count
+                    ],
+                    "Percentage": [
+                        f"{higher_hl_pct:.1f}%",
+                        f"{100 - higher_hl_pct:.1f}%",
+                        "100.0%"
+                    ]
+                }
+                st.dataframe(pd.DataFrame(hl_stats), hide_index=True, use_container_width=True)
+        else:
+            st.markdown("**Additional Filters:**")
+            st.info("Higher H/L filter not needed - already filtered by base selection")
     
     # Show combined filter summary
     filter_summary = []
-    if selected_percentile != "No Filter":
+    if selected_percentile != "No Filter" and len(non_zero_velocities) > 0:
         filter_summary.append(f"CRT Velocity {selected_percentile}")
-    if selected_pattern != "Any Direction":
-        filter_summary.append(f"{selected_pattern}")
+    if selected_ibs_option == "Custom":
+        filter_summary.append(f"IBS ≥ {custom_ibs_value:.2f}")
+    elif selected_ibs_option != "No Filter":
+        filter_summary.append(f"IBS {selected_ibs_option}")
+    if 'selected_higher_hl' in locals() and selected_higher_hl != "No Filter":
+        filter_summary.append("Higher H/L Only")
     
     if filter_summary:
-        st.success(f"Active filters: {' + '.join(filter_summary)} → {len(filtered_stocks)} patterns")
+        st.success(f"Active filters: {' + '.join(filter_summary)} → {len(filtered_stocks)} stocks")
     else:
-        st.info(f"No filters applied → {len(filtered_stocks)} patterns")
+        st.info(f"No additional filters applied → {len(filtered_stocks)} stocks")
     
     # Show distribution charts
     with st.expander("📊 Distribution Analysis", expanded=False):
-        col1, col2 = st.columns(2)
+        charts_to_show = []
         
-        with col1:
-            fig_hist = px.histogram(
-                x=velocities,
-                nbins=20,
-                title="CRT Velocity Distribution",
-                labels={'x': 'CRT Velocity (pp)', 'y': 'Count'}
-            )
-            if selected_percentile != "No Filter":
-                percentile_val = percentile_options[selected_percentile]
-                threshold_value = np.percentile(velocities, percentile_val)
-                fig_hist.add_vline(x=threshold_value, line_dash="dash", line_color="red", 
-                                 annotation_text=f"{selected_percentile} threshold")
-            st.plotly_chart(fig_hist, use_container_width=True)
+        # Velocity chart (if available)
+        if len(non_zero_velocities) > 0:
+            charts_to_show.append(('velocity', non_zero_velocities))
         
-        with col2:
-            # Price change distribution
-            fig_price = px.histogram(
-                x=price_changes,
-                nbins=20,
-                title="Price Change Distribution (%)",
-                labels={'x': 'Price Change from Weekly Open (%)', 'y': 'Count'}
-            )
-            fig_price.add_vline(x=0, line_dash="solid", line_color="black", annotation_text="Weekly Open")
-            fig_price.add_vline(x=2, line_dash="dash", line_color="green", annotation_text=">2% threshold")
-            st.plotly_chart(fig_price, use_container_width=True)
-    
-    # Display filtered results
-    st.subheader(f"📋 Filtered Results ({len(filtered_stocks)} patterns)")
-    
-    if len(filtered_stocks) > 0:
-        # Sort by CRT Velocity (descending)
-        filtered_stocks_sorted = filtered_stocks.sort_values('CRT_Velocity', ascending=False)
+        # IBS chart
+        charts_to_show.append(('ibs', ibs_values))
         
-        # Add price change column for display
-        filtered_stocks_sorted['Price_Change_%'] = ((filtered_stocks_sorted['Close'] - filtered_stocks_sorted['Weekly_Open']) / 
-                                                    filtered_stocks_sorted['Weekly_Open'] * 100)
+        # Higher H/L chart (if relevant)
+        if base_filter_type not in ["Valid CRT + Higher H/L", "Higher H/L Only"]:
+            charts_to_show.append(('higher_hl', base_stocks['Higher_HL']))
         
-        # Display columns focused on Higher H/L analysis
-        display_cols = ['Ticker', 'Name', 'Close', 'High', 'Low', 
-                       'Prev_High', 'Prev_Low', 'Price_Change_%', 'CRT_Velocity', 'Valid_CRT']
+        cols = st.columns(len(charts_to_show))
         
-        # Add previous high/low columns
-        filtered_stocks_sorted['Prev_High'] = filtered_stocks_sorted['High'].shift(1)
-        filtered_stocks_sorted['Prev_Low'] = filtered_stocks_sorted['Low'].shift(1)
-        
-        column_config = {
-            'Ticker': st.column_config.TextColumn('Ticker', width='small'),
-            'Name': st.column_config.TextColumn('Company Name', width='large'),
-            'Close': st.column_config.NumberColumn('Close', format='$%.2f'),
-            'High': st.column_config.NumberColumn('Today High', format='$%.2f'),
-            'Low': st.column_config.NumberColumn('Today Low', format='$%.2f'),
-            'Prev_High': st.column_config.NumberColumn('Prev High', format='$%.2f'),
-            'Prev_Low': st.column_config.NumberColumn('Prev Low', format='$%.2f'),
-            'Price_Change_%': st.column_config.NumberColumn('Change %', format='%+.2f'),
-            'CRT_Velocity': st.column_config.NumberColumn('CRT Velocity', format='%+.4f pp'),
-            'Valid_CRT': st.column_config.NumberColumn('Valid CRT', width='small')
-        }
-        
-        st.dataframe(
-            filtered_stocks_sorted[display_cols],
-            column_config=column_config,
-            use_container_width=True,
-            hide_index=True
-        )
-        
-        # TradingView Export
-        st.subheader("📋 TradingView Export (Filtered)")
-        tv_tickers = [f"SGX:{ticker.replace('.SI', '')}" for ticker in filtered_stocks_sorted['Ticker'].tolist()]
-        tv_string = ','.join(tv_tickers)
-        
-        st.text_area(
-            f"Singapore Exchange (SGX) Higher H/L Patterns ({len(tv_tickers)} stocks):",
-            value=tv_string,
-            height=100,
-            help="Copy and paste into TradingView watchlist. SGX: prefix ensures Singapore Exchange stocks."
-        )
-        
-        # Export filtered data
-        csv_data = filtered_stocks_sorted.to_csv(index=False)
-        st.download_button(
-            label="📥 Download Filtered Data (CSV)",
-            data=csv_data,
-            file_name=f"higher_hl_patterns_{len(filtered_stocks)}_stocks.csv",
-            mime="text/csv"
-        )
-    
-    else:
-        st.warning("No patterns match the current filter criteria")
+        for i, (chart_type, data) in enumerate(charts_to_show):
+            with cols[i]:
+                if chart_type == 'velocity':
+                    fig = px.histogram(
+                        x=data,
+                        nbins=20,
+                        title="CRT Velocity Distribution",
+                        labels={'x': 'CRT Velocity (pp)', 'y': 'Count'}
+                    )
+                    if selected_percentile != "No Filter":
+                        percentile_val = percentile_options[selected_percentile]
+                        threshold_value = np.percentile(non_zero_velocities, percentile_val)
+                        fig.add_vline(x=threshold_value, line_dash="dash", line_color="red", 
+                                     annotation_text=f"{selected_percentile} threshold")
+                    st.plotly_chart(fig, use_container_width=True)
+                
+                elif chart_type == 'ibs':
+                    fig = px.histogram(
+                        x=data,
+                        nbins=20,
+                        title="IBS Distribution",
+                        labels={'x': 'IBS', 'y': 'Count'}
+                    )
+                    if selected_ibs_option == "Custom":
+                        fig.add_vline(x=custom_ibs_value, line_dash="dash", line_color="red",
+                                    annotation_text=f"Custom ≥ {custom_ibs_value:.2f}")
+                    elif selected_ibs_option != "No Filter":
+                        percentile_val = ibs_percentile_options[selected_ibs_option]
+                        threshold_value = np.percentile(ibs_values, percentile_val)
+                        fig.add_vline(x=threshold_value, line_dash="dash", line_color="red",
+                                    annotation_text=f"{selected_ibs_option} threshold")
+                    st.plotly_chart(fig, use_container_width=True)
+                
+                elif chart_type == 'higher_hl':
+                    hl_counts = data.value_counts().sort_index()
+                    fig = px.bar(
+                        x=['Not Higher H/L', 'Higher H/L'],
+                        y=[hl_counts.get(0, 0), hl_counts.get(1, 0)],
+                        title="Higher H/L Distribution",
+                        labels={'x': 'Pattern', 'y': 'Count'}
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
     
     return filtered_stocks
 
 def show():
-    """Main scanner page display for Higher H/L patterns"""
+    """Main scanner page display for Higher H/L patterns with flexible base filtering"""
     
     st.title("📈 CRT Higher H/L Scanner")
-    st.markdown("Focus on stocks showing Higher High AND Higher Low patterns with Valid CRT")
+    st.markdown("Flexible analysis of Valid CRT and/or Higher H/L patterns")
     
     # Clear previous errors for new scan
     if st.button("🗑️ Clear Error Log"):
@@ -661,17 +701,8 @@ def run_enhanced_stock_scan(stocks_to_scan, analysis_date=None, days_back=59, ro
                     error_logger.log_warning("Company Name", f"Failed to get name for {ticker}: {e}")
                     company_name = ticker.replace('.SI', '')
                 
-                # Collect results (focused on Higher H/L)
+                # Collect results
                 try:
-                    # Get previous day's data for comparison
-                    if len(df_enhanced) > 1:
-                        prev_row = df_enhanced.iloc[-2]
-                        prev_high = round(float(prev_row['High']), 2)
-                        prev_low = round(float(prev_row['Low']), 2)
-                    else:
-                        prev_high = 0
-                        prev_low = 0
-                    
                     result = {
                         'Ticker': ticker,
                         'Name': company_name,
@@ -679,8 +710,6 @@ def run_enhanced_stock_scan(stocks_to_scan, analysis_date=None, days_back=59, ro
                         'Close': round(float(analysis_row['Close']), 2),
                         'High': round(float(analysis_row['High']), 2),
                         'Low': round(float(analysis_row['Low']), 2),
-                        'Prev_High': prev_high,
-                        'Prev_Low': prev_low,
                         'IBS': round(float(analysis_row['IBS']), 3) if not pd.isna(analysis_row['IBS']) else 0,
                         'Valid_CRT': int(analysis_row.get('Valid_CRT', 0)),
                         'Higher_HL': int(analysis_row.get('Higher_HL', 0)) if not pd.isna(analysis_row.get('Higher_HL', 0)) else 0,
@@ -785,7 +814,7 @@ def run_enhanced_stock_scan(stocks_to_scan, analysis_date=None, days_back=59, ro
             status_text.empty()
 
 def display_scan_results(results_df: pd.DataFrame):
-    """Display scanning results focused on Higher H/L patterns"""
+    """Display scanning results with flexible base filtering for Higher H/L patterns"""
     
     error_logger = st.session_state.error_logger
     
@@ -812,7 +841,7 @@ def display_scan_results(results_df: pd.DataFrame):
         with col3:
             st.metric("Valid CRT", valid_crt_count)
         with col4:
-            st.metric("H/L + CRT", higher_hl_with_crt)
+            st.metric("Both Patterns", higher_hl_with_crt)
         
         # Analysis Date Info
         if len(results_df) > 0:
@@ -822,57 +851,138 @@ def display_scan_results(results_df: pd.DataFrame):
             else:
                 st.info(f"📅 Analysis performed for dates: **{', '.join(analysis_dates)}**")
         
-        # Higher H/L Patterns Section
-        st.subheader("📈 Higher H/L Patterns Detected")
+        # Base Filter Selection
+        st.subheader("🎯 Pattern Analysis")
         
-        higher_hl_df = results_df[results_df['Higher_HL'] == 1].copy()
+        base_filter_options = {
+            "Valid CRT + Higher H/L": "Stocks with both Valid CRT AND Higher H/L patterns",
+            "Valid CRT Only": "All stocks with Valid CRT (Monday range expansion)",
+            "Higher H/L Only": "All stocks with Higher High AND Higher Low patterns",
+            "All Stocks": "Complete scan results without pattern filtering"
+        }
         
-        if len(higher_hl_df) > 0:
-            # Show stocks with both Higher H/L AND Valid CRT first
-            higher_hl_with_crt_df = higher_hl_df[higher_hl_df['Valid_CRT'] == 1]
+        selected_base_filter = st.radio(
+            "Select base pattern filter:",
+            list(base_filter_options.keys()),
+            help="Choose which pattern combination to analyze",
+            key="base_filter_radio"
+        )
+        
+        # Store in session state for filter logic
+        st.session_state.base_filter_type = selected_base_filter
+        
+        # Apply base filter
+        if selected_base_filter == "Valid CRT + Higher H/L":
+            base_stocks = results_df[(results_df['Valid_CRT'] == 1) & (results_df['Higher_HL'] == 1)].copy()
+            st.info(f"Showing {len(base_stocks)} stocks with both Valid CRT and Higher H/L patterns")
+        
+        elif selected_base_filter == "Valid CRT Only":
+            base_stocks = results_df[results_df['Valid_CRT'] == 1].copy()
+            st.info(f"Showing {len(base_stocks)} stocks with Valid CRT (Monday range expansion)")
+        
+        elif selected_base_filter == "Higher H/L Only":
+            base_stocks = results_df[results_df['Higher_HL'] == 1].copy()
+            st.info(f"Showing {len(base_stocks)} stocks with Higher High AND Higher Low patterns")
+        
+        else:  # All Stocks
+            base_stocks = results_df.copy()
+            st.info(f"Showing all {len(base_stocks)} scanned stocks")
+        
+        if len(base_stocks) > 0:
+            # Apply dynamic filters
+            filtered_stocks = apply_dynamic_filters(base_stocks, results_df)
             
-            if len(higher_hl_with_crt_df) > 0:
-                st.success(f"🎯 {len(higher_hl_with_crt_df)} stocks with Higher H/L + Valid CRT")
-                show_higher_hl_filter(higher_hl_with_crt_df)
-            else:
-                st.info("📊 Higher H/L patterns found but none with Valid CRT")
-                # Still show the filtering interface for all Higher H/L patterns
-                show_higher_hl_filter(higher_hl_df)
-        else:
-            st.info("🔍 No Higher H/L patterns detected in this analysis.")
-        
-        # Valid CRT Watch List Section
-        st.subheader("📋 Valid CRT Watch List")
-        
-        valid_crt_stocks = results_df[results_df['Valid_CRT'] == 1].copy()
-        
-        if len(valid_crt_stocks) > 0:
-            valid_crt_stocks = valid_crt_stocks.sort_values('CRT_Velocity', ascending=False)
+            # Display filtered results
+            st.subheader(f"📋 Filtered Results ({len(filtered_stocks)} stocks)")
             
-            with st.expander("📊 Full Valid CRT List (Click to expand)", expanded=False):
-                display_cols = ['Ticker', 'Name', 'Analysis_Date', 'Weekly_Open', 'CRT_Velocity', 
-                              'CRT_High', 'CRT_Low', 'Higher_HL', 'IBS']
+            if len(filtered_stocks) > 0:
+                # Sort by CRT Velocity (descending), but handle cases where it might be 0
+                filtered_stocks_sorted = filtered_stocks.sort_values('CRT_Velocity', ascending=False)
                 
-                column_config = {
-                    'Ticker': st.column_config.TextColumn('Ticker', width='small'),
-                    'Name': st.column_config.TextColumn('Company Name', width='large'),
-                    'Analysis_Date': st.column_config.TextColumn('Date', width='small'),
-                    'Weekly_Open': st.column_config.NumberColumn('Weekly_Open', format='$%.2f'),
-                    'CRT_Velocity': st.column_config.NumberColumn('CRT Velocity', format='%+.4f pp'),
-                    'CRT_High': st.column_config.NumberColumn('CRT_High', format='$%.2f'),
-                    'CRT_Low': st.column_config.NumberColumn('CRT_Low', format='$%.2f'),
-                    'Higher_HL': st.column_config.NumberColumn('Higher H/L', width='small'),
-                    'IBS': st.column_config.NumberColumn('IBS', format='%.3f')
-                }
+                # Display columns based on selected filter
+                if selected_base_filter in ["Valid CRT + Higher H/L", "Valid CRT Only"]:
+                    # Show CRT-focused columns
+                    display_cols = ['Ticker', 'Name', 'Close', 'Weekly_Open', 'CRT_High', 'CRT_Low', 
+                                   'CRT_Velocity', 'IBS', 'Higher_HL']
+                    
+                    column_config = {
+                        'Ticker': st.column_config.TextColumn('Ticker', width='small'),
+                        'Name': st.column_config.TextColumn('Company Name', width='large'),
+                        'Close': st.column_config.NumberColumn('Close', format='$%.2f'),
+                        'Weekly_Open': st.column_config.NumberColumn('Weekly Open', format='$%.2f'),
+                        'CRT_High': st.column_config.NumberColumn('CRT High', format='$%.2f'),
+                        'CRT_Low': st.column_config.NumberColumn('CRT Low', format='$%.2f'),
+                        'CRT_Velocity': st.column_config.NumberColumn('CRT Velocity', format='%+.4f pp'),
+                        'IBS': st.column_config.NumberColumn('IBS', format='%.3f'),
+                        'Higher_HL': st.column_config.NumberColumn('Higher H/L', width='small')
+                    }
+                
+                elif selected_base_filter == "Higher H/L Only":
+                    # Show H/L pattern-focused columns
+                    display_cols = ['Ticker', 'Name', 'Close', 'High', 'Low', 
+                                   'IBS', 'Valid_CRT', 'CRT_Velocity']
+                    
+                    column_config = {
+                        'Ticker': st.column_config.TextColumn('Ticker', width='small'),
+                        'Name': st.column_config.TextColumn('Company Name', width='large'),
+                        'Close': st.column_config.NumberColumn('Close', format='$%.2f'),
+                        'High': st.column_config.NumberColumn('Day High', format='$%.2f'),
+                        'Low': st.column_config.NumberColumn('Day Low', format='$%.2f'),
+                        'IBS': st.column_config.NumberColumn('IBS', format='%.3f'),
+                        'Valid_CRT': st.column_config.NumberColumn('Valid CRT', width='small'),
+                        'CRT_Velocity': st.column_config.NumberColumn('CRT Velocity', format='%+.4f pp')
+                    }
+                
+                else:  # All Stocks
+                    # Show comprehensive columns
+                    display_cols = ['Ticker', 'Name', 'Close', 'IBS', 'Valid_CRT', 
+                                   'Higher_HL', 'CRT_Velocity', 'VW_Range_Percentile']
+                    
+                    column_config = {
+                        'Ticker': st.column_config.TextColumn('Ticker', width='small'),
+                        'Name': st.column_config.TextColumn('Company Name', width='large'),
+                        'Close': st.column_config.NumberColumn('Close', format='$%.2f'),
+                        'IBS': st.column_config.NumberColumn('IBS', format='%.3f'),
+                        'Valid_CRT': st.column_config.NumberColumn('Valid CRT', width='small'),
+                        'Higher_HL': st.column_config.NumberColumn('Higher H/L', width='small'),
+                        'CRT_Velocity': st.column_config.NumberColumn('CRT Velocity', format='%+.4f pp'),
+                        'VW_Range_Percentile': st.column_config.NumberColumn('VW Range %ile', format='%.4f')
+                    }
                 
                 st.dataframe(
-                    valid_crt_stocks[display_cols],
+                    filtered_stocks_sorted[display_cols],
                     column_config=column_config,
                     use_container_width=True,
                     hide_index=True
                 )
+                
+                # TradingView Export
+                st.subheader("📋 TradingView Export (Filtered)")
+                tv_tickers = [f"SGX:{ticker.replace('.SI', '')}" for ticker in filtered_stocks_sorted['Ticker'].tolist()]
+                tv_string = ','.join(tv_tickers)
+                
+                st.text_area(
+                    f"Singapore Exchange (SGX) - {selected_base_filter} ({len(tv_tickers)} stocks):",
+                    value=tv_string,
+                    height=100,
+                    help="Copy and paste into TradingView watchlist. SGX: prefix ensures Singapore Exchange stocks."
+                )
+                
+                # Export filtered data
+                csv_data = filtered_stocks_sorted.to_csv(index=False)
+                filename_prefix = selected_base_filter.lower().replace(' ', '_').replace('+', 'and')
+                st.download_button(
+                    label="📥 Download Filtered Data (CSV)",
+                    data=csv_data,
+                    file_name=f"{filename_prefix}_{len(filtered_stocks)}_stocks.csv",
+                    mime="text/csv"
+                )
+            
+            else:
+                st.warning("No stocks match the current filter criteria")
+        
         else:
-            st.info("No Valid CRT stocks detected in this analysis.")
+            st.warning(f"No stocks found for pattern: {selected_base_filter}")
         
         # Full Results Table
         with st.expander("📋 Full Analysis Results", expanded=False):
@@ -906,7 +1016,9 @@ def display_scan_results(results_df: pd.DataFrame):
         
         error_logger.log_debug("Results Display", "Successfully displayed all results", {
             "total_displayed": len(results_df),
-            "higher_hl_displayed": len(higher_hl_df) if 'higher_hl_df' in locals() else 0
+            "base_filter": selected_base_filter,
+            "base_stocks_count": len(base_stocks) if 'base_stocks' in locals() else 0,
+            "filtered_stocks_count": len(filtered_stocks) if 'filtered_stocks' in locals() else 0
         })
         
     except Exception as e:
