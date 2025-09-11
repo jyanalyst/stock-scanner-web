@@ -2,7 +2,7 @@
 Technical Analysis Module
 Contains the enhanced columns function migrated from notebook Cell 6
 This is the complete implementation from your original Jupyter notebook
-Updated to capture CRT_Qualifying_IBS alongside CRT_Qualifying_Velocity
+Updated with Higher_HL logic - daily check for higher high AND higher low
 """
 
 import pandas as pd
@@ -96,31 +96,22 @@ def add_enhanced_columns(df_daily: pd.DataFrame, ticker: str, rolling_window: in
         np.nan
     )
     
-    # 14. NEW: Capture the qualifying IBS on Mondays for Valid_CRT
-    df['CRT_Qualifying_IBS'] = np.where(
-        (df['Is_First_Trading_Day'] == 1) & (df['Rel_Range_Signal'] == 1),
-        df['IBS'],
-        np.nan
-    )
-    
-    # 15. NEW: Capture higher low pattern on Mondays for Valid_CRT
-    df['CRT_Higher_Low'] = np.where(
-        (df['Is_First_Trading_Day'] == 1) & (df['Rel_Range_Signal'] == 1),
-        np.where(df['Low'] > df['Low'].shift(1), 1, 0),  # Check higher low only for qualifying Mondays
-        np.nan  # Use NaN for non-qualifying days (allows forward fill)
+    # 14. NEW: Calculate Higher_HL pattern for ALL days (higher high AND higher low)
+    df['Higher_HL'] = np.where(
+        (df['High'] > df['High'].shift(1)) & (df['Low'] > df['Low'].shift(1)),
+        1, 
+        0
     )
 
-    # 16. Forward fill Valid_CRT, CRT_Qualifying_Velocity, CRT_Qualifying_IBS, and CRT_Higher_Low from Monday through Friday
+    # 15. Forward fill Valid_CRT and CRT_Qualifying_Velocity from Monday through Friday
     df['Valid_CRT'] = df['Valid_CRT'].ffill()
     df['CRT_Qualifying_Velocity'] = df['CRT_Qualifying_Velocity'].ffill()
-    df['CRT_Qualifying_IBS'] = df['CRT_Qualifying_IBS'].ffill()
-    df['CRT_Higher_Low'] = df['CRT_Higher_Low'].ffill()
     
-    # 17. Initialize signal columns
+    # 16. Initialize signal columns
     df['Wick_Below'] = 0
     df['Close_Above'] = 0
     
-    # 18. Calculate signals using forward-filled CRT levels
+    # 17. Calculate signals using forward-filled CRT levels
     # Group by week to process signals within each trading week
     df['week_start'] = df.index - pd.to_timedelta(df.index.weekday, unit='D')
     df['week_start'] = df['week_start'].dt.normalize()
@@ -175,52 +166,10 @@ def add_enhanced_columns(df_daily: pd.DataFrame, ticker: str, rolling_window: in
             subsequent_days = signal_days[signal_days.index >= close_above_trigger_date].index
             df.loc[subsequent_days, 'Close_Above'] = 1
     
-    # 19. NEW: Calculate CRT_Not_Purged for each day
-    df['CRT_Not_Purged'] = 0  # Default to purged
-    
-    # Process each week to check for purging (Tue-Fri only)
-    df['week_start'] = df.index - pd.to_timedelta(df.index.weekday, unit='D')
-    df['week_start'] = df['week_start'].dt.normalize()
-    
-    unique_weeks = df['week_start'].unique()
-    
-    for week_start in unique_weeks:
-        # Get all days in this week
-        week_mask = df['week_start'] == week_start
-        week_data = df[week_mask].copy()
-        
-        if len(week_data) == 0:
-            continue
-        
-        # Check if this week has Valid CRT
-        has_valid_crt = (week_data['Valid_CRT'] == 1).any()
-        
-        if has_valid_crt:
-            # Get CRT levels for this week
-            crt_high = week_data['CRT_High'].iloc[0]
-            crt_low = week_data['CRT_Low'].iloc[0]
-            
-            if not pd.isna(crt_high) and not pd.isna(crt_low):
-                # Check Tue-Fri only (weekday > 0)
-                tue_fri_data = week_data[week_data.index.weekday > 0]
-                
-                # Check if any day had Low <= CRT_Low OR High >= CRT_High
-                purged = False
-                for day_date, day_row in tue_fri_data.iterrows():
-                    if day_row['Low'] <= crt_low or day_row['High'] >= crt_high:
-                        purged = True
-                        break
-                
-                # Set CRT_Not_Purged for the entire week
-                if not purged:
-                    # Not purged - set to 1 for all days in week
-                    df.loc[week_mask, 'CRT_Not_Purged'] = 1
-                # else: remains 0 (purged)
-    
     # Clean up temporary column
     df.drop('week_start', axis=1, inplace=True)
     
-    # 20. Calculate Buy_Signal with Valid_CRT logic
+    # 18. Calculate Buy_Signal with Valid_CRT logic
     df['Buy_Signal'] = np.where(
         (df['Valid_CRT'] == 1) &
         (df['IBS'] >= 0.5) &
@@ -231,23 +180,13 @@ def add_enhanced_columns(df_daily: pd.DataFrame, ticker: str, rolling_window: in
     # Debug print to verify column creation
     print(f"DEBUG {ticker}: Created columns: {list(df.columns)}")
     print(f"DEBUG {ticker}: CRT_Qualifying_Velocity sample: {df['CRT_Qualifying_Velocity'].tail().values}")
-    print(f"DEBUG {ticker}: CRT_Qualifying_IBS sample: {df['CRT_Qualifying_IBS'].tail().values}")
-    print(f"DEBUG {ticker}: CRT_Higher_Low sample: {df['CRT_Higher_Low'].tail().values}")
-    print(f"DEBUG {ticker}: CRT_Not_Purged sample: {df['CRT_Not_Purged'].tail().values}")
+    print(f"DEBUG {ticker}: Higher_HL sample: {df['Higher_HL'].tail().values}")
     
-    # Debug purging analysis
-    valid_crt_weeks = df[df['Valid_CRT'] == 1]['week_start'].unique() if 'week_start' in df.columns else []
-    if len(valid_crt_weeks) > 0:
-        not_purged_count = df[df['CRT_Not_Purged'] == 1]['week_start'].nunique() if 'week_start' in df.columns else 0
-        print(f"DEBUG {ticker}: Valid CRT weeks: {len(valid_crt_weeks)}, Not purged weeks: {not_purged_count}")
-        
-    # Debug Monday higher low checks
-    mondays = df[df['Is_First_Trading_Day'] == 1]
-    valid_crt_mondays = df[(df['Is_First_Trading_Day'] == 1) & (df['Rel_Range_Signal'] == 1)]
-    print(f"DEBUG {ticker}: Total Mondays: {len(mondays)}, Valid CRT Mondays: {len(valid_crt_mondays)}")
-    if len(valid_crt_mondays) > 0:
-        higher_low_count = valid_crt_mondays['CRT_Higher_Low'].sum()
-        print(f"DEBUG {ticker}: Higher Low patterns detected: {higher_low_count}")
+    # Debug Higher_HL pattern checks
+    higher_hl_days = df[df['Higher_HL'] == 1]
+    print(f"DEBUG {ticker}: Total Higher_HL patterns: {len(higher_hl_days)} out of {len(df)} days")
+    if len(higher_hl_days) > 0:
+        print(f"DEBUG {ticker}: Recent Higher_HL dates: {higher_hl_days.index[-5:].tolist()}")
     
     return df
 
@@ -316,7 +255,7 @@ def get_latest_signals(df: pd.DataFrame) -> dict:
         'crt_high': float(latest.get('CRT_High', 0)) if not pd.isna(latest.get('CRT_High', 0)) else 0.0,
         'crt_low': float(latest.get('CRT_Low', 0)) if not pd.isna(latest.get('CRT_Low', 0)) else 0.0,
         'crt_qualifying_velocity': float(latest.get('CRT_Qualifying_Velocity', 0)) if not pd.isna(latest.get('CRT_Qualifying_Velocity', 0)) else 0.0,
-        'crt_qualifying_ibs': float(latest.get('CRT_Qualifying_IBS', 0)) if not pd.isna(latest.get('CRT_Qualifying_IBS', 0)) else 0.0
+        'higher_hl': bool(latest.get('Higher_HL', 0))
     }
 
 
