@@ -1,6 +1,6 @@
 """
 Stock Scanner Web Application
-Main Streamlit application with navigation
+Main Streamlit application with navigation for three specialized scanners
 """
 
 import streamlit as st
@@ -44,46 +44,52 @@ def show_home_page():
     st.markdown("""
     ## Welcome to Stock Scanner Pro! 🚀
     
-    This is your sophisticated stock scanning application, migrated from Jupyter notebook to a professional web interface.
+    Your sophisticated stock scanning application with three specialized CRT (Candle Range Theory) scanners.
     
-    ### Features Available:
-    - 📊 **Live Stock Scanning** - Real-time analysis of 46 Singapore Exchange stocks
+    ### Available Scanners:
+    
+    #### 📈 **CRT Higher H/L Scanner**
+    - Focuses on stocks showing Higher High AND Higher Low patterns
+    - Identifies trending momentum with expanding range
+    - Best for trend continuation plays
+    
+    #### 📊 **CRT Wick Below Scanner** 
+    - Tracks stocks that test and bounce off CRT Low levels
+    - Measures bounce strength and recovery patterns
+    - Ideal for support level plays
+    
+    #### 🚀 **CRT Close Above Scanner**
+    - Monitors stocks breaking above CRT High levels
+    - Analyzes breakout strength and momentum
+    - Perfect for momentum breakout plays
+    
+    ### Key Features:
+    - 📊 **Real-time Analysis** - Live scanning of 46 Singapore Exchange stocks
     - 📈 **Technical Analysis** - Volume-weighted range percentiles and CRT levels
-    - 🎯 **Buy Signal Detection** - Automated signal generation based on your proven strategy
-    - 📧 **Email Notifications** - Professional HTML reports
-    - 📋 **Watchlist Management** - Easy stock portfolio management
-    
-    ### Current Status:
-    ✅ Project structure created  
-    ✅ Core functions migrated  
-    ✅ Live scanner interface ready  
-    ⏳ Database setup pending  
-    ⏳ Email notifications pending  
+    - 🎯 **Dynamic Filtering** - Velocity and pattern-specific filters
+    - 📋 **TradingView Export** - Direct export to TradingView watchlists
+    - 📥 **CSV Downloads** - Export filtered results for further analysis
     
     ---
     
     **Get Started:**
-    👈 Use the sidebar to navigate to **"🔍 Live Scanner"** to start analyzing stocks!
+    👈 Use the sidebar to navigate to your preferred scanner!
     """)
     
     # Quick stats
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
-        st.metric("Stocks Tracked", "46", delta="Active")
+        st.metric("Stocks Tracked", "46", delta="SGX Listed")
     
     with col2:
+        st.metric("Scanner Types", "3", delta="Specialized")
+    
+    with col3:
         if 'last_scan_time' in st.session_state:
             st.metric("Last Scan", st.session_state.last_scan_time.split()[1][:5], delta="Recent")
         else:
             st.metric("Last Scan", "Ready", delta="Click to start")
-    
-    with col3:
-        if 'scan_results' in st.session_state:
-            buy_signals = len(st.session_state.scan_results[st.session_state.scan_results['Buy_Signal'] == 1])
-            st.metric("Buy Signals", str(buy_signals), delta="Current scan")
-        else:
-            st.metric("Buy Signals", "0", delta="No scan yet")
     
     with col4:
         st.metric("System Status", "Ready", delta="Fully operational")
@@ -97,7 +103,9 @@ def main():
     # Navigation options
     pages = {
         "🏠 Home": "home",
-        "🔍 Live Scanner": "scanner",
+        "📈 CRT Higher H/L": "higher_hl",
+        "📊 CRT Wick Below": "wick_below",
+        "🚀 CRT Close Above": "close_above",
         "📊 Historical Analysis": "historical", 
         "📋 Watchlist Manager": "watchlist",
         "⚙️ Settings": "settings"
@@ -116,14 +124,10 @@ def main():
     
     if 'scan_results' in st.session_state:
         total_stocks = len(st.session_state.scan_results)
-        buy_signals = len(st.session_state.scan_results[st.session_state.scan_results['Buy_Signal'] == 1])
+        valid_crt = len(st.session_state.scan_results[st.session_state.scan_results['Valid_CRT'] == 1])
         
         st.sidebar.metric("Stocks Scanned", total_stocks)
-        st.sidebar.metric("Buy Signals", buy_signals)
-        
-        if st.sidebar.button("🔄 Quick Scan", help="Run a quick 5-stock test scan"):
-            st.session_state.quick_scan = True
-            st.rerun()
+        st.sidebar.metric("Valid CRT", valid_crt)
     
     # Page routing
     page_value = pages[selected_page]
@@ -131,21 +135,37 @@ def main():
     if page_value == "home":
         show_home_page()
     
-    elif page_value == "scanner":
+    elif page_value == "higher_hl":
         try:
-            from pages import scanner
-            scanner.show()
+            from pages import scanner_higher_hl
+            scanner_higher_hl.show()
         except ImportError:
-            st.error("Scanner module not found. Please create pages/scanner.py with the provided code.")
-            st.info("Copy the scanner page code into pages/scanner.py to enable live scanning.")
+            st.error("CRT Higher H/L scanner module not found. Please ensure pages/scanner_higher_hl.py exists.")
+            st.info("This scanner focuses on stocks with Higher High AND Higher Low patterns.")
+    
+    elif page_value == "wick_below":
+        try:
+            from pages import scanner_wick_below
+            scanner_wick_below.show()
+        except ImportError:
+            st.error("CRT Wick Below scanner module not found. Please ensure pages/scanner_wick_below.py exists.")
+            st.info("This scanner tracks stocks that test and bounce off CRT Low levels.")
+    
+    elif page_value == "close_above":
+        try:
+            from pages import scanner_close_above
+            scanner_close_above.show()
+        except ImportError:
+            st.error("CRT Close Above scanner module not found. Please ensure pages/scanner_close_above.py exists.")
+            st.info("This scanner monitors stocks breaking above CRT High levels.")
     
     elif page_value == "historical":
         st.title("📊 Historical Analysis")
         st.info("Historical analysis page coming soon! This will show:")
         st.markdown("""
         - Performance tracking of past signals
-        - Win/loss ratios
-        - Best performing stocks
+        - Win/loss ratios for each scanner type
+        - Best performing stocks by pattern
         - Strategy effectiveness over time
         """)
     
@@ -168,14 +188,6 @@ def main():
         - Alert thresholds
         - Data source configuration
         """)
-    
-    # Handle quick scan trigger
-    if st.session_state.get('quick_scan', False):
-        st.session_state.quick_scan = False
-        if page_value == "scanner":
-            st.info("🚀 Quick scan triggered! Use the scanner page to run analysis.")
-        else:
-            st.info("👈 Navigate to the Live Scanner page to run the quick scan.")
 
 if __name__ == "__main__":
     main()

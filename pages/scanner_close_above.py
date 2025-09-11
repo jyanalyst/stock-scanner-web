@@ -1,7 +1,6 @@
 """
-Enhanced Live Scanner Page with Buy Signals Dynamic Filtering
-Real-time stock scanning functionality with buy signals filtering capability
-Updated to use Higher_HL (higher high AND higher low) pattern
+CRT Close Above Scanner
+Focus on stocks that close above CRT High (breakout patterns)
 """
 
 import streamlit as st
@@ -11,7 +10,6 @@ import time
 import traceback
 import logging
 import sys
-from io import StringIO
 import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
@@ -111,29 +109,30 @@ class ErrorLogger:
 if 'error_logger' not in st.session_state:
     st.session_state.error_logger = ErrorLogger()
 
-def show_buy_signals_filter(buy_signals_stocks):
+def show_close_above_filter(close_above_stocks):
     """
-    Display dynamic filtering for buy signals - consistent with Valid CRT filtering
+    Display dynamic filtering for Close Above stocks
+    Focus on breakout strength and momentum
     """
     
-    if buy_signals_stocks.empty:
-        st.warning("No buy signals available for filtering")
-        return buy_signals_stocks
+    if close_above_stocks.empty:
+        st.warning("No Close Above patterns available for filtering")
+        return close_above_stocks
     
     st.subheader("🎯 Dynamic Filtering")
     
-    # Create two columns for the two filters
+    # Create two columns for filters
     col1, col2 = st.columns(2)
     
     # Initialize filtered stocks
-    filtered_stocks = buy_signals_stocks.copy()
+    filtered_stocks = close_above_stocks.copy()
     
     # CRT VELOCITY PERCENTILE FILTER
     with col1:
         st.markdown("**CRT Velocity Filter:**")
         
-        # Get velocity statistics - now using CRT_Velocity
-        velocities = buy_signals_stocks['CRT_Velocity']
+        # Get velocity statistics
+        velocities = close_above_stocks['CRT_Velocity']
         
         percentile_options = {
             "Top 25%": 75,
@@ -145,7 +144,7 @@ def show_buy_signals_filter(buy_signals_stocks):
         selected_percentile = st.radio(
             "Select velocity filter:",
             list(percentile_options.keys()),
-            key="buy_signals_percentile_radio"
+            key="close_above_percentile_radio"
         )
         
         # Apply percentile filtering
@@ -172,58 +171,62 @@ def show_buy_signals_filter(buy_signals_stocks):
             }
             st.dataframe(pd.DataFrame(stats_data), hide_index=True, use_container_width=True)
     
-    # IBS FILTER
+    # BREAKOUT STRENGTH FILTER
     with col2:
-        st.markdown("**IBS Filter:**")
+        st.markdown("**Breakout Strength Filter:**")
         
-        ibs_options = {
-            "IBS ≥ 0.75": 0.75,
-            "IBS ≥ 0.5": 0.5,
+        # Calculate breakout percentage (how far above CRT High)
+        breakout_pct = ((close_above_stocks['Close'] - close_above_stocks['CRT_High']) / 
+                       close_above_stocks['CRT_High'] * 100)
+        
+        breakout_options = {
+            "Strong Breakout (>2%)": 2.0,
+            "Moderate Breakout (>1%)": 1.0,
+            "Any Breakout": 0,
             "No Filter": None
         }
         
-        selected_ibs = st.radio(
-            "Select IBS filter:",
-            list(ibs_options.keys()),
-            key="buy_signals_ibs_radio"
+        selected_breakout = st.radio(
+            "Select breakout strength:",
+            list(breakout_options.keys()),
+            key="close_above_breakout_radio"
         )
         
-        # Apply IBS filtering
-        if selected_ibs != "No Filter":
-            ibs_threshold = ibs_options[selected_ibs]
-            filtered_stocks = filtered_stocks[filtered_stocks['IBS'] >= ibs_threshold]
-            st.info(f"IBS ≥ {ibs_threshold:.2f}")
+        # Apply breakout filtering
+        if selected_breakout != "No Filter":
+            breakout_threshold = breakout_options[selected_breakout]
+            mask = breakout_pct >= breakout_threshold
+            filtered_stocks = filtered_stocks[mask.loc[filtered_stocks.index]]
+            st.info(f"Breakout strength ≥ {breakout_threshold}%")
         else:
-            st.info("All IBS values included")
+            st.info("All breakout strengths included")
         
-        # Show IBS statistics for the velocity-filtered stocks
-        with st.expander("IBS Statistics", expanded=False):
-            # Use the stocks that passed velocity filter for IBS stats
-            ibs_values = filtered_stocks['IBS'] if selected_percentile != "No Filter" else buy_signals_stocks['IBS']
-            ibs_stats = {
+        # Show breakout statistics
+        with st.expander("Breakout Strength Statistics", expanded=False):
+            breakout_stats = {
                 "Metric": ["Count", "Min", "25th %ile", "Median", "75th %ile", "Max"],
                 "Value": [
-                    len(ibs_values),
-                    f"{ibs_values.min():.3f}",
-                    f"{np.percentile(ibs_values, 25):.3f}",
-                    f"{ibs_values.median():.3f}",
-                    f"{np.percentile(ibs_values, 75):.3f}",
-                    f"{ibs_values.max():.3f}"
+                    len(breakout_pct),
+                    f"{breakout_pct.min():.2f}%",
+                    f"{np.percentile(breakout_pct, 25):.2f}%",
+                    f"{breakout_pct.median():.2f}%",
+                    f"{np.percentile(breakout_pct, 75):.2f}%",
+                    f"{breakout_pct.max():.2f}%"
                 ]
             }
-            st.dataframe(pd.DataFrame(ibs_stats), hide_index=True, use_container_width=True)
+            st.dataframe(pd.DataFrame(breakout_stats), hide_index=True, use_container_width=True)
     
     # Show combined filter summary
     filter_summary = []
     if selected_percentile != "No Filter":
         filter_summary.append(f"CRT Velocity {selected_percentile}")
-    if selected_ibs != "No Filter":
-        filter_summary.append(f"{selected_ibs}")
+    if selected_breakout != "No Filter":
+        filter_summary.append(f"{selected_breakout}")
     
     if filter_summary:
-        st.success(f"Active filters: {' + '.join(filter_summary)} → {len(filtered_stocks)} signals")
+        st.success(f"Active filters: {' + '.join(filter_summary)} → {len(filtered_stocks)} patterns")
     else:
-        st.info(f"No filters applied → {len(filtered_stocks)} signals")
+        st.info(f"No filters applied → {len(filtered_stocks)} patterns")
     
     # Show distribution charts
     with st.expander("📊 Distribution Analysis", expanded=False):
@@ -236,7 +239,6 @@ def show_buy_signals_filter(buy_signals_stocks):
                 title="CRT Velocity Distribution",
                 labels={'x': 'CRT Velocity (pp)', 'y': 'Count'}
             )
-            # Add threshold lines if filter is active
             if selected_percentile != "No Filter":
                 percentile_val = percentile_options[selected_percentile]
                 threshold_value = np.percentile(velocities, percentile_val)
@@ -245,323 +247,47 @@ def show_buy_signals_filter(buy_signals_stocks):
             st.plotly_chart(fig_hist, use_container_width=True)
         
         with col2:
-            # IBS distribution for buy signals
-            fig_ibs = px.histogram(
-                x=buy_signals_stocks['IBS'],
+            # Breakout strength distribution
+            fig_breakout = px.histogram(
+                x=breakout_pct,
                 nbins=20,
-                title="IBS Distribution",
-                labels={'x': 'IBS', 'y': 'Count'}
+                title="Breakout Strength Distribution (%)",
+                labels={'x': 'Breakout Strength (%)', 'y': 'Count'}
             )
-            # Add threshold line if filter is active
-            if selected_ibs != "No Filter":
-                ibs_threshold = ibs_options[selected_ibs]
-                fig_ibs.add_vline(x=ibs_threshold, line_dash="dash", line_color="red",
-                                annotation_text=f"{selected_ibs} threshold")
-            st.plotly_chart(fig_ibs, use_container_width=True)
+            if selected_breakout != "No Filter":
+                breakout_threshold = breakout_options[selected_breakout]
+                fig_breakout.add_vline(x=breakout_threshold, line_dash="dash", line_color="red",
+                                     annotation_text=f"{selected_breakout} threshold")
+            st.plotly_chart(fig_breakout, use_container_width=True)
     
     # Display filtered results
-    st.subheader(f"📋 Filtered Results ({len(filtered_stocks)} signals)")
+    st.subheader(f"📋 Filtered Results ({len(filtered_stocks)} patterns)")
     
     if len(filtered_stocks) > 0:
         # Sort by CRT Velocity (descending)
         filtered_stocks_sorted = filtered_stocks.sort_values('CRT_Velocity', ascending=False)
         
-        # Use updated display columns
-        display_cols = ['Ticker', 'Name', 'Close', 'CRT_Velocity', 'IBS', 'Signal_Type']
+        # Add breakout strength column
+        filtered_stocks_sorted['Breakout_%'] = ((filtered_stocks_sorted['Close'] - filtered_stocks_sorted['CRT_High']) / 
+                                               filtered_stocks_sorted['CRT_High'] * 100)
         
-        # Add Signal_Type column for better readability
-        filtered_stocks_sorted['Signal_Type'] = filtered_stocks_sorted.apply(
-            lambda row: get_signal_description(row), axis=1
-        )
+        # Display columns focused on breakout analysis
+        display_cols = ['Ticker', 'Name', 'Close', 'CRT_High', 'High', 'Breakout_%', 
+                       'Volume', 'CRT_Velocity', 'IBS']
+        
+        # Add volume change if possible
+        filtered_stocks_sorted['Volume'] = filtered_stocks_sorted.get('Volume', 0)
         
         column_config = {
             'Ticker': st.column_config.TextColumn('Ticker', width='small'),
             'Name': st.column_config.TextColumn('Company Name', width='large'),
-            'Close': st.column_config.NumberColumn('Close Price', format='$%.2f'),
-            'CRT_Velocity': st.column_config.NumberColumn('CRT Velocity', format='%+.4f pp'),
-            'IBS': st.column_config.NumberColumn('Current IBS', format='%.3f'),
-            'Signal_Type': st.column_config.TextColumn('Signal Type', width='medium')
-        }
-        
-        st.dataframe(
-            filtered_stocks_sorted[display_cols],
-            column_config=column_config,
-            use_container_width=True,
-            hide_index=True
-        )
-        
-        # TradingView Export for filtered buy signals
-        st.subheader("📋 TradingView Export (Filtered)")
-        tv_tickers = [f"SGX:{ticker.replace('.SI', '')}" for ticker in filtered_stocks_sorted['Ticker'].tolist()]
-        tv_string = ','.join(tv_tickers)
-        
-        st.text_area(
-            f"Singapore Exchange (SGX) Buy Signals ({len(tv_tickers)} stocks):",
-            value=tv_string,
-            height=100,
-            help="Copy and paste into TradingView watchlist. SGX: prefix ensures Singapore Exchange stocks."
-        )
-        
-        # Export filtered buy signals data
-        csv_data = filtered_stocks_sorted.to_csv(index=False)
-        st.download_button(
-            label="📥 Download Filtered Data (CSV)",
-            data=csv_data,
-            file_name=f"filtered_buy_signals_{len(filtered_stocks)}_stocks.csv",
-            mime="text/csv"
-        )
-    
-    else:
-        st.warning("No buy signals match the current filter criteria")
-    
-    return filtered_stocks
-
-def show_velocity_filter(valid_crt_stocks):
-    """
-    Display dynamic velocity filtering with Current IBS and Higher_HL filters
-    """
-    
-    if valid_crt_stocks.empty or 'CRT_Velocity' not in valid_crt_stocks.columns:
-        st.warning("No Valid CRT stocks available for filtering")
-        return valid_crt_stocks
-    
-    st.subheader("🎯 Dynamic Filtering")
-    
-    # Initialize filtered stocks
-    filtered_stocks = valid_crt_stocks.copy()
-    
-    # Create three columns for the three filters
-    col1, col2, col3 = st.columns(3)
-    
-    # CRT VELOCITY PERCENTILE FILTER
-    with col1:
-        st.markdown("**CRT Velocity Filter:**")
-        
-        # Get velocity statistics
-        velocities = valid_crt_stocks['CRT_Velocity']
-        
-        percentile_options = {
-            "Top 25%": 75,
-            "Top 50%": 50, 
-            "Top 75%": 25,
-            "No Filter": None
-        }
-        
-        selected_percentile = st.radio(
-            "Select velocity filter:",
-            list(percentile_options.keys()),
-            key="percentile_filter_radio"
-        )
-        
-        # Apply percentile filtering
-        if selected_percentile != "No Filter":
-            percentile_val = percentile_options[selected_percentile]
-            threshold_value = np.percentile(velocities, percentile_val)
-            filtered_stocks = filtered_stocks[filtered_stocks['CRT_Velocity'] >= threshold_value]
-            st.info(f"CRT Velocity ≥ {threshold_value:+.4f} pp")
-        else:
-            st.info("All velocities included")
-        
-        # Show velocity statistics
-        with st.expander("CRT Velocity Statistics", expanded=False):
-            stats_data = {
-                "Metric": ["Count", "Min", "25th %ile", "Median", "75th %ile", "Max"],
-                "Value": [
-                    len(velocities),
-                    f"{velocities.min():+.4f} pp",
-                    f"{np.percentile(velocities, 25):+.4f} pp",
-                    f"{velocities.median():+.4f} pp", 
-                    f"{np.percentile(velocities, 75):+.4f} pp",
-                    f"{velocities.max():+.4f} pp"
-                ]
-            }
-            st.dataframe(pd.DataFrame(stats_data), hide_index=True, use_container_width=True)
-    
-    # CURRENT IBS FILTER
-    with col2:
-        st.markdown("**IBS Filter:**")
-        
-        # Get current IBS statistics
-        ibs_values = valid_crt_stocks['IBS']
-        
-        # Percentile options
-        ibs_percentile_options = {
-            "Top 25%": 75,
-            "Top 50%": 50,
-            "Top 75%": 25,
-            "Custom": "custom",
-            "No Filter": None
-        }
-        
-        selected_ibs_option = st.radio(
-            "Select IBS filter:",
-            list(ibs_percentile_options.keys()),
-            key="ibs_filter_radio"
-        )
-        
-        # Handle custom input
-        if selected_ibs_option == "Custom":
-            custom_ibs_value = st.number_input(
-                "Enter minimum IBS value:",
-                min_value=0.0,
-                max_value=1.0,
-                value=0.3,
-                step=0.05,
-                format="%.2f",
-                key="custom_ibs_input"
-            )
-            filtered_stocks = filtered_stocks[filtered_stocks['IBS'] >= custom_ibs_value]
-            st.info(f"IBS ≥ {custom_ibs_value:.2f}")
-        elif selected_ibs_option != "No Filter":
-            # Percentile-based filtering
-            percentile_val = ibs_percentile_options[selected_ibs_option]
-            threshold_value = np.percentile(ibs_values, percentile_val)
-            filtered_stocks = filtered_stocks[filtered_stocks['IBS'] >= threshold_value]
-            st.info(f"IBS ≥ {threshold_value:.3f} ({selected_ibs_option})")
-        else:
-            st.info("All IBS values included")
-        
-        # Show IBS statistics
-        with st.expander("IBS Statistics", expanded=False):
-            ibs_stats = {
-                "Metric": ["Count", "Min", "25th %ile", "Median", "75th %ile", "Max"],
-                "Value": [
-                    len(ibs_values),
-                    f"{ibs_values.min():.3f}",
-                    f"{np.percentile(ibs_values, 25):.3f}",
-                    f"{ibs_values.median():.3f}",
-                    f"{np.percentile(ibs_values, 75):.3f}",
-                    f"{ibs_values.max():.3f}"
-                ]
-            }
-            st.dataframe(pd.DataFrame(ibs_stats), hide_index=True, use_container_width=True)
-    
-    # HIGHER_HL FILTER
-    with col3:
-        st.markdown("**Higher H/L Filter:**")
-        
-        higher_hl_options = {
-            "Higher H/L Only": 1,
-            "No Filter": None
-        }
-        
-        selected_higher_hl = st.radio(
-            "Select Higher H/L filter:",
-            list(higher_hl_options.keys()),
-            key="higher_hl_filter_radio"
-        )
-        
-        # Apply Higher_HL filtering
-        if selected_higher_hl != "No Filter":
-            filtered_stocks = filtered_stocks[filtered_stocks['Higher_HL'] == 1]
-            st.info("Only showing Higher High/Low patterns")
-        else:
-            st.info("All patterns included")
-        
-        # Show Higher_HL statistics
-        with st.expander("Higher H/L Statistics", expanded=False):
-            higher_hl_count = (valid_crt_stocks['Higher_HL'] == 1).sum()
-            total_count = len(valid_crt_stocks)
-            higher_hl_pct = (higher_hl_count / total_count * 100) if total_count > 0 else 0
-            
-            hl_stats = {
-                "Pattern": ["Higher H/L", "Not Higher H/L", "Total"],
-                "Count": [
-                    higher_hl_count,
-                    total_count - higher_hl_count,
-                    total_count
-                ],
-                "Percentage": [
-                    f"{higher_hl_pct:.1f}%",
-                    f"{100 - higher_hl_pct:.1f}%",
-                    "100.0%"
-                ]
-            }
-            st.dataframe(pd.DataFrame(hl_stats), hide_index=True, use_container_width=True)
-    
-    # Show combined filter summary
-    filter_summary = []
-    if selected_percentile != "No Filter":
-        filter_summary.append(f"CRT Velocity {selected_percentile}")
-    if selected_ibs_option == "Custom":
-        filter_summary.append(f"IBS ≥ {custom_ibs_value:.2f}")
-    elif selected_ibs_option != "No Filter":
-        filter_summary.append(f"IBS {selected_ibs_option}")
-    if selected_higher_hl != "No Filter":
-        filter_summary.append("Higher H/L Only")
-    
-    if filter_summary:
-        st.success(f"Active filters: {' + '.join(filter_summary)} → {len(filtered_stocks)} stocks")
-    else:
-        st.info(f"No filters applied → {len(filtered_stocks)} stocks")
-    
-    # Show distribution charts
-    with st.expander("📊 Distribution Analysis", expanded=False):
-        col1, col2, col3 = st.columns(3)
-        
-        with col1:
-            fig_velocity = px.histogram(
-                x=velocities,
-                nbins=20,
-                title="CRT Velocity Distribution",
-                labels={'x': 'CRT Velocity (pp)', 'y': 'Count'}
-            )
-            # Add threshold line if filter is active
-            if selected_percentile != "No Filter":
-                percentile_val = percentile_options[selected_percentile]
-                threshold_value = np.percentile(velocities, percentile_val)
-                fig_velocity.add_vline(x=threshold_value, line_dash="dash", line_color="red", 
-                                 annotation_text=f"{selected_percentile} threshold")
-            st.plotly_chart(fig_velocity, use_container_width=True)
-        
-        with col2:
-            # Current IBS distribution
-            fig_ibs = px.histogram(
-                x=valid_crt_stocks['IBS'],
-                nbins=20,
-                title="Current IBS Distribution",
-                labels={'x': 'IBS', 'y': 'Count'}
-            )
-            # Add threshold line if filter is active
-            if selected_ibs_option == "Custom":
-                fig_ibs.add_vline(x=custom_ibs_value, line_dash="dash", line_color="red",
-                                annotation_text=f"Custom ≥ {custom_ibs_value:.2f}")
-            elif selected_ibs_option != "No Filter":
-                percentile_val = ibs_percentile_options[selected_ibs_option]
-                threshold_value = np.percentile(ibs_values, percentile_val)
-                fig_ibs.add_vline(x=threshold_value, line_dash="dash", line_color="red",
-                                annotation_text=f"{selected_ibs_option} threshold")
-            st.plotly_chart(fig_ibs, use_container_width=True)
-        
-        with col3:
-            # Higher_HL bar chart
-            hl_counts = valid_crt_stocks['Higher_HL'].value_counts().sort_index()
-            fig_hl = px.bar(
-                x=['Not Higher H/L', 'Higher H/L'],
-                y=[hl_counts.get(0, 0), hl_counts.get(1, 0)],
-                title="Higher High/Low Pattern Distribution",
-                labels={'x': 'Pattern', 'y': 'Count'}
-            )
-            st.plotly_chart(fig_hl, use_container_width=True)
-    
-    # Display filtered results
-    st.subheader(f"📋 Filtered Results ({len(filtered_stocks)} stocks)")
-    
-    if len(filtered_stocks) > 0:
-        # Sort by CRT Velocity (descending)
-        filtered_stocks_sorted = filtered_stocks.sort_values('CRT_Velocity', ascending=False)
-        
-        # Display columns (updated to Higher_HL)
-        display_cols = ['Ticker', 'Name', 'Weekly_Open', 'CRT_Velocity', 'CRT_High', 'CRT_Low', 'IBS', 'Higher_HL']
-        column_config = {
-            'Ticker': st.column_config.TextColumn('Ticker', width='small'),
-            'Name': st.column_config.TextColumn('Company Name', width='large'),
-            'Weekly_Open': st.column_config.NumberColumn('Weekly Open', format='$%.2f'),
-            'CRT_Velocity': st.column_config.NumberColumn('CRT Velocity', format='%+.4f pp'),
+            'Close': st.column_config.NumberColumn('Close', format='$%.2f'),
             'CRT_High': st.column_config.NumberColumn('CRT High', format='$%.2f'),
-            'CRT_Low': st.column_config.NumberColumn('CRT Low', format='$%.2f'),
-            'IBS': st.column_config.NumberColumn('Current IBS', format='%.3f'),
-            'Higher_HL': st.column_config.NumberColumn('Higher H/L', width='small')
+            'High': st.column_config.NumberColumn('Day High', format='$%.2f'),
+            'Breakout_%': st.column_config.NumberColumn('Breakout %', format='%+.2f'),
+            'Volume': st.column_config.NumberColumn('Volume', format='%,.0f'),
+            'CRT_Velocity': st.column_config.NumberColumn('CRT Velocity', format='%+.4f pp'),
+            'IBS': st.column_config.NumberColumn('IBS', format='%.3f')
         }
         
         st.dataframe(
@@ -571,13 +297,13 @@ def show_velocity_filter(valid_crt_stocks):
             hide_index=True
         )
         
-        # TradingView Export for filtered list
+        # TradingView Export
         st.subheader("📋 TradingView Export (Filtered)")
         tv_tickers = [f"SGX:{ticker.replace('.SI', '')}" for ticker in filtered_stocks_sorted['Ticker'].tolist()]
         tv_string = ','.join(tv_tickers)
         
         st.text_area(
-            f"Singapore Exchange (SGX) TradingView list ({len(tv_tickers)} stocks):",
+            f"Singapore Exchange (SGX) Close Above Patterns ({len(tv_tickers)} stocks):",
             value=tv_string,
             height=100,
             help="Copy and paste into TradingView watchlist. SGX: prefix ensures Singapore Exchange stocks."
@@ -588,20 +314,20 @@ def show_velocity_filter(valid_crt_stocks):
         st.download_button(
             label="📥 Download Filtered Data (CSV)",
             data=csv_data,
-            file_name=f"filtered_valid_crt_{len(filtered_stocks)}_stocks.csv",
+            file_name=f"close_above_patterns_{len(filtered_stocks)}_stocks.csv",
             mime="text/csv"
         )
     
     else:
-        st.warning("No stocks match the current filter criteria")
+        st.warning("No patterns match the current filter criteria")
     
     return filtered_stocks
 
 def show():
-    """Main scanner page display with enhanced error logging"""
+    """Main scanner page display for Close Above patterns"""
     
-    st.title("🔍 Live Stock Scanner")
-    st.markdown("Flexible stock scanning with comprehensive error logging and debugging")
+    st.title("🚀 CRT Close Above Scanner")
+    st.markdown("Focus on stocks breaking above CRT High levels (momentum breakouts)")
     
     # Clear previous errors for new scan
     if st.button("🗑️ Clear Error Log"):
@@ -622,13 +348,6 @@ def show():
             'python_path': sys.path
         })
         st.error(f"❌ Import error: {e}")
-        st.info("""
-        **Missing modules detected!** Please create the following files:
-        
-        1. `core/data_fetcher.py` - Copy the enhanced data fetcher code
-        2. `core/technical_analysis.py` - Copy the technical analysis code  
-        3. `utils/watchlist.py` - Copy the watchlist code
-        """)
         modules_available = False
     
     # Display any existing errors
@@ -637,7 +356,6 @@ def show():
     # Scanning Configuration Panel
     st.subheader("🎯 Scanning Configuration")
     
-    # Create two main columns for scan configuration
     col1, col2 = st.columns(2)
     
     with col1:
@@ -648,14 +366,12 @@ def show():
             help="Select whether to scan one stock or the entire watchlist"
         )
         
-        # Single stock selection
         if scan_scope == "Single Stock":
             try:
                 if modules_available:
                     watchlist = get_active_watchlist()
                     st.session_state.error_logger.log_debug("Watchlist", f"Loaded {len(watchlist)} stocks", watchlist)
                 else:
-                    # Fallback watchlist for testing
                     watchlist = ['A17U.SI', 'BN2.SI', 'C52.SI', 'E28.SI', 'G13.SI']
                     st.session_state.error_logger.log_warning("Watchlist", "Using fallback watchlist due to missing modules")
                 
@@ -668,7 +384,7 @@ def show():
                 
             except Exception as e:
                 st.session_state.error_logger.log_error("Watchlist Loading", e)
-                selected_stock = "A17U.SI"  # Fallback
+                selected_stock = "A17U.SI"
         
     with col2:
         st.markdown("**📅 Analysis Date**")
@@ -678,7 +394,6 @@ def show():
             help="Scan as of current date or specify a historical date"
         )
         
-        # Historical date selection
         if scan_date_type == "Historical Date":
             try:
                 default_date = date.today() - timedelta(days=7)
@@ -722,62 +437,14 @@ def show():
                 help="Show detailed debug information during scanning"
             )
     
-    # Debug Information Display
-    if debug_mode:
-        with st.expander("🔧 Debug Information", expanded=True):
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                st.json({
-                    "modules_available": modules_available,
-                    "scan_scope": scan_scope,
-                    "scan_date_type": scan_date_type,
-                    "days_back": days_back,
-                    "rolling_window": rolling_window
-                })
-            
-            with col2:
-                summary = st.session_state.error_logger.get_summary()
-                st.json(summary)
-            
-            # Show recent debug entries
-            if st.session_state.error_logger.debug_info:
-                st.subheader("Recent Debug Log")
-                for entry in st.session_state.error_logger.debug_info[-5:]:  # Last 5 entries
-                    st.text(f"{entry['timestamp']} - {entry['component']}: {entry['message']}")
-    
     # Scan Execution
     st.subheader("🚀 Execute Scan")
     
-    # Generate scan description
-    try:
-        if scan_scope == "Single Stock":
-            scope_desc = f"**{selected_stock}**"
-        else:
-            if modules_available:
-                scope_desc = f"**Full Watchlist** ({len(get_active_watchlist())} stocks)"
-            else:
-                scope_desc = "**Full Watchlist** (unknown count - modules not available)"
-        
-        if scan_date_type == "Historical Date":
-            date_desc = f"as of **{historical_date}**"
-        else:
-            date_desc = f"with **current data**"
-        
-        st.info(f"📋 Ready to scan: {scope_desc} {date_desc}")
-        
-    except Exception as e:
-        st.session_state.error_logger.log_error("Scan Description", e)
-        st.warning("Error generating scan description - see debug log for details")
-    
-    # Main scan button
     if st.button("🚀 Execute Scan", type="primary", use_container_width=True):
-        # Clear previous errors for this scan
         st.session_state.error_logger = ErrorLogger()
         
         if modules_available:
             try:
-                # Determine scan parameters
                 if scan_scope == "Single Stock":
                     stocks_to_scan = [selected_stock]
                 else:
@@ -786,16 +453,8 @@ def show():
                 if scan_date_type == "Historical Date":
                     analysis_date = historical_date
                 else:
-                    analysis_date = None  # Use current date
+                    analysis_date = None
                 
-                st.session_state.error_logger.log_debug("Scan Parameters", "Parameters determined", {
-                    "stocks_to_scan": stocks_to_scan,
-                    "analysis_date": str(analysis_date) if analysis_date else "Current",
-                    "days_back": days_back,
-                    "rolling_window": rolling_window
-                })
-                
-                # Execute the scan
                 run_enhanced_stock_scan(
                     stocks_to_scan=stocks_to_scan,
                     analysis_date=analysis_date,
@@ -832,7 +491,6 @@ def run_enhanced_stock_scan(stocks_to_scan, analysis_date=None, days_back=59, ro
     error_logger = st.session_state.error_logger
     
     try:
-        # Import modules
         from core.data_fetcher import DataFetcher, set_global_data_fetcher
         from core.technical_analysis import add_enhanced_columns
         
@@ -844,7 +502,6 @@ def run_enhanced_stock_scan(stocks_to_scan, analysis_date=None, days_back=59, ro
             "rolling_window": rolling_window
         })
         
-        # Determine scan type for display
         is_historical = analysis_date is not None
         is_single_stock = len(stocks_to_scan) == 1
         
@@ -860,11 +517,9 @@ def run_enhanced_stock_scan(stocks_to_scan, analysis_date=None, days_back=59, ro
         
         st.info(f"🔄 Scanning {scope_text} with {date_text}... This may take a moment.")
         
-        # Progress tracking
         progress_bar = st.progress(0)
         status_text = st.empty()
         
-        # Initialize data fetcher
         status_text.text("🔧 Initializing data fetcher...")
         try:
             fetcher = DataFetcher(days_back=days_back)
@@ -875,7 +530,6 @@ def run_enhanced_stock_scan(stocks_to_scan, analysis_date=None, days_back=59, ro
         
         progress_bar.progress(0.1)
         
-        # Download stock data
         status_text.text("📥 Downloading stock data and company names...")
         try:
             stock_data = fetcher.download_stock_data(stocks_to_scan)
@@ -885,7 +539,6 @@ def run_enhanced_stock_scan(stocks_to_scan, analysis_date=None, days_back=59, ro
                 "success_rate": f"{len(stock_data)/len(stocks_to_scan)*100:.1f}%"
             })
             
-            # Log any missing stocks
             missing_stocks = [stock for stock in stocks_to_scan if stock not in stock_data]
             if missing_stocks:
                 error_logger.log_warning("Data Download", f"Failed to download {len(missing_stocks)} stocks", {
@@ -899,7 +552,6 @@ def run_enhanced_stock_scan(stocks_to_scan, analysis_date=None, days_back=59, ro
             })
             raise
         
-        # Set global fetcher
         set_global_data_fetcher(fetcher)
         progress_bar.progress(0.3)
         
@@ -912,7 +564,6 @@ def run_enhanced_stock_scan(stocks_to_scan, analysis_date=None, days_back=59, ro
             st.error("❌ Failed to download stock data. Check error log for details.")
             return
         
-        # Process each stock
         status_text.text("🔄 Analyzing technical indicators...")
         progress_bar.progress(0.4)
         
@@ -931,7 +582,6 @@ def run_enhanced_stock_scan(stocks_to_scan, analysis_date=None, days_back=59, ro
                     error_logger.log_warning("Stock Processing", f"Empty dataframe for {ticker}")
                     continue
                 
-                # Apply technical analysis
                 try:
                     df_enhanced = add_enhanced_columns(df_raw, ticker, rolling_window)
                     error_logger.log_debug("Technical Analysis", f"Enhanced columns added for {ticker}", {
@@ -947,28 +597,20 @@ def run_enhanced_stock_scan(stocks_to_scan, analysis_date=None, days_back=59, ro
                     processing_errors.append(f"{ticker}: Technical analysis failed")
                     continue
                 
-                # Determine which row to analyze
                 if is_historical:
                     try:
-                        # Handle timezone-aware datetime comparison properly
                         target_date = pd.to_datetime(analysis_date)
                         available_dates = df_enhanced.index
                         
-                        # Convert target_date to match the timezone of available_dates if needed
                         if hasattr(available_dates, 'tz') and available_dates.tz is not None:
-                            # Data has timezone info (Singapore timezone)
                             if target_date.tz is None:
-                                # Target date is naive, localize it to Singapore timezone
                                 target_date = target_date.tz_localize('Asia/Singapore')
                             else:
-                                # Convert target date to same timezone as data
                                 target_date = target_date.tz_convert(available_dates.tz)
                         else:
-                            # Data is timezone-naive, ensure target_date is also naive
                             if target_date.tz is not None:
                                 target_date = target_date.tz_localize(None)
                         
-                        # Now we can safely compare
                         valid_dates = available_dates[available_dates <= target_date]
                         
                         error_logger.log_debug("Historical Date Processing", f"Date comparison for {ticker}", {
@@ -990,28 +632,6 @@ def run_enhanced_stock_scan(stocks_to_scan, analysis_date=None, days_back=59, ro
                         analysis_row = df_enhanced.loc[valid_dates[-1]]
                         actual_date = valid_dates[-1]
                         
-                        # Calculate days difference safely
-                        try:
-                            if hasattr(actual_date, 'date'):
-                                actual_date_simple = actual_date.date()
-                            else:
-                                actual_date_simple = actual_date
-                            
-                            if hasattr(target_date, 'date'):
-                                target_date_simple = target_date.date()
-                            else:
-                                target_date_simple = target_date
-                            
-                            days_diff = (target_date_simple - actual_date_simple).days
-                        except:
-                            days_diff = "Unable to calculate"
-                        
-                        error_logger.log_debug("Historical Analysis", f"Using data for {ticker}", {
-                            "requested_date": str(analysis_date),
-                            "actual_date": str(actual_date),
-                            "days_difference": days_diff
-                        })
-                        
                     except Exception as e:
                         error_logger.log_error("Historical Date Processing", e, {
                             "ticker": ticker,
@@ -1026,7 +646,6 @@ def run_enhanced_stock_scan(stocks_to_scan, analysis_date=None, days_back=59, ro
                     analysis_row = df_enhanced.iloc[-1]
                     actual_date = analysis_row.name
                 
-                # Get company name
                 try:
                     company_name = fetcher.get_company_name(ticker)
                     error_logger.log_debug("Company Name", f"Retrieved name for {ticker}: {company_name}")
@@ -1034,26 +653,28 @@ def run_enhanced_stock_scan(stocks_to_scan, analysis_date=None, days_back=59, ro
                     error_logger.log_warning("Company Name", f"Failed to get name for {ticker}: {e}")
                     company_name = ticker.replace('.SI', '')
                 
-                # Collect results (updated to Higher_HL)
+                # Collect results (focused on Close Above)
                 try:
+                    # Get volume from raw data
+                    volume = float(df_raw.loc[actual_date, 'Volume']) if 'Volume' in df_raw.columns and actual_date in df_raw.index else 0
+                    
                     result = {
                         'Ticker': ticker,
                         'Name': company_name,
                         'Analysis_Date': actual_date.strftime('%Y-%m-%d') if hasattr(actual_date, 'strftime') else str(actual_date),
                         'Close': round(float(analysis_row['Close']), 2),
+                        'High': round(float(analysis_row['High']), 2),
+                        'Low': round(float(analysis_row['Low']), 2),
+                        'Volume': int(volume),
                         'IBS': round(float(analysis_row['IBS']), 3) if not pd.isna(analysis_row['IBS']) else 0,
                         'Valid_CRT': int(analysis_row.get('Valid_CRT', 0)),
-                        'Wick_Below': int(analysis_row.get('Wick_Below', 0)),
                         'Close_Above': int(analysis_row.get('Close_Above', 0)),
-                        'Buy_Signal': int(analysis_row.get('Buy_Signal', 0)),
-                        'Rel_Range_Signal': int(analysis_row.get('Rel_Range_Signal', 0)),
-                        'VW_Range_Percentile': round(float(analysis_row.get('VW_Range_Percentile', 0)), 4) if not pd.isna(analysis_row.get('VW_Range_Percentile', 0)) else 0,
-                        'VW_Range_Velocity': round(float(analysis_row.get('VW_Range_Velocity', 0)), 4) if not pd.isna(analysis_row.get('VW_Range_Velocity', 0)) else 0,
                         'CRT_Velocity': round(float(analysis_row.get('CRT_Qualifying_Velocity', 0)), 4) if not pd.isna(analysis_row.get('CRT_Qualifying_Velocity', 0)) else 0,
-                        'Higher_HL': int(analysis_row.get('Higher_HL', 0)) if not pd.isna(analysis_row.get('Higher_HL', 0)) else 0,
                         'Weekly_Open': round(float(analysis_row.get('Weekly_Open', 0)), 2) if not pd.isna(analysis_row.get('Weekly_Open', 0)) else 0,
                         'CRT_High': round(float(analysis_row.get('CRT_High', 0)), 2) if not pd.isna(analysis_row.get('CRT_High', 0)) else 0,
-                        'CRT_Low': round(float(analysis_row.get('CRT_Low', 0)), 2) if not pd.isna(analysis_row.get('CRT_Low', 0)) else 0
+                        'CRT_Low': round(float(analysis_row.get('CRT_Low', 0)), 2) if not pd.isna(analysis_row.get('CRT_Low', 0)) else 0,
+                        'VW_Range_Percentile': round(float(analysis_row.get('VW_Range_Percentile', 0)), 4) if not pd.isna(analysis_row.get('VW_Range_Percentile', 0)) else 0,
+                        'Rel_Range_Signal': int(analysis_row.get('Rel_Range_Signal', 0))
                     }
                     results.append(result)
                     
@@ -1069,7 +690,6 @@ def run_enhanced_stock_scan(stocks_to_scan, analysis_date=None, days_back=59, ro
                     processing_errors.append(f"{ticker}: Result collection failed")
                     continue
                 
-                # Update progress
                 progress = 0.4 + (0.5 * (i + 1) / len(stock_data))
                 progress_bar.progress(progress)
                 
@@ -1082,14 +702,12 @@ def run_enhanced_stock_scan(stocks_to_scan, analysis_date=None, days_back=59, ro
                 processing_errors.append(f"{ticker}: {str(e)}")
                 continue
         
-        # Log processing summary
         if processing_errors:
             error_logger.log_warning("Processing Summary", f"{len(processing_errors)} stocks had processing errors", {
                 "errors": processing_errors,
                 "success_rate": f"{len(results)}/{len(stock_data)} ({len(results)/len(stock_data)*100:.1f}%)"
             })
         
-        # Finalize results
         status_text.text("📊 Preparing results...")
         progress_bar.progress(0.9)
         
@@ -1105,7 +723,6 @@ def run_enhanced_stock_scan(stocks_to_scan, analysis_date=None, days_back=59, ro
             })
             raise
         
-        # Store results and configuration in session state
         st.session_state.scan_results = results_df
         st.session_state.last_scan_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         st.session_state.last_scan_config = {
@@ -1114,16 +731,13 @@ def run_enhanced_stock_scan(stocks_to_scan, analysis_date=None, days_back=59, ro
             'stock_count': len(results_df)
         }
         
-        # Complete
         progress_bar.progress(1.0)
         status_text.text("✅ Scan completed!")
         
-        # Clear progress indicators
         time.sleep(1)
         progress_bar.empty()
         status_text.empty()
         
-        # Success message
         success_message = f"🎉 Scan completed! Analyzed {len(results_df)} stocks successfully"
         if processing_errors:
             success_message += f" ({len(processing_errors)} errors - check log for details)"
@@ -1137,7 +751,6 @@ def run_enhanced_stock_scan(stocks_to_scan, analysis_date=None, days_back=59, ro
             "processing_errors": len(processing_errors)
         })
         
-        # Auto-refresh to show results
         st.rerun()
         
     except Exception as e:
@@ -1151,14 +764,13 @@ def run_enhanced_stock_scan(stocks_to_scan, analysis_date=None, days_back=59, ro
         })
         st.error("❌ Scan failed with critical error - check error log for full details")
         
-        # Clear progress indicators
         if 'progress_bar' in locals():
             progress_bar.empty()
         if 'status_text' in locals():
             status_text.empty()
 
 def display_scan_results(results_df: pd.DataFrame):
-    """Display scanning results with error context and dynamic filtering for both buy signals and valid CRT"""
+    """Display scanning results focused on Close Above patterns"""
     
     error_logger = st.session_state.error_logger
     
@@ -1172,20 +784,20 @@ def display_scan_results(results_df: pd.DataFrame):
         st.subheader("📊 Scan Summary")
         
         total_stocks = len(results_df)
-        buy_signals = len(results_df[results_df['Buy_Signal'] == 1])
-        expansion_signals = len(results_df[results_df['Rel_Range_Signal'] == 1])
-        high_ibs = len(results_df[results_df['IBS'] >= 0.5])
+        close_above_count = len(results_df[results_df['Close_Above'] == 1])
+        valid_crt_count = len(results_df[results_df['Valid_CRT'] == 1])
+        close_above_with_crt = len(results_df[(results_df['Close_Above'] == 1) & (results_df['Valid_CRT'] == 1)])
         
         col1, col2, col3, col4 = st.columns(4)
         
         with col1:
             st.metric("Total Analyzed", total_stocks)
         with col2:
-            st.metric("Buy Signals", buy_signals, delta=f"{buy_signals/total_stocks*100:.1f}%")
+            st.metric("Close Above Patterns", close_above_count, delta=f"{close_above_count/total_stocks*100:.1f}%")
         with col3:
-            st.metric("Range Expansion", expansion_signals)
+            st.metric("Valid CRT", valid_crt_count)
         with col4:
-            st.metric("High IBS (≥0.5)", high_ibs)
+            st.metric("Close Above + CRT", close_above_with_crt)
         
         # Analysis Date Info
         if len(results_df) > 0:
@@ -1195,32 +807,37 @@ def display_scan_results(results_df: pd.DataFrame):
             else:
                 st.info(f"📅 Analysis performed for dates: **{', '.join(analysis_dates)}**")
         
-        # Buy Signals Section with Dynamic Filtering
-        st.subheader("🎯 Buy Signals Detected")
+        # Close Above Patterns Section
+        st.subheader("🚀 Close Above Patterns Detected")
         
-        buy_signals_df = results_df[results_df['Buy_Signal'] == 1].copy()
+        close_above_df = results_df[results_df['Close_Above'] == 1].copy()
         
-        if len(buy_signals_df) > 0:
-            # Dynamic Filtering for Buy Signals
-            show_buy_signals_filter(buy_signals_df)
+        if len(close_above_df) > 0:
+            # Show stocks with both Close Above AND Valid CRT first
+            close_above_with_crt_df = close_above_df[close_above_df['Valid_CRT'] == 1]
             
+            if len(close_above_with_crt_df) > 0:
+                st.success(f"🎯 {len(close_above_with_crt_df)} stocks with Close Above + Valid CRT")
+                show_close_above_filter(close_above_with_crt_df)
+            else:
+                st.info("📊 Close Above patterns found but none with Valid CRT")
+                # Still show the filtering interface for all Close Above patterns
+                show_close_above_filter(close_above_df)
         else:
-            st.info("🔍 No buy signals detected in this analysis.")
+            st.info("🔍 No Close Above patterns detected in this analysis.")
         
-        # Valid CRT Watch List Section with Dynamic Filtering
-        st.subheader("📋 Valid CRT Watch List with Dynamic Filtering")
+        # Valid CRT Watch List Section
+        st.subheader("📋 Valid CRT Watch List")
         
         valid_crt_stocks = results_df[results_df['Valid_CRT'] == 1].copy()
         
         if len(valid_crt_stocks) > 0:
-            # Sort by CRT qualifying velocity (highest to lowest)
             valid_crt_stocks = valid_crt_stocks.sort_values('CRT_Velocity', ascending=False)
             
-            st.info("📅 Stocks that qualified for Valid CRT - Use filters below to refine your selection")
-            
-            # Show basic table first (updated to Higher_HL)
             with st.expander("📊 Full Valid CRT List (Click to expand)", expanded=False):
-                display_cols = ['Ticker', 'Name', 'Analysis_Date', 'Weekly_Open', 'CRT_Velocity', 'CRT_High', 'CRT_Low', 'IBS', 'Higher_HL']
+                display_cols = ['Ticker', 'Name', 'Analysis_Date', 'Weekly_Open', 'CRT_Velocity', 
+                              'CRT_High', 'CRT_Low', 'Close_Above', 'IBS']
+                
                 column_config = {
                     'Ticker': st.column_config.TextColumn('Ticker', width='small'),
                     'Name': st.column_config.TextColumn('Company Name', width='large'),
@@ -1229,8 +846,8 @@ def display_scan_results(results_df: pd.DataFrame):
                     'CRT_Velocity': st.column_config.NumberColumn('CRT Velocity', format='%+.4f pp'),
                     'CRT_High': st.column_config.NumberColumn('CRT_High', format='$%.2f'),
                     'CRT_Low': st.column_config.NumberColumn('CRT_Low', format='$%.2f'),
-                    'IBS': st.column_config.NumberColumn('Current IBS', format='%.3f'),
-                    'Higher_HL': st.column_config.NumberColumn('Higher H/L', width='small')
+                    'Close_Above': st.column_config.NumberColumn('Close Above', width='small'),
+                    'IBS': st.column_config.NumberColumn('IBS', format='%.3f')
                 }
                 
                 st.dataframe(
@@ -1239,42 +856,30 @@ def display_scan_results(results_df: pd.DataFrame):
                     use_container_width=True,
                     hide_index=True
                 )
-            
-            # Dynamic Velocity Filtering - RADIO BUTTON VERSION
-            show_velocity_filter(valid_crt_stocks)
-            
         else:
             st.info("No Valid CRT stocks detected in this analysis.")
         
-        # Full Results Table with Custom Column Order (updated to Higher_HL)
+        # Full Results Table
         with st.expander("📋 Full Analysis Results", expanded=False):
-            # Reorder columns for better analysis flow
             full_results_cols = [
-                'Analysis_Date', 'Ticker', 'Name', 'Weekly_Open', 'CRT_High', 'CRT_Low', 
-                'Close', 'VW_Range_Percentile', 'VW_Range_Velocity', 'CRT_Velocity',
-                'Rel_Range_Signal', 'Valid_CRT', 'Higher_HL',
-                'Wick_Below', 'Close_Above', 'IBS', 'Buy_Signal'
+                'Analysis_Date', 'Ticker', 'Name', 'High', 'CRT_High', 'Close', 
+                'Close_Above', 'Valid_CRT', 'CRT_Velocity', 'Volume', 
+                'Rel_Range_Signal', 'IBS'
             ]
             
-            # Configure column display
             full_results_column_config = {
                 'Analysis_Date': st.column_config.TextColumn('Date', width='small'),
                 'Ticker': st.column_config.TextColumn('Ticker', width='small'),
                 'Name': st.column_config.TextColumn('Company Name', width='medium'),
-                'Weekly_Open': st.column_config.NumberColumn('Weekly Open', format='$%.2f'),
+                'High': st.column_config.NumberColumn('Day High', format='$%.2f'),
                 'CRT_High': st.column_config.NumberColumn('CRT High', format='$%.2f'),
-                'CRT_Low': st.column_config.NumberColumn('CRT Low', format='$%.2f'),
                 'Close': st.column_config.NumberColumn('Close', format='$%.2f'),
-                'VW_Range_Percentile': st.column_config.NumberColumn('VW Range %ile', format='%.4f'),
-                'VW_Range_Velocity': st.column_config.NumberColumn('VW Velocity', format='%+.4f pp'),
-                'CRT_Velocity': st.column_config.NumberColumn('CRT Velocity', format='%+.4f pp'),
-                'Rel_Range_Signal': st.column_config.NumberColumn('Range Signal', width='small'),
-                'Valid_CRT': st.column_config.NumberColumn('Valid CRT', width='small'),
-                'Higher_HL': st.column_config.NumberColumn('Higher H/L', width='small'),
-                'Wick_Below': st.column_config.NumberColumn('Wick Below', width='small'),
                 'Close_Above': st.column_config.NumberColumn('Close Above', width='small'),
-                'IBS': st.column_config.NumberColumn('Current IBS', format='%.3f'),
-                'Buy_Signal': st.column_config.NumberColumn('Buy Signal', width='small')
+                'Valid_CRT': st.column_config.NumberColumn('Valid CRT', width='small'),
+                'CRT_Velocity': st.column_config.NumberColumn('CRT Velocity', format='%+.4f pp'),
+                'Volume': st.column_config.NumberColumn('Volume', format='%,.0f'),
+                'Rel_Range_Signal': st.column_config.NumberColumn('Range Signal', width='small'),
+                'IBS': st.column_config.NumberColumn('IBS', format='%.3f')
             }
             
             st.dataframe(
@@ -1286,7 +891,7 @@ def display_scan_results(results_df: pd.DataFrame):
         
         error_logger.log_debug("Results Display", "Successfully displayed all results", {
             "total_displayed": len(results_df),
-            "buy_signals_displayed": len(buy_signals_df) if 'buy_signals_df' in locals() else 0
+            "close_above_displayed": len(close_above_df) if 'close_above_df' in locals() else 0
         })
         
     except Exception as e:
@@ -1294,16 +899,6 @@ def display_scan_results(results_df: pd.DataFrame):
             "results_shape": results_df.shape if not results_df.empty else "Empty DataFrame"
         })
         st.error("❌ Error displaying results - check error log for details")
-
-def get_signal_description(row):
-    """Get human-readable signal description"""
-    signals = []
-    if row['Wick_Below']:
-        signals.append('Wick Below')
-    if row['Close_Above']:
-        signals.append('Close Above')
-    
-    return ' + '.join(signals) if signals else 'None'
 
 if __name__ == "__main__":
     show()
