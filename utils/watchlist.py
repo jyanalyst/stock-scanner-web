@@ -14,7 +14,7 @@ DEFAULT_WATCHLIST = [
     'S56.SI', 'AP4.SI', '544.SI', 'G92.SI', 'Z25.SI',
     'RXS.SI', 'S58.SI', 'EB5.SI', '1MZ.SI', '41O.SI',
     'OYY.SI', 'E3B.SI', 'OU8.SI', 'LCC.SI',
-    'A04.SI', 'ER0.SI', '5WH.SI', '1E3.SI', '5TP.SI'
+    'A04.SI', 'ER0.SI', '5WH.SI', '1E3.SI', '5TP.SI', '1L2.SI', 'P52.SI'
 ]
 
 def get_active_watchlist():
