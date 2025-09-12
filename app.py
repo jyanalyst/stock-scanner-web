@@ -1,6 +1,6 @@
 """
 Stock Scanner Web Application
-Main Streamlit application with navigation for three specialized scanners
+Main Streamlit application with navigation for Higher H/L scanner
 """
 
 import streamlit as st
@@ -44,24 +44,15 @@ def show_home_page():
     st.markdown("""
     ## Welcome to Stock Scanner Pro! 🚀
     
-    Your sophisticated stock scanning application with three specialized CRT (Candle Range Theory) scanners.
+    Your sophisticated stock scanning application with CRT (Candle Range Theory) analysis.
     
-    ### Available Scanners:
+    ### Available Scanner:
     
     #### 📈 **CRT Higher H/L Scanner**
     - Focuses on stocks showing Higher High AND Higher Low patterns
     - Identifies trending momentum with expanding range
     - Best for trend continuation plays
-    
-    #### 📊 **CRT Wick Below Scanner** 
-    - Tracks stocks that test and bounce off CRT Low levels
-    - Measures bounce strength and recovery patterns
-    - Ideal for support level plays
-    
-    #### 🚀 **CRT Close Above Scanner**
-    - Monitors stocks breaking above CRT High levels
-    - Analyzes breakout strength and momentum
-    - Perfect for momentum breakout plays
+    - Flexible filtering for Valid CRT and/or Higher H/L patterns
     
     ### Key Features:
     - 📊 **Real-time Analysis** - Live scanning of 46 Singapore Exchange stocks
@@ -69,11 +60,12 @@ def show_home_page():
     - 🎯 **Dynamic Filtering** - Velocity and pattern-specific filters
     - 📋 **TradingView Export** - Direct export to TradingView watchlists
     - 📥 **CSV Downloads** - Export filtered results for further analysis
+    - 🕒 **Historical Analysis** - Scan as of any past trading date
     
     ---
     
     **Get Started:**
-    👈 Use the sidebar to navigate to your preferred scanner!
+    👈 Use the sidebar to navigate to the Higher H/L scanner!
     """)
     
     # Quick stats
@@ -83,7 +75,7 @@ def show_home_page():
         st.metric("Stocks Tracked", "46", delta="SGX Listed")
     
     with col2:
-        st.metric("Scanner Types", "3", delta="Specialized")
+        st.metric("Scanner Types", "1", delta="Higher H/L Focus")
     
     with col3:
         if 'last_scan_time' in st.session_state:
@@ -104,8 +96,6 @@ def main():
     pages = {
         "🏠 Home": "home",
         "📈 CRT Higher H/L": "higher_hl",
-        "📊 CRT Wick Below": "wick_below",
-        "🚀 CRT Close Above": "close_above",
         "📊 Historical Analysis": "historical", 
         "📋 Watchlist Manager": "watchlist",
         "⚙️ Settings": "settings"
@@ -125,9 +115,11 @@ def main():
     if 'scan_results' in st.session_state:
         total_stocks = len(st.session_state.scan_results)
         valid_crt = len(st.session_state.scan_results[st.session_state.scan_results['Valid_CRT'] == 1])
+        higher_hl = len(st.session_state.scan_results[st.session_state.scan_results['Higher_HL'] == 1])
         
         st.sidebar.metric("Stocks Scanned", total_stocks)
         st.sidebar.metric("Valid CRT", valid_crt)
+        st.sidebar.metric("Higher H/L", higher_hl)
     
     # Page routing
     page_value = pages[selected_page]
@@ -142,22 +134,6 @@ def main():
         except ImportError:
             st.error("CRT Higher H/L scanner module not found. Please ensure pages/scanner_higher_hl.py exists.")
             st.info("This scanner focuses on stocks with Higher High AND Higher Low patterns.")
-    
-    elif page_value == "wick_below":
-        try:
-            from pages import scanner_wick_below
-            scanner_wick_below.show()
-        except ImportError:
-            st.error("CRT Wick Below scanner module not found. Please ensure pages/scanner_wick_below.py exists.")
-            st.info("This scanner tracks stocks that test and bounce off CRT Low levels.")
-    
-    elif page_value == "close_above":
-        try:
-            from pages import scanner_close_above
-            scanner_close_above.show()
-        except ImportError:
-            st.error("CRT Close Above scanner module not found. Please ensure pages/scanner_close_above.py exists.")
-            st.info("This scanner monitors stocks breaking above CRT High levels.")
     
     elif page_value == "historical":
         st.title("📊 Historical Analysis")
