@@ -64,11 +64,11 @@ def _download_stock_data_cached(tickers: List[str], days_back: int) -> Tuple[Dic
                 # Get company name from ticker info
                 try:
                     info = ticker_obj.info
-                    # Try different fields that might contain the company name
+                    # Prioritize shortName for more concise display
                     company_name = (
-                        info.get('longName') or 
                         info.get('shortName') or 
                         info.get('displayName') or
+                        info.get('longName') or
                         ticker.replace('.SI', '')
                     )
                     company_names[ticker] = company_name
@@ -105,10 +105,11 @@ def _get_company_name_cached(ticker: str) -> str:
         ticker_obj = yf.Ticker(ticker)
         info = ticker_obj.info
         
+        # Prioritize shortName for more concise display
         company_name = (
-            info.get('longName') or 
             info.get('shortName') or 
             info.get('displayName') or
+            info.get('longName') or
             ticker.replace('.SI', '')
         )
         return company_name
@@ -174,10 +175,11 @@ class DataFetcher:
             # Also get company name while we're at it
             try:
                 info = ticker_obj.info
+                # Prioritize shortName for more concise display
                 company_name = (
-                    info.get('longName') or 
                     info.get('shortName') or 
                     info.get('displayName') or
+                    info.get('longName') or
                     ticker.replace('.SI', '')
                 )
                 self.company_names[ticker] = company_name
