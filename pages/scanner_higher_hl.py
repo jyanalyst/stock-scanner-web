@@ -1,6 +1,8 @@
 """
-CRT Higher H/L Scanner
+CRT Higher H/L Scanner - PART 1
 Enhanced with flexible base filtering for Valid CRT and/or Higher H/L patterns
+PHASE 2 ENHANCED: Added strategy filtering with momentum + autocorr analysis
+Strategy filter positioned as final column for comprehensive analysis
 """
 
 import streamlit as st
@@ -110,9 +112,88 @@ class ErrorLogger:
 if 'error_logger' not in st.session_state:
     st.session_state.error_logger = ErrorLogger()
 
+def classify_trading_strategy(momentum_1d, autocorr):
+    """
+    Classify stocks into trading strategies based on momentum + autocorr
+    """
+    
+    # PURE MOMENTUM: Both metrics confirm strong momentum
+    if momentum_1d > 0.65 and autocorr > 0.10:
+        return "Pure Momentum"
+    
+    # PURE MEAN REVERSION: Both metrics confirm mean reversion  
+    elif momentum_1d < 0.45 and autocorr < -0.10:
+        return "Pure Mean Reversion"
+    
+    # MOMENTUM WITH REVERSALS: High probability but daily reversals
+    elif momentum_1d > 0.60 and autocorr < -0.10:
+        return "Momentum + Daily Reversals"
+    
+    # WEAK MOMENTUM WITH PERSISTENCE: Low probability but positive autocorr
+    elif momentum_1d < 0.50 and autocorr > 0.10:
+        return "Weak Momentum + Persistence"
+    
+    # NEUTRAL/MIXED: No clear pattern
+    else:
+        return "Neutral/Mixed"
+
+def apply_strategy_filter(filtered_stocks, selected_strategy):
+    """Apply strategy-based filtering with detailed info messages"""
+    
+    if selected_strategy == "Pure Momentum":
+        result = filtered_stocks[
+            (filtered_stocks['Momentum_1Day_Prob'] > 0.65) & 
+            (filtered_stocks['Autocorr_1Day'] > 0.10)
+        ]
+        st.info(f"Pure Momentum: {len(result)} stocks (High momentum + Positive autocorr) - Buy on strength")
+        
+    elif selected_strategy == "Pure Mean Reversion":
+        result = filtered_stocks[
+            (filtered_stocks['Momentum_1Day_Prob'] < 0.45) & 
+            (filtered_stocks['Autocorr_1Day'] < -0.10)
+        ]
+        st.info(f"Pure Mean Reversion: {len(result)} stocks (Low momentum + Negative autocorr) - Buy on weakness")
+        
+    elif selected_strategy == "Momentum + Daily Reversals":
+        result = filtered_stocks[
+            (filtered_stocks['Momentum_1Day_Prob'] > 0.60) & 
+            (filtered_stocks['Autocorr_1Day'] < -0.10)
+        ]
+        st.info(f"Momentum + Daily Reversals: {len(result)} stocks - Enter on intraday dips, not on strength")
+        
+    elif selected_strategy == "Weak Momentum + Persistence":
+        result = filtered_stocks[
+            (filtered_stocks['Momentum_1Day_Prob'] < 0.50) & 
+            (filtered_stocks['Autocorr_1Day'] > 0.10)
+        ]
+        st.info(f"Weak Momentum + Persistence: {len(result)} stocks - Small but consistent directional moves")
+        
+    elif selected_strategy == "High Momentum (>65%)":
+        result = filtered_stocks[filtered_stocks['Momentum_1Day_Prob'] > 0.65]
+        st.info(f"High Momentum: {len(result)} stocks (Any autocorr)")
+        
+    elif selected_strategy == "Low Momentum (<45%)":
+        result = filtered_stocks[filtered_stocks['Momentum_1Day_Prob'] < 0.45]
+        st.info(f"Low Momentum: {len(result)} stocks (Any autocorr)")
+        
+    elif selected_strategy == "Positive Autocorr (>+0.10)":
+        result = filtered_stocks[filtered_stocks['Autocorr_1Day'] > 0.10]
+        st.info(f"Positive Autocorr: {len(result)} stocks (Momentum tendency)")
+        
+    elif selected_strategy == "Negative Autocorr (<-0.10)":
+        result = filtered_stocks[filtered_stocks['Autocorr_1Day'] < -0.10]
+        st.info(f"Negative Autocorr: {len(result)} stocks (Mean reversion tendency)")
+        
+    else:  # "All Strategies"
+        result = filtered_stocks
+        st.info("All strategies included")
+    
+    return result
+
 def apply_dynamic_filters(base_stocks, results_df):
     """
-    Apply dynamic filtering with CRT Velocity, IBS, and optional Higher H/L filters
+    Apply dynamic filtering with CRT Velocity, IBS, Higher H/L, and Strategy filters
+    UPDATED: Strategy filter positioned as final column for comprehensive analysis
     Returns filtered stocks
     """
     
@@ -122,13 +203,13 @@ def apply_dynamic_filters(base_stocks, results_df):
     
     st.subheader("🎯 Dynamic Filtering")
     
-    # Create three columns for filters
-    col1, col2, col3 = st.columns(3)
+    # Create four columns for filters with new layout
+    col1, col2, col3, col4 = st.columns(4)
     
     # Initialize filtered stocks
     filtered_stocks = base_stocks.copy()
     
-    # CRT VELOCITY PERCENTILE FILTER
+    # COL 1: CRT VELOCITY PERCENTILE FILTER
     with col1:
         st.markdown("**CRT Velocity Filter:**")
         
@@ -155,7 +236,7 @@ def apply_dynamic_filters(base_stocks, results_df):
             selected_percentile = st.radio(
                 "Select velocity filter:",
                 list(percentile_options.keys()),
-                key="higher_hl_percentile_radio"
+                key="crt_velocity_percentile_radio"
             )
             
             # Apply percentile filtering
@@ -180,18 +261,18 @@ def apply_dynamic_filters(base_stocks, results_df):
                         f"{non_zero_velocities.max():+.4f} pp"
                     ]
                 }
-                st.dataframe(pd.DataFrame(stats_data), hide_index=True, use_container_width=True)
+                st.dataframe(pd.DataFrame(stats_data), hide_index=True, width='stretch')
         else:
             st.info("No CRT Velocity data available for filtering")
     
-    # IBS FILTER
+    # COL 2: IBS FILTER
     with col2:
         st.markdown("**IBS Filter:**")
         
         # Get IBS values
         ibs_values = filtered_stocks['IBS']
         
-        # Percentile options
+        # Percentile options (standardized)
         ibs_percentile_options = {
             "Top 25%": 75,
             "Top 50%": 50,
@@ -203,7 +284,7 @@ def apply_dynamic_filters(base_stocks, results_df):
         selected_ibs_option = st.radio(
             "Select IBS filter:",
             list(ibs_percentile_options.keys()),
-            key="higher_hl_ibs_radio"
+            key="ibs_percentile_radio"
         )
         
         # Handle custom input
@@ -215,7 +296,7 @@ def apply_dynamic_filters(base_stocks, results_df):
                 value=0.3,
                 step=0.05,
                 format="%.2f",
-                key="higher_hl_custom_ibs"
+                key="custom_ibs_input"
             )
             filtered_stocks = filtered_stocks[filtered_stocks['IBS'] >= custom_ibs_value]
             st.info(f"IBS ≥ {custom_ibs_value:.2f}")
@@ -241,9 +322,9 @@ def apply_dynamic_filters(base_stocks, results_df):
                     f"{ibs_values.max():.3f}"
                 ]
             }
-            st.dataframe(pd.DataFrame(ibs_stats), hide_index=True, use_container_width=True)
+            st.dataframe(pd.DataFrame(ibs_stats), hide_index=True, width='stretch')
     
-    # HIGHER H/L FILTER (only show if not already filtered by Higher H/L)
+    # COL 3: HIGHER H/L FILTER (moved from col4)
     with col3:
         # Check if we need this filter
         base_filter_type = st.session_state.get('base_filter_type', 'All Stocks')
@@ -288,10 +369,73 @@ def apply_dynamic_filters(base_stocks, results_df):
                         "100.0%"
                     ]
                 }
-                st.dataframe(pd.DataFrame(hl_stats), hide_index=True, use_container_width=True)
+                st.dataframe(pd.DataFrame(hl_stats), hide_index=True, width='stretch')
         else:
             st.markdown("**Additional Filters:**")
             st.info("Higher H/L filter not needed - already filtered by base selection")
+            selected_higher_hl = "No Filter"
+    
+    # COL 4: STRATEGY FILTER (NEW - Final comprehensive filter)
+    with col4:
+        st.markdown("**Strategy Filter:**")
+        
+        # Check if momentum data is available
+        if 'Momentum_1Day_Prob' in filtered_stocks.columns and 'Autocorr_1Day' in filtered_stocks.columns:
+            
+            strategy_filter_options = {
+                "Pure Momentum": "pure_momentum",
+                "Pure Mean Reversion": "pure_mean_revert", 
+                "Momentum + Daily Reversals": "momentum_reversals",
+                "Weak Momentum + Persistence": "weak_persistence",
+                "High Momentum (>65%)": "high_momentum_any",
+                "Low Momentum (<45%)": "low_momentum_any",
+                "Positive Autocorr (>+0.10)": "positive_autocorr",
+                "Negative Autocorr (<-0.10)": "negative_autocorr",
+                "All Strategies": None
+            }
+            
+            selected_strategy = st.radio(
+                "Select strategy filter:",
+                list(strategy_filter_options.keys()),
+                key="strategy_filter_radio"
+            )
+            
+            # Apply strategy filtering
+            filtered_stocks = apply_strategy_filter(filtered_stocks, selected_strategy)
+            
+            # Show strategy statistics
+            with st.expander("Strategy Statistics", expanded=False):
+                if len(base_stocks) > 0:
+                    # Calculate strategy distribution for base stocks
+                    strategy_counts = {}
+                    for strategy in ["Pure Momentum", "Pure Mean Reversion", "Momentum + Daily Reversals", 
+                                   "Weak Momentum + Persistence", "Neutral/Mixed"]:
+                        if strategy == "Pure Momentum":
+                            count = len(base_stocks[(base_stocks['Momentum_1Day_Prob'] > 0.65) & (base_stocks['Autocorr_1Day'] > 0.10)])
+                        elif strategy == "Pure Mean Reversion":
+                            count = len(base_stocks[(base_stocks['Momentum_1Day_Prob'] < 0.45) & (base_stocks['Autocorr_1Day'] < -0.10)])
+                        elif strategy == "Momentum + Daily Reversals":
+                            count = len(base_stocks[(base_stocks['Momentum_1Day_Prob'] > 0.60) & (base_stocks['Autocorr_1Day'] < -0.10)])
+                        elif strategy == "Weak Momentum + Persistence":
+                            count = len(base_stocks[(base_stocks['Momentum_1Day_Prob'] < 0.50) & (base_stocks['Autocorr_1Day'] > 0.10)])
+                        else:  # Neutral/Mixed
+                            pure_momentum = len(base_stocks[(base_stocks['Momentum_1Day_Prob'] > 0.65) & (base_stocks['Autocorr_1Day'] > 0.10)])
+                            pure_mean_rev = len(base_stocks[(base_stocks['Momentum_1Day_Prob'] < 0.45) & (base_stocks['Autocorr_1Day'] < -0.10)])
+                            mom_reversals = len(base_stocks[(base_stocks['Momentum_1Day_Prob'] > 0.60) & (base_stocks['Autocorr_1Day'] < -0.10)])
+                            weak_persistence = len(base_stocks[(base_stocks['Momentum_1Day_Prob'] < 0.50) & (base_stocks['Autocorr_1Day'] > 0.10)])
+                            count = len(base_stocks) - pure_momentum - pure_mean_rev - mom_reversals - weak_persistence
+                        
+                        strategy_counts[strategy] = count
+                    
+                    strategy_stats = {
+                        "Strategy": list(strategy_counts.keys()),
+                        "Count": list(strategy_counts.values()),
+                        "Percentage": [f"{(count/len(base_stocks)*100):.1f}%" for count in strategy_counts.values()]
+                    }
+                    st.dataframe(pd.DataFrame(strategy_stats), hide_index=True, width='stretch')
+        else:
+            st.warning("Strategy filtering not available - momentum data missing")
+            selected_strategy = "All Strategies"
     
     # Show combined filter summary
     filter_summary = []
@@ -303,6 +447,8 @@ def apply_dynamic_filters(base_stocks, results_df):
         filter_summary.append(f"IBS {selected_ibs_option}")
     if 'selected_higher_hl' in locals() and selected_higher_hl != "No Filter":
         filter_summary.append("Higher H/L Only")
+    if selected_strategy != "All Strategies":
+        filter_summary.append(f"Strategy: {selected_strategy}")
     
     if filter_summary:
         st.success(f"Active filters: {' + '.join(filter_summary)} → {len(filtered_stocks)} stocks")
@@ -315,67 +461,94 @@ def apply_dynamic_filters(base_stocks, results_df):
         
         # Velocity chart (if available)
         if len(non_zero_velocities) > 0:
-            charts_to_show.append(('velocity', non_zero_velocities))
+            charts_to_show.append(('velocity', non_zero_velocities, selected_percentile))
         
         # IBS chart
-        charts_to_show.append(('ibs', ibs_values))
+        charts_to_show.append(('ibs', ibs_values, selected_ibs_option))
         
-        # Higher H/L chart (if relevant)
-        if base_filter_type not in ["Valid CRT + Higher H/L", "Higher H/L Only"]:
-            charts_to_show.append(('higher_hl', base_stocks['Higher_HL']))
+        # Strategy/Momentum chart (if available)
+        if 'Momentum_1Day_Prob' in base_stocks.columns:
+            charts_to_show.append(('momentum', base_stocks['Momentum_1Day_Prob'], selected_strategy))
+            charts_to_show.append(('autocorr', base_stocks['Autocorr_1Day'], selected_strategy))
         
-        cols = st.columns(len(charts_to_show))
-        
-        for i, (chart_type, data) in enumerate(charts_to_show):
-            with cols[i]:
-                if chart_type == 'velocity':
-                    fig = px.histogram(
-                        x=data,
-                        nbins=20,
-                        title="CRT Velocity Distribution",
-                        labels={'x': 'CRT Velocity (pp)', 'y': 'Count'}
-                    )
-                    if selected_percentile != "No Filter":
-                        percentile_val = percentile_options[selected_percentile]
-                        threshold_value = np.percentile(non_zero_velocities, percentile_val)
-                        fig.add_vline(x=threshold_value, line_dash="dash", line_color="red", 
-                                     annotation_text=f"{selected_percentile} threshold")
-                    st.plotly_chart(fig, use_container_width=True)
-                
-                elif chart_type == 'ibs':
-                    fig = px.histogram(
-                        x=data,
-                        nbins=20,
-                        title="IBS Distribution",
-                        labels={'x': 'IBS', 'y': 'Count'}
-                    )
-                    if selected_ibs_option == "Custom":
-                        fig.add_vline(x=custom_ibs_value, line_dash="dash", line_color="red",
-                                    annotation_text=f"Custom ≥ {custom_ibs_value:.2f}")
-                    elif selected_ibs_option != "No Filter":
-                        percentile_val = ibs_percentile_options[selected_ibs_option]
-                        threshold_value = np.percentile(ibs_values, percentile_val)
-                        fig.add_vline(x=threshold_value, line_dash="dash", line_color="red",
-                                    annotation_text=f"{selected_ibs_option} threshold")
-                    st.plotly_chart(fig, use_container_width=True)
-                
-                elif chart_type == 'higher_hl':
-                    hl_counts = data.value_counts().sort_index()
-                    fig = px.bar(
-                        x=['Not Higher H/L', 'Higher H/L'],
-                        y=[hl_counts.get(0, 0), hl_counts.get(1, 0)],
-                        title="Higher H/L Distribution",
-                        labels={'x': 'Pattern', 'y': 'Count'}
-                    )
-                    st.plotly_chart(fig, use_container_width=True)
+        # Create charts in rows of 2
+        num_charts = len(charts_to_show)
+        for i in range(0, num_charts, 2):
+            cols = st.columns(2)
+            for j, (chart_type, data, filter_selection) in enumerate(charts_to_show[i:i+2]):
+                with cols[j]:
+                    if chart_type == 'velocity':
+                        fig = px.histogram(
+                            x=data,
+                            nbins=20,
+                            title="CRT Velocity Distribution",
+                            labels={'x': 'CRT Velocity (pp)', 'y': 'Count'}
+                        )
+                        if selected_percentile != "No Filter":
+                            percentile_val = percentile_options[selected_percentile]
+                            threshold_value = np.percentile(non_zero_velocities, percentile_val)
+                            fig.add_vline(x=threshold_value, line_dash="dash", line_color="red", 
+                                         annotation_text=f"{selected_percentile} threshold")
+                        st.plotly_chart(fig, use_container_width=True)
+                    
+                    elif chart_type == 'ibs':
+                        fig = px.histogram(
+                            x=data,
+                            nbins=20,
+                            title="IBS Distribution",
+                            labels={'x': 'IBS', 'y': 'Count'}
+                        )
+                        if selected_ibs_option == "Custom":
+                            fig.add_vline(x=custom_ibs_value, line_dash="dash", line_color="red",
+                                        annotation_text=f"Custom ≥ {custom_ibs_value:.2f}")
+                        elif selected_ibs_option != "No Filter":
+                            percentile_val = ibs_percentile_options[selected_ibs_option]
+                            threshold_value = np.percentile(ibs_values, percentile_val)
+                            fig.add_vline(x=threshold_value, line_dash="dash", line_color="red",
+                                        annotation_text=f"{selected_ibs_option} threshold")
+                        st.plotly_chart(fig, use_container_width=True)
+                    
+                    elif chart_type == 'momentum':
+                        fig = px.histogram(
+                            x=data,
+                            nbins=20,
+                            title="Momentum Probability Distribution",
+                            labels={'x': 'Momentum 1-Day Probability', 'y': 'Count'}
+                        )
+                        # Add strategy thresholds
+                        fig.add_vline(x=0.65, line_dash="dash", line_color="green", 
+                                     annotation_text="High Momentum (65%)")
+                        fig.add_vline(x=0.45, line_dash="dash", line_color="red",
+                                     annotation_text="Low Momentum (45%)")
+                        st.plotly_chart(fig, use_container_width=True)
+                    
+                    elif chart_type == 'autocorr':
+                        fig = px.histogram(
+                            x=data,
+                            nbins=20,
+                            title="Autocorrelation Distribution",
+                            labels={'x': 'Autocorrelation', 'y': 'Count'}
+                        )
+                        # Add autocorr thresholds
+                        fig.add_vline(x=0.10, line_dash="dash", line_color="green",
+                                     annotation_text="Positive Autocorr")
+                        fig.add_vline(x=-0.10, line_dash="dash", line_color="red",
+                                     annotation_text="Negative Autocorr")
+                        st.plotly_chart(fig, use_container_width=True)
     
     return filtered_stocks
 
+"""
+CRT Higher H/L Scanner - PART 2 (COMPLETE)
+Main application functions: show(), run_enhanced_stock_scan(), display_scan_results()
+This is the continuation of Part 1 - copy both parts to pages/scanner_higher_hl.py
+"""
+
 def show():
-    """Main scanner page display for Higher H/L patterns with flexible base filtering"""
+    """Main scanner page display for Higher H/L patterns with flexible base filtering and strategy analysis"""
     
     st.title("📈 CRT Higher H/L Scanner")
-    st.markdown("Flexible analysis of Valid CRT and/or Higher H/L patterns")
+    st.markdown("Comprehensive analysis with CRT signals, momentum persistence, and trading strategy classification")
     
     # Clear previous errors for new scan
     if st.button("🗑️ Clear Error Log"):
@@ -612,7 +785,7 @@ def run_enhanced_stock_scan(stocks_to_scan, analysis_date=None, days_back=59, ro
             st.error("❌ Failed to download stock data. Check error log for details.")
             return
         
-        status_text.text("🔄 Analyzing technical indicators...")
+        status_text.text("🔄 Analyzing technical indicators and momentum...")
         progress_bar.progress(0.4)
         
         results = []
@@ -701,7 +874,7 @@ def run_enhanced_stock_scan(stocks_to_scan, analysis_date=None, days_back=59, ro
                     error_logger.log_warning("Company Name", f"Failed to get name for {ticker}: {e}")
                     company_name = ticker.replace('.SI', '')
                 
-                # Collect results
+                # Collect results (UPDATED: Added momentum columns and strategy classification)
                 try:
                     result = {
                         'Ticker': ticker,
@@ -718,8 +891,19 @@ def run_enhanced_stock_scan(stocks_to_scan, analysis_date=None, days_back=59, ro
                         'CRT_High': round(float(analysis_row.get('CRT_High', 0)), 2) if not pd.isna(analysis_row.get('CRT_High', 0)) else 0,
                         'CRT_Low': round(float(analysis_row.get('CRT_Low', 0)), 2) if not pd.isna(analysis_row.get('CRT_Low', 0)) else 0,
                         'VW_Range_Percentile': round(float(analysis_row.get('VW_Range_Percentile', 0)), 4) if not pd.isna(analysis_row.get('VW_Range_Percentile', 0)) else 0,
-                        'Rel_Range_Signal': int(analysis_row.get('Rel_Range_Signal', 0))
+                        'Rel_Range_Signal': int(analysis_row.get('Rel_Range_Signal', 0)),
+                        # Momentum columns
+                        'Momentum_1Day_Prob': round(float(analysis_row.get('Momentum_1Day_Prob', 0.5)), 4) if not pd.isna(analysis_row.get('Momentum_1Day_Prob', 0.5)) else 0.5,
+                        'Momentum_3Day_Prob': round(float(analysis_row.get('Momentum_3Day_Prob', 0.5)), 4) if not pd.isna(analysis_row.get('Momentum_3Day_Prob', 0.5)) else 0.5,
+                        'Autocorr_1Day': round(float(analysis_row.get('Autocorr_1Day', 0.0)), 4) if not pd.isna(analysis_row.get('Autocorr_1Day', 0.0)) else 0.0
                     }
+                    
+                    # Add strategy classification
+                    result['Strategy_Type'] = classify_trading_strategy(
+                        result['Momentum_1Day_Prob'], 
+                        result['Autocorr_1Day']
+                    )
+                    
                     results.append(result)
                     
                     if debug_mode:
@@ -814,7 +998,7 @@ def run_enhanced_stock_scan(stocks_to_scan, analysis_date=None, days_back=59, ro
             status_text.empty()
 
 def display_scan_results(results_df: pd.DataFrame):
-    """Display scanning results with flexible base filtering for Higher H/L patterns"""
+    """Display scanning results with flexible base filtering and comprehensive strategy analysis"""
     
     error_logger = st.session_state.error_logger
     
@@ -824,7 +1008,7 @@ def display_scan_results(results_df: pd.DataFrame):
             error_logger.log_warning("Results Display", "Empty results dataframe")
             return
         
-        # Summary metrics
+        # Summary metrics (ENHANCED: Added strategy statistics)
         st.subheader("📊 Scan Summary")
         
         total_stocks = len(results_df)
@@ -832,24 +1016,45 @@ def display_scan_results(results_df: pd.DataFrame):
         valid_crt_count = len(results_df[results_df['Valid_CRT'] == 1])
         higher_hl_with_crt = len(results_df[(results_df['Higher_HL'] == 1) & (results_df['Valid_CRT'] == 1)])
         
-        col1, col2, col3, col4 = st.columns(4)
+        # Strategy statistics
+        strategy_stats = {}
+        if 'Strategy_Type' in results_df.columns:
+            strategy_counts = results_df['Strategy_Type'].value_counts()
+            pure_momentum = strategy_counts.get('Pure Momentum', 0)
+            pure_mean_rev = strategy_counts.get('Pure Mean Reversion', 0)
+            momentum_reversals = strategy_counts.get('Momentum + Daily Reversals', 0)
+        else:
+            pure_momentum = pure_mean_rev = momentum_reversals = 0
+        
+        # Momentum summary statistics
+        high_momentum_count = 0
+        avg_momentum = 0.5
+        if 'Momentum_1Day_Prob' in results_df.columns:
+            high_momentum_count = len(results_df[results_df['Momentum_1Day_Prob'] > 0.6])
+            avg_momentum = results_df['Momentum_1Day_Prob'].mean()
+        
+        col1, col2, col3, col4, col5, col6 = st.columns(6)
         
         with col1:
             st.metric("Total Analyzed", total_stocks)
         with col2:
-            st.metric("Higher H/L Patterns", higher_hl_count, delta=f"{higher_hl_count/total_stocks*100:.1f}%")
+            st.metric("Higher H/L", higher_hl_count, delta=f"{higher_hl_count/total_stocks*100:.1f}%")
         with col3:
             st.metric("Valid CRT", valid_crt_count)
         with col4:
             st.metric("Both Patterns", higher_hl_with_crt)
+        with col5:
+            st.metric("Pure Momentum", pure_momentum, delta=f"Strategy")
+        with col6:
+            st.metric("Pure Mean Rev", pure_mean_rev, delta=f"Strategy")
         
         # Analysis Date Info
         if len(results_df) > 0:
             analysis_dates = results_df['Analysis_Date'].unique()
             if len(analysis_dates) == 1:
-                st.info(f"📅 Analysis performed for trading date: **{analysis_dates[0]}**")
+                st.info(f"📅 Analysis performed for trading date: **{analysis_dates[0]}** | Average Momentum: **{avg_momentum:.1%}**")
             else:
-                st.info(f"📅 Analysis performed for dates: **{', '.join(analysis_dates)}**")
+                st.info(f"📅 Analysis performed for dates: **{', '.join(analysis_dates)}** | Average Momentum: **{avg_momentum:.1%}**")
         
         # Base Filter Selection
         st.subheader("🎯 Pattern Analysis")
@@ -889,72 +1094,101 @@ def display_scan_results(results_df: pd.DataFrame):
             st.info(f"Showing all {len(base_stocks)} scanned stocks")
         
         if len(base_stocks) > 0:
-            # Apply dynamic filters
+            # Apply dynamic filters (now includes strategy filter)
             filtered_stocks = apply_dynamic_filters(base_stocks, results_df)
             
             # Display filtered results
             st.subheader(f"📋 Filtered Results ({len(filtered_stocks)} stocks)")
             
             if len(filtered_stocks) > 0:
-                # Sort by CRT Velocity (descending), but handle cases where it might be 0
-                filtered_stocks_sorted = filtered_stocks.sort_values('CRT_Velocity', ascending=False)
+                # Sort by Strategy Type first, then by CRT Velocity
+                if 'Strategy_Type' in filtered_stocks.columns:
+                    # Define strategy sort order (Pure Momentum first, then others)
+                    strategy_order = ['Pure Momentum', 'Momentum + Daily Reversals', 'Weak Momentum + Persistence', 
+                                    'Pure Mean Reversion', 'Neutral/Mixed']
+                    strategy_map = {strategy: i for i, strategy in enumerate(strategy_order)}
+                    filtered_stocks['strategy_sort'] = filtered_stocks['Strategy_Type'].map(lambda x: strategy_map.get(x, 999))
+                    filtered_stocks_sorted = filtered_stocks.sort_values(['strategy_sort', 'CRT_Velocity'], ascending=[True, False])
+                    filtered_stocks_sorted = filtered_stocks_sorted.drop('strategy_sort', axis=1)
+                else:
+                    filtered_stocks_sorted = filtered_stocks.sort_values('CRT_Velocity', ascending=False)
                 
-                # Display columns based on selected filter
+                # Display columns based on selected filter (ENHANCED: Added strategy columns)
                 if selected_base_filter in ["Valid CRT + Higher H/L", "Valid CRT Only"]:
-                    # Show CRT-focused columns
-                    display_cols = ['Ticker', 'Name', 'Close', 'Weekly_Open', 'CRT_High', 'CRT_Low', 
-                                   'CRT_Velocity', 'IBS', 'Higher_HL']
+                    # Show CRT-focused columns with strategy
+                    display_cols = ['Ticker', 'Name', 'Strategy_Type', 'Close', 'CRT_High', 'CRT_Low', 
+                                   'CRT_Velocity', 'IBS', 'Momentum_1Day_Prob', 'Autocorr_1Day']
                     
                     column_config = {
                         'Ticker': st.column_config.TextColumn('Ticker', width='small'),
                         'Name': st.column_config.TextColumn('Company Name', width='large'),
+                        'Strategy_Type': st.column_config.TextColumn('Strategy', width='large'),
                         'Close': st.column_config.NumberColumn('Close', format='$%.2f'),
-                        'Weekly_Open': st.column_config.NumberColumn('Weekly Open', format='$%.2f'),
                         'CRT_High': st.column_config.NumberColumn('CRT High', format='$%.2f'),
                         'CRT_Low': st.column_config.NumberColumn('CRT Low', format='$%.2f'),
                         'CRT_Velocity': st.column_config.NumberColumn('CRT Velocity', format='%+.4f pp'),
                         'IBS': st.column_config.NumberColumn('IBS', format='%.3f'),
-                        'Higher_HL': st.column_config.NumberColumn('Higher H/L', width='small')
+                        'Momentum_1Day_Prob': st.column_config.NumberColumn('Mom 1D', format='%.3f'),
+                        'Autocorr_1Day': st.column_config.NumberColumn('Autocorr', format='%+.3f')
                     }
                 
                 elif selected_base_filter == "Higher H/L Only":
-                    # Show H/L pattern-focused columns
-                    display_cols = ['Ticker', 'Name', 'Close', 'High', 'Low', 
-                                   'IBS', 'Valid_CRT', 'CRT_Velocity']
+                    # Show H/L pattern-focused columns with strategy
+                    display_cols = ['Ticker', 'Name', 'Strategy_Type', 'Close', 'High', 'Low', 
+                                   'IBS', 'Momentum_1Day_Prob', 'Momentum_3Day_Prob', 'Autocorr_1Day']
                     
                     column_config = {
                         'Ticker': st.column_config.TextColumn('Ticker', width='small'),
                         'Name': st.column_config.TextColumn('Company Name', width='large'),
+                        'Strategy_Type': st.column_config.TextColumn('Strategy', width='large'),
                         'Close': st.column_config.NumberColumn('Close', format='$%.2f'),
                         'High': st.column_config.NumberColumn('Day High', format='$%.2f'),
                         'Low': st.column_config.NumberColumn('Day Low', format='$%.2f'),
                         'IBS': st.column_config.NumberColumn('IBS', format='%.3f'),
-                        'Valid_CRT': st.column_config.NumberColumn('Valid CRT', width='small'),
-                        'CRT_Velocity': st.column_config.NumberColumn('CRT Velocity', format='%+.4f pp')
+                        'Momentum_1Day_Prob': st.column_config.NumberColumn('Mom 1D', format='%.3f'),
+                        'Momentum_3Day_Prob': st.column_config.NumberColumn('Mom 3D', format='%.3f'),
+                        'Autocorr_1Day': st.column_config.NumberColumn('Autocorr', format='%+.3f')
                     }
                 
                 else:  # All Stocks
-                    # Show comprehensive columns
-                    display_cols = ['Ticker', 'Name', 'Close', 'IBS', 'Valid_CRT', 
-                                   'Higher_HL', 'CRT_Velocity', 'VW_Range_Percentile']
+                    # Show comprehensive columns including strategy
+                    display_cols = ['Ticker', 'Name', 'Strategy_Type', 'Close', 'IBS', 'Valid_CRT', 
+                                   'Higher_HL', 'CRT_Velocity', 'Momentum_1Day_Prob', 'Autocorr_1Day']
                     
                     column_config = {
                         'Ticker': st.column_config.TextColumn('Ticker', width='small'),
                         'Name': st.column_config.TextColumn('Company Name', width='large'),
+                        'Strategy_Type': st.column_config.TextColumn('Strategy', width='large'),
                         'Close': st.column_config.NumberColumn('Close', format='$%.2f'),
                         'IBS': st.column_config.NumberColumn('IBS', format='%.3f'),
                         'Valid_CRT': st.column_config.NumberColumn('Valid CRT', width='small'),
                         'Higher_HL': st.column_config.NumberColumn('Higher H/L', width='small'),
                         'CRT_Velocity': st.column_config.NumberColumn('CRT Velocity', format='%+.4f pp'),
-                        'VW_Range_Percentile': st.column_config.NumberColumn('VW Range %ile', format='%.4f')
+                        'Momentum_1Day_Prob': st.column_config.NumberColumn('Mom 1D', format='%.3f'),
+                        'Autocorr_1Day': st.column_config.NumberColumn('Autocorr', format='%+.3f')
                     }
                 
                 st.dataframe(
                     filtered_stocks_sorted[display_cols],
                     column_config=column_config,
-                    use_container_width=True,
+                    width='stretch',
                     hide_index=True
                 )
+                
+                # Enhanced Strategy Summary
+                if 'Strategy_Type' in filtered_stocks_sorted.columns:
+                    st.subheader("📈 Strategy Summary")
+                    strategy_summary = filtered_stocks_sorted['Strategy_Type'].value_counts()
+                    
+                    if len(strategy_summary) > 0:
+                        summary_cols = st.columns(min(len(strategy_summary), 5))  # Max 5 columns
+                        for i, (strategy, count) in enumerate(strategy_summary.items()):
+                            with summary_cols[i % 5]:
+                                st.metric(
+                                    strategy.replace(' ', '\n'), 
+                                    count,
+                                    delta=f"{count/len(filtered_stocks_sorted)*100:.1f}%"
+                                )
                 
                 # TradingView Export
                 st.subheader("📋 TradingView Export (Filtered)")
@@ -984,33 +1218,35 @@ def display_scan_results(results_df: pd.DataFrame):
         else:
             st.warning(f"No stocks found for pattern: {selected_base_filter}")
         
-        # Full Results Table
+        # Full Results Table (ENHANCED: Added strategy and momentum columns)
         with st.expander("📋 Full Analysis Results", expanded=False):
             full_results_cols = [
-                'Analysis_Date', 'Ticker', 'Name', 'High', 'Low', 'Close', 
-                'Higher_HL', 'Valid_CRT', 'CRT_Velocity', 'VW_Range_Percentile', 
-                'Rel_Range_Signal', 'IBS'
+                'Analysis_Date', 'Ticker', 'Name', 'Strategy_Type', 'High', 'Low', 'Close', 
+                'Higher_HL', 'Valid_CRT', 'CRT_Velocity', 'IBS', 
+                'Momentum_1Day_Prob', 'Momentum_3Day_Prob', 'Autocorr_1Day'
             ]
             
             full_results_column_config = {
                 'Analysis_Date': st.column_config.TextColumn('Date', width='small'),
                 'Ticker': st.column_config.TextColumn('Ticker', width='small'),
                 'Name': st.column_config.TextColumn('Company Name', width='medium'),
+                'Strategy_Type': st.column_config.TextColumn('Strategy', width='large'),
                 'High': st.column_config.NumberColumn('High', format='$%.2f'),
                 'Low': st.column_config.NumberColumn('Low', format='$%.2f'),
                 'Close': st.column_config.NumberColumn('Close', format='$%.2f'),
                 'Higher_HL': st.column_config.NumberColumn('Higher H/L', width='small'),
                 'Valid_CRT': st.column_config.NumberColumn('Valid CRT', width='small'),
                 'CRT_Velocity': st.column_config.NumberColumn('CRT Velocity', format='%+.4f pp'),
-                'VW_Range_Percentile': st.column_config.NumberColumn('VW Range %ile', format='%.4f'),
-                'Rel_Range_Signal': st.column_config.NumberColumn('Range Signal', width='small'),
-                'IBS': st.column_config.NumberColumn('IBS', format='%.3f')
+                'IBS': st.column_config.NumberColumn('IBS', format='%.3f'),
+                'Momentum_1Day_Prob': st.column_config.NumberColumn('Mom 1D', format='%.4f'),
+                'Momentum_3Day_Prob': st.column_config.NumberColumn('Mom 3D', format='%.4f'),
+                'Autocorr_1Day': st.column_config.NumberColumn('Autocorr 1D', format='%+.4f')
             }
             
             st.dataframe(
                 results_df[full_results_cols],
                 column_config=full_results_column_config,
-                use_container_width=True,
+                width='stretch',
                 hide_index=True
             )
         
@@ -1029,3 +1265,4 @@ def display_scan_results(results_df: pd.DataFrame):
 
 if __name__ == "__main__":
     show()
+
