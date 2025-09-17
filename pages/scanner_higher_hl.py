@@ -3,6 +3,8 @@ CRT Higher H/L Scanner - PART 1
 Enhanced with flexible base filtering for Valid CRT and/or Higher H/L patterns
 PHASE 2 ENHANCED: Added strategy filtering with momentum + autocorr analysis
 Updated for dual timeframe momentum (5-day and 20-day) display
+UPDATED: Dynamic decimal display for stocks under $1.00
+UPDATED: Simplified percentile-based strategy filter matching CRT Velocity UI
 """
 
 import streamlit as st
@@ -112,69 +114,65 @@ class ErrorLogger:
 if 'error_logger' not in st.session_state:
     st.session_state.error_logger = ErrorLogger()
 
-def classify_trading_strategy(momentum_1d, autocorr):
+def get_price_format(price: float) -> str:
     """
-    DEPRECATED: Use Strategy_Type column directly from technical analysis
-    Kept for backward compatibility
+    Get the appropriate price format string based on price level
+    Returns format string for st.column_config.NumberColumn
     """
-    # This function is no longer needed as classification happens in technical_analysis.py
-    # But kept for any legacy code that might call it
-    if momentum_1d > 0.60 and autocorr > 0.15:
-        return "Pure Momentum"
-    elif momentum_1d < 0.45 and autocorr < -0.15:
-        return "Pure Mean Reversion"
-    elif momentum_1d > 0.60 and autocorr < -0.15:
-        return "Momentum + Daily Reversals"
-    elif momentum_1d < 0.50 and autocorr > 0.15:
-        return "Weak Momentum + Persistence"
+    if price < 1.00:
+        return "$%.3f"  # 3 decimal places for stocks under $1.00
     else:
-        return "Neutral/Mixed"
+        return "$%.2f"  # 2 decimal places for regular stocks
 
-def apply_strategy_filter(filtered_stocks, selected_strategy):
-    """Apply strategy-based filtering using the new Strategy_Type column"""
+def get_dynamic_column_config(df: pd.DataFrame, display_cols: list, base_config: dict) -> dict:
+    """
+    Create dynamic column configuration with price-based decimal formatting
+    """
+    config = base_config.copy()
     
-    if selected_strategy == "Strong Momentum Continuation 📈":
-        result = filtered_stocks[filtered_stocks['Strategy_Type'] == "Strong Momentum Continuation"]
-        st.info(f"Found {len(result)} stocks with strong momentum in both timeframes - Hold for trend")
-        
-    elif selected_strategy == "Momentum Acceleration ⚡":
-        result = filtered_stocks[filtered_stocks['Strategy_Type'] == "Momentum Acceleration"]
-        st.info(f"Found {len(result)} stocks with accelerating momentum (5d > 20d by 15%+) - Enter on strength")
-        
-    elif selected_strategy == "Fresh Momentum Surge 🚀":
-        result = filtered_stocks[filtered_stocks['Strategy_Type'] == "Fresh Momentum Surge"]
-        st.info(f"Found {len(result)} stocks with new bullish crossovers - Best entry timing")
-        
-    elif selected_strategy == "Oversold Bounce Setup 🎯":
-        result = filtered_stocks[filtered_stocks['Strategy_Type'] == "Oversold Bounce Setup"]
-        st.info(f"Found {len(result)} oversold stocks in uptrends - Buy dip for 1-3 day bounce")
-        
-    elif selected_strategy == "Strong Mean Reversion 🔁":
-        result = filtered_stocks[filtered_stocks['Strategy_Type'] == "Strong Mean Reversion"]
-        st.info(f"Found {len(result)} stocks with mean reversion in both timeframes - Buy weakness")
-        
-    elif selected_strategy == "Momentum + Intraday Reversals 🔄":
-        result = filtered_stocks[filtered_stocks['Strategy_Type'] == "Momentum with Intraday Reversals"]
-        st.info(f"Found {len(result)} momentum stocks with daily reversals - Enter on intraday dips")
-        
-    elif selected_strategy == "Short-term Weakness 📉":
-        result = filtered_stocks[filtered_stocks['Strategy_Type'] == "Short-term Weakness"]
-        st.info(f"Found {len(result)} stocks with temporary weakness - Monitor for reversal")
-        
-    elif selected_strategy == "Regime Change - Caution ⚠️":
-        result = filtered_stocks[filtered_stocks['Strategy_Type'] == "Regime Change - Caution"]
-        st.warning(f"Found {len(result)} stocks with unstable patterns - Use caution or avoid")
-        
-    else:  # "All Strategies"
-        result = filtered_stocks
-        st.info(f"Showing all {len(result)} stocks across all strategies")
+    # Identify price columns that need dynamic formatting
+    price_columns = ['Close', 'High', 'Low', 'CRT_High', 'CRT_Low', 'Weekly_Open']
     
-    return result
+    for col in price_columns:
+        if col in display_cols and col in df.columns:
+            # Check if we have price data to determine format
+            if len(df) > 0:
+                # Use the minimum price in the column to determine format
+                min_price = df[col].min()
+                if min_price < 1.00:
+                    # At least one stock is under $1, use 3 decimals for all
+                    config[col] = st.column_config.NumberColumn(
+                        config[col].title if col in config and hasattr(config[col], 'title') else col.replace('_', ' ').title(),
+                        format="$%.3f"
+                    )
+                else:
+                    # All stocks are $1.00 or above, use 2 decimals
+                    config[col] = st.column_config.NumberColumn(
+                        config[col].title if col in config and hasattr(config[col], 'title') else col.replace('_', ' ').title(),
+                        format="$%.2f"
+                    )
+    
+    return config
+
+def calculate_momentum_percentiles(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Calculate simple momentum rank based on 5-day momentum
+    Higher rank = stronger momentum
+    """
+    df = df.copy()
+    
+    # Simple ranking based on 5-day momentum
+    df['Momentum_Rank'] = df['Momentum_5Day'].rank(pct=True) * 100
+    
+    # Round to nearest integer for cleaner display
+    df['Momentum_Rank'] = df['Momentum_Rank'].round(0)
+    
+    return df
 
 def apply_dynamic_filters(base_stocks, results_df):
     """
     Apply dynamic filtering with CRT Velocity, IBS, Higher H/L, and Strategy filters
-    UPDATED: New strategy filter options for dual timeframe system
+    UPDATED: Simplified strategy filter matching CRT Velocity UI pattern
     Returns filtered stocks
     """
     
@@ -358,49 +356,87 @@ def apply_dynamic_filters(base_stocks, results_df):
             st.info("Higher H/L filter not needed - already filtered by base selection")
             selected_higher_hl = "No Filter"
     
-    # COL 4: STRATEGY FILTER (UPDATED FOR DUAL TIMEFRAME)
+    # COL 4: STRATEGY FILTER (SIMPLIFIED WITH PERCENTILE RANKING)
     with col4:
         st.markdown("**Strategy Filter:**")
         
         # Check if momentum data is available
-        if 'Strategy_Type' in filtered_stocks.columns:
+        if 'Momentum_5Day' in filtered_stocks.columns and 'Momentum_20Day' in filtered_stocks.columns:
             
-            strategy_filter_options = {
-                "Strong Momentum Continuation 📈": "strong_momentum",
-                "Momentum Acceleration ⚡": "momentum_accel",
-                "Fresh Momentum Surge 🚀": "fresh_surge",
-                "Oversold Bounce Setup 🎯": "oversold_bounce",
-                "Strong Mean Reversion 🔁": "mean_reversion",
-                "Momentum + Intraday Reversals 🔄": "momentum_reversals",
-                "Short-term Weakness 📉": "short_weakness",
-                "Regime Change - Caution ⚠️": "regime_change",
-                "All Strategies": None
+            # Calculate momentum percentiles first
+            filtered_stocks = calculate_momentum_percentiles(filtered_stocks)
+            
+            # Simple percentile options matching CRT Velocity Filter style
+            strategy_options = {
+                "Top 25% (Breakout)": 75,
+                "Top 50% (Momentum)": 50,
+                "Bottom 25% (Short)": 25,
+                "Middle 50% (Pullback)": "middle",
+                "No Filter": None
             }
             
             selected_strategy = st.radio(
-                "Select strategy filter:",
-                list(strategy_filter_options.keys()),
+                "Select momentum filter:",
+                list(strategy_options.keys()),
                 key="strategy_filter_radio"
             )
             
-            # Apply strategy filtering
-            filtered_stocks = apply_strategy_filter(filtered_stocks, selected_strategy)
+            # Apply strategy filtering based on momentum rank
+            if selected_strategy == "Top 25% (Breakout)":
+                threshold = strategy_options[selected_strategy]
+                filtered_stocks = filtered_stocks[filtered_stocks['Momentum_Rank'] >= threshold]
+                filtered_stocks = filtered_stocks.sort_values('Momentum_Rank', ascending=False)
+                st.info(f"Momentum Rank ≥ {threshold} (Strongest)")
+                
+            elif selected_strategy == "Top 50% (Momentum)":
+                threshold = strategy_options[selected_strategy]
+                filtered_stocks = filtered_stocks[filtered_stocks['Momentum_Rank'] >= threshold]
+                filtered_stocks = filtered_stocks.sort_values('Momentum_Rank', ascending=False)
+                st.info(f"Momentum Rank ≥ {threshold} (Above average)")
+                
+            elif selected_strategy == "Bottom 25% (Short)":
+                threshold = strategy_options[selected_strategy]
+                filtered_stocks = filtered_stocks[filtered_stocks['Momentum_Rank'] <= threshold]
+                filtered_stocks = filtered_stocks.sort_values('Momentum_Rank', ascending=True)
+                st.info(f"Momentum Rank ≤ {threshold} (Weakest)")
+                
+            elif selected_strategy == "Middle 50% (Pullback)":
+                # Middle 50% = between 25th and 75th percentile
+                filtered_stocks = filtered_stocks[
+                    (filtered_stocks['Momentum_Rank'] >= 25) & 
+                    (filtered_stocks['Momentum_Rank'] <= 75)
+                ]
+                filtered_stocks = filtered_stocks.sort_values('Momentum_Rank', ascending=False)
+                st.info("Momentum Rank 25-75 (Pullback zone)")
+                
+            else:  # No Filter
+                st.info("All momentum ranks included")
             
-            # Show strategy statistics
-            with st.expander("Strategy Statistics", expanded=False):
-                if len(base_stocks) > 0 and 'Strategy_Type' in base_stocks.columns:
-                    # Calculate strategy distribution for base stocks
-                    strategy_counts = base_stocks['Strategy_Type'].value_counts()
-                    
-                    strategy_stats = {
-                        "Strategy": strategy_counts.index.tolist(),
-                        "Count": strategy_counts.values.tolist(),
-                        "Percentage": [f"{(count/len(base_stocks)*100):.1f}%" for count in strategy_counts.values]
-                    }
-                    st.dataframe(pd.DataFrame(strategy_stats), hide_index=True, width="stretch")
+            # Show momentum statistics
+            with st.expander("Momentum Statistics", expanded=False):
+                mom_stats = {
+                    "Metric": ["Count", "Min", "25th %ile", "Median", "75th %ile", "Max"],
+                    "Rank": [
+                        f"{len(base_stocks)}",
+                        f"{base_stocks['Momentum_Rank'].min():.0f}" if 'Momentum_Rank' in base_stocks.columns else "0",
+                        "25",
+                        "50", 
+                        "75",
+                        "100"
+                    ],
+                    "5-Day Mom": [
+                        "",
+                        f"{base_stocks['Momentum_5Day'].min():.1%}",
+                        f"{base_stocks['Momentum_5Day'].quantile(0.25):.1%}",
+                        f"{base_stocks['Momentum_5Day'].median():.1%}",
+                        f"{base_stocks['Momentum_5Day'].quantile(0.75):.1%}",
+                        f"{base_stocks['Momentum_5Day'].max():.1%}"
+                    ]
+                }
+                st.dataframe(pd.DataFrame(mom_stats), hide_index=True, width="stretch")
         else:
             st.warning("Strategy filtering not available - momentum data missing")
-            selected_strategy = "All Strategies"
+            selected_strategy = "No Filter"
     
     # Show combined filter summary
     filter_summary = []
@@ -412,7 +448,7 @@ def apply_dynamic_filters(base_stocks, results_df):
         filter_summary.append(f"IBS {selected_ibs_option}")
     if 'selected_higher_hl' in locals() and selected_higher_hl != "No Filter":
         filter_summary.append("Higher H/L Only")
-    if selected_strategy != "All Strategies":
+    if selected_strategy != "No Filter":
         filter_summary.append(f"Strategy: {selected_strategy.split(' ')[0]}")
     
     if filter_summary:
@@ -432,9 +468,9 @@ def apply_dynamic_filters(base_stocks, results_df):
         charts_to_show.append(('ibs', ibs_values, selected_ibs_option))
         
         # Momentum chart (if available)
-        if 'Momentum_5Day' in base_stocks.columns:
-            charts_to_show.append(('momentum', base_stocks['Momentum_5Day'], selected_strategy))
-            charts_to_show.append(('spread', base_stocks['Momentum_Spread'], selected_strategy))
+        if 'Momentum_Rank' in filtered_stocks.columns:
+            charts_to_show.append(('momentum_rank', base_stocks['Momentum_Rank'], selected_strategy))
+            charts_to_show.append(('momentum_5day', base_stocks['Momentum_5Day'], selected_strategy))
         
         # Create charts in rows of 2
         num_charts = len(charts_to_show)
@@ -473,32 +509,35 @@ def apply_dynamic_filters(base_stocks, results_df):
                                         annotation_text=f"{selected_ibs_option} threshold")
                         st.plotly_chart(fig, use_container_width=True)
                     
-                    elif chart_type == 'momentum':
+                    elif chart_type == 'momentum_rank':
+                        fig = px.histogram(
+                            x=data,
+                            nbins=20,
+                            title="Momentum Rank Distribution",
+                            labels={'x': 'Momentum Rank (0-100)', 'y': 'Count'}
+                        )
+                        # Add filter zones
+                        if filter_selection == "Top 25% (Breakout)":
+                            fig.add_vline(x=75, line_dash="dash", line_color="green",
+                                         annotation_text="Top 25% threshold")
+                        elif filter_selection == "Bottom 25% (Short)":
+                            fig.add_vline(x=25, line_dash="dash", line_color="red",
+                                         annotation_text="Bottom 25% threshold")
+                        elif filter_selection == "Middle 50% (Pullback)":
+                            fig.add_vrect(x0=25, x1=75, fillcolor="yellow", opacity=0.2,
+                                         annotation_text="Pullback Zone")
+                        st.plotly_chart(fig, use_container_width=True)
+                    
+                    elif chart_type == 'momentum_5day':
                         fig = px.histogram(
                             x=data,
                             nbins=20,
                             title="5-Day Momentum Distribution",
                             labels={'x': '5-Day Momentum', 'y': 'Count'}
                         )
-                        # Add strategy thresholds
-                        fig.add_vline(x=0.60, line_dash="dash", line_color="green", 
-                                     annotation_text="High Momentum")
-                        fig.add_vline(x=0.40, line_dash="dash", line_color="red",
-                                     annotation_text="Low Momentum")
-                        st.plotly_chart(fig, use_container_width=True)
-                    
-                    elif chart_type == 'spread':
-                        fig = px.histogram(
-                            x=data,
-                            nbins=20,
-                            title="Momentum Spread (5d - 20d)",
-                            labels={'x': 'Momentum Spread', 'y': 'Count'}
-                        )
-                        # Add spread thresholds
-                        fig.add_vline(x=0.15, line_dash="dash", line_color="green",
-                                     annotation_text="Acceleration")
-                        fig.add_vline(x=-0.15, line_dash="dash", line_color="red",
-                                     annotation_text="Exhaustion")
+                        # Add reference lines
+                        fig.add_vline(x=0.50, line_dash="dash", line_color="gray",
+                                     annotation_text="50% baseline")
                         st.plotly_chart(fig, use_container_width=True)
     
     return filtered_stocks
@@ -507,13 +546,15 @@ def apply_dynamic_filters(base_stocks, results_df):
 CRT Higher H/L Scanner - PART 2 (COMPLETE)
 Main application functions: show(), run_enhanced_stock_scan(), display_scan_results()
 Updated with dual timeframe momentum display and enhanced column configurations
+UPDATED: Dynamic decimal display for stocks under $1.00
+UPDATED: Simplified percentile-based strategy filter
 """
 
 def show():
     """Main scanner page display for Higher H/L patterns with flexible base filtering and strategy analysis"""
     
     st.title("📈 CRT Higher H/L Scanner")
-    st.markdown("Comprehensive analysis with dual timeframe momentum (5-day & 20-day) and advanced strategy classification")
+    st.markdown("Comprehensive analysis with momentum-based strategy filtering")
     
     # Clear previous errors for new scan
     if st.button("🗑️ Clear Error Log"):
@@ -990,7 +1031,7 @@ def run_enhanced_stock_scan(stocks_to_scan, analysis_date=None, days_back=59, ro
             status_text.empty()
 
 def display_scan_results(results_df: pd.DataFrame):
-    """Display scanning results with dual timeframe momentum columns"""
+    """Display scanning results with dual timeframe momentum columns and dynamic decimal formatting"""
     
     error_logger = st.session_state.error_logger
     
@@ -999,6 +1040,10 @@ def display_scan_results(results_df: pd.DataFrame):
             st.warning("No results to display.")
             error_logger.log_warning("Results Display", "Empty results dataframe")
             return
+        
+        # Calculate momentum percentiles for all results upfront
+        if 'Momentum_5Day' in results_df.columns and 'Momentum_Rank' not in results_df.columns:
+            results_df = calculate_momentum_percentiles(results_df)
         
         # Summary metrics with MOMENTUM STATISTICS
         st.subheader("📊 Scan Summary")
@@ -1079,6 +1124,10 @@ def display_scan_results(results_df: pd.DataFrame):
             st.info(f"Showing all {len(base_stocks)} scanned stocks")
         
         if len(base_stocks) > 0:
+            # Ensure base_stocks has Momentum_Rank
+            if 'Momentum_5Day' in base_stocks.columns and 'Momentum_Rank' not in base_stocks.columns:
+                base_stocks = calculate_momentum_percentiles(base_stocks)
+            
             # Apply dynamic filters (includes new strategy filter)
             filtered_stocks = apply_dynamic_filters(base_stocks, results_df)
             
@@ -1086,81 +1135,77 @@ def display_scan_results(results_df: pd.DataFrame):
             st.subheader(f"📋 Filtered Results ({len(filtered_stocks)} stocks)")
             
             if len(filtered_stocks) > 0:
-                # Sort by Strategy Type first, then by momentum spread
-                if 'Strategy_Type' in filtered_stocks.columns:
-                    # Define strategy sort order
-                    strategy_order = ['Fresh Momentum Surge', 'Momentum Acceleration', 'Strong Momentum Continuation',
-                                    'Oversold Bounce Setup', 'Momentum with Intraday Reversals', 
-                                    'Short-term Weakness', 'Strong Mean Reversion', 
-                                    'Regime Change - Caution', 'Neutral - No Edge', 'Mixed Signals']
-                    strategy_map = {strategy: i for i, strategy in enumerate(strategy_order)}
-                    filtered_stocks['strategy_sort'] = filtered_stocks['Strategy_Type'].map(lambda x: strategy_map.get(x, 999))
-                    filtered_stocks_sorted = filtered_stocks.sort_values(['strategy_sort', 'Momentum_Spread'], ascending=[True, False])
-                    filtered_stocks_sorted = filtered_stocks_sorted.drop('strategy_sort', axis=1)
-                else:
-                    filtered_stocks_sorted = filtered_stocks.sort_values('CRT_Velocity', ascending=False)
+                # Ensure we have momentum rank
+                if 'Momentum_Rank' not in filtered_stocks.columns and 'Momentum_5Day' in filtered_stocks.columns:
+                    filtered_stocks = calculate_momentum_percentiles(filtered_stocks)
                 
-                # Display columns based on selected filter with DUAL TIMEFRAME
+                # Sort by momentum rank (already sorted in filter function)
+                filtered_stocks_sorted = filtered_stocks
+                
+                # Display columns based on selected filter
                 if selected_base_filter in ["Valid CRT + Higher H/L", "Valid CRT Only"]:
-                    # Show CRT-focused columns with dual momentum
-                    display_cols = ['Ticker', 'Name', 'Strategy_Signal', 'Strategy_Type', 'Close', 
-                                   'CRT_High', 'CRT_Low', 'CRT_Velocity', 'IBS', 
-                                   'Momentum_5Day', 'Momentum_20Day', 'Momentum_Spread']
+                    # Show CRT-focused columns with momentum rank
+                    display_cols = ['Ticker', 'Name', 'Close', 'CRT_High', 'CRT_Low', 
+                                   'CRT_Velocity', 'IBS']
                     
-                    column_config = {
+                    # Only add momentum columns if they exist
+                    if 'Momentum_Rank' in filtered_stocks_sorted.columns:
+                        display_cols.extend(['Momentum_Rank', 'Momentum_5Day'])
+                    
+                    base_column_config = {
                         'Ticker': st.column_config.TextColumn('Ticker', width='small'),
                         'Name': st.column_config.TextColumn('Company Name', width='medium'),
-                        'Strategy_Signal': st.column_config.TextColumn('', width='small'),
-                        'Strategy_Type': st.column_config.TextColumn('Strategy', width='medium'),
-                        'Close': st.column_config.NumberColumn('Close', format='$%.2f'),
-                        'CRT_High': st.column_config.NumberColumn('CRT High', format='$%.2f'),
-                        'CRT_Low': st.column_config.NumberColumn('CRT Low', format='$%.2f'),
                         'CRT_Velocity': st.column_config.NumberColumn('CRT Vel', format='%+.4f'),
                         'IBS': st.column_config.NumberColumn('IBS', format='%.3f'),
-                        'Momentum_5Day': st.column_config.NumberColumn('Mom 5D', format='%.1%'),
-                        'Momentum_20Day': st.column_config.NumberColumn('Mom 20D', format='%.1%'),
-                        'Momentum_Spread': st.column_config.NumberColumn('Spread', format='%+.1%')
+                        'Momentum_Rank': st.column_config.NumberColumn('Mom Rank', format='%.0f', help='Percentile (0-100)'),
+                        'Momentum_5Day': st.column_config.NumberColumn('5D Mom', format='%.1%')
                     }
+                    
+                    # Apply dynamic price formatting
+                    column_config = get_dynamic_column_config(filtered_stocks_sorted, display_cols, base_column_config)
                 
                 elif selected_base_filter == "Higher H/L Only":
                     # Show H/L pattern-focused columns with momentum
-                    display_cols = ['Ticker', 'Name', 'Strategy_Signal', 'Strategy_Type', 'Close', 
-                                   'High', 'Low', 'IBS', 'Momentum_5Day', 'Momentum_20Day', 
-                                   'Momentum_Crossover']
+                    display_cols = ['Ticker', 'Name', 'Close', 'High', 'Low', 'IBS']
                     
-                    column_config = {
+                    # Only add momentum columns if they exist
+                    if 'Momentum_Rank' in filtered_stocks_sorted.columns:
+                        display_cols.extend(['Momentum_Rank', 'Momentum_5Day'])
+                    
+                    base_column_config = {
                         'Ticker': st.column_config.TextColumn('Ticker', width='small'),
                         'Name': st.column_config.TextColumn('Company Name', width='medium'),
-                        'Strategy_Signal': st.column_config.TextColumn('', width='small'),
-                        'Strategy_Type': st.column_config.TextColumn('Strategy', width='medium'),
-                        'Close': st.column_config.NumberColumn('Close', format='$%.2f'),
-                        'High': st.column_config.NumberColumn('Day High', format='$%.2f'),
-                        'Low': st.column_config.NumberColumn('Day Low', format='$%.2f'),
                         'IBS': st.column_config.NumberColumn('IBS', format='%.3f'),
-                        'Momentum_5Day': st.column_config.NumberColumn('Mom 5D', format='%.1%'),
-                        'Momentum_20Day': st.column_config.NumberColumn('Mom 20D', format='%.1%'),
-                        'Momentum_Crossover': st.column_config.NumberColumn('Cross', help='1=Bullish, -1=Bearish, 0=None')
+                        'Momentum_Rank': st.column_config.NumberColumn('Mom Rank', format='%.0f'),
+                        'Momentum_5Day': st.column_config.NumberColumn('5D Mom', format='%.1%')
                     }
+                    
+                    # Apply dynamic price formatting
+                    column_config = get_dynamic_column_config(filtered_stocks_sorted, display_cols, base_column_config)
                 
                 else:  # All Stocks
-                    # Show comprehensive columns including dual momentum
-                    display_cols = ['Ticker', 'Name', 'Strategy_Signal', 'Strategy_Type', 'Close', 
-                                   'IBS', 'Valid_CRT', 'Higher_HL', 'Momentum_5Day', 
-                                   'Momentum_20Day', 'Momentum_Spread']
+                    # Show comprehensive columns
+                    display_cols = ['Ticker', 'Name', 'Close', 'IBS', 'Valid_CRT', 'Higher_HL']
                     
-                    column_config = {
+                    # Only add momentum columns if they exist
+                    if 'Momentum_Rank' in filtered_stocks_sorted.columns:
+                        display_cols.extend(['Momentum_Rank', 'Momentum_5Day'])
+                    
+                    base_column_config = {
                         'Ticker': st.column_config.TextColumn('Ticker', width='small'),
                         'Name': st.column_config.TextColumn('Company Name', width='medium'),
-                        'Strategy_Signal': st.column_config.TextColumn('', width='small'),
-                        'Strategy_Type': st.column_config.TextColumn('Strategy', width='medium'),
-                        'Close': st.column_config.NumberColumn('Close', format='$%.2f'),
                         'IBS': st.column_config.NumberColumn('IBS', format='%.3f'),
                         'Valid_CRT': st.column_config.NumberColumn('CRT', width='small'),
                         'Higher_HL': st.column_config.NumberColumn('H/L', width='small'),
-                        'Momentum_5Day': st.column_config.NumberColumn('Mom 5D', format='%.1%'),
-                        'Momentum_20Day': st.column_config.NumberColumn('Mom 20D', format='%.1%'),
-                        'Momentum_Spread': st.column_config.NumberColumn('Spread', format='%+.1%')
+                        'Momentum_Rank': st.column_config.NumberColumn('Mom Rank', format='%.0f'),
+                        'Momentum_5Day': st.column_config.NumberColumn('5D Mom', format='%.1%')
                     }
+                    
+                    # Apply dynamic price formatting
+                    column_config = get_dynamic_column_config(filtered_stocks_sorted, display_cols, base_column_config)
+                
+                # Filter display_cols to only include existing columns
+                display_cols = [col for col in display_cols if col in filtered_stocks_sorted.columns]
                 
                 st.dataframe(
                     filtered_stocks_sorted[display_cols],
@@ -1168,22 +1213,6 @@ def display_scan_results(results_df: pd.DataFrame):
                     width='stretch',
                     hide_index=True
                 )
-                
-                # Enhanced Strategy Summary with emojis
-                if 'Strategy_Type' in filtered_stocks_sorted.columns:
-                    st.subheader("📈 Strategy Summary")
-                    strategy_summary = filtered_stocks_sorted.groupby(['Strategy_Type', 'Strategy_Signal']).size().reset_index(name='Count')
-                    
-                    if len(strategy_summary) > 0:
-                        # Create a more visual display
-                        summary_cols = st.columns(min(len(strategy_summary), 4))
-                        for i, row in enumerate(strategy_summary.itertuples()):
-                            with summary_cols[i % 4]:
-                                st.metric(
-                                    f"{row.Strategy_Signal} {row.Strategy_Type}", 
-                                    row.Count,
-                                    delta=f"{row.Count/len(filtered_stocks_sorted)*100:.1f}%"
-                                )
                 
                 # TradingView Export
                 st.subheader("📋 TradingView Export (Filtered)")
@@ -1213,7 +1242,7 @@ def display_scan_results(results_df: pd.DataFrame):
         else:
             st.warning(f"No stocks found for pattern: {selected_base_filter}")
         
-        # Full Results Table with DUAL TIMEFRAME
+        # Full Results Table with DUAL TIMEFRAME and dynamic formatting
         with st.expander("📋 Full Analysis Results", expanded=False):
             full_results_cols = [
                 'Analysis_Date', 'Ticker', 'Name', 'Strategy_Signal', 'Strategy_Type', 
@@ -1222,15 +1251,12 @@ def display_scan_results(results_df: pd.DataFrame):
                 'Autocorr_5Day', 'Autocorr_20Day'
             ]
             
-            full_results_column_config = {
+            base_full_results_config = {
                 'Analysis_Date': st.column_config.TextColumn('Date', width='small'),
                 'Ticker': st.column_config.TextColumn('Ticker', width='small'),
                 'Name': st.column_config.TextColumn('Company Name', width='medium'),
                 'Strategy_Signal': st.column_config.TextColumn('', width='small'),
                 'Strategy_Type': st.column_config.TextColumn('Strategy', width='medium'),
-                'High': st.column_config.NumberColumn('High', format='$%.2f'),
-                'Low': st.column_config.NumberColumn('Low', format='$%.2f'),
-                'Close': st.column_config.NumberColumn('Close', format='$%.2f'),
                 'Higher_HL': st.column_config.NumberColumn('H/L', width='small'),
                 'Valid_CRT': st.column_config.NumberColumn('CRT', width='small'),
                 'CRT_Velocity': st.column_config.NumberColumn('CRT Vel', format='%+.4f'),
@@ -1242,6 +1268,9 @@ def display_scan_results(results_df: pd.DataFrame):
                 'Autocorr_5Day': st.column_config.NumberColumn('Auto 5D', format='%+.4f'),
                 'Autocorr_20Day': st.column_config.NumberColumn('Auto 20D', format='%+.4f')
             }
+            
+            # Apply dynamic price formatting for full results
+            full_results_column_config = get_dynamic_column_config(results_df, full_results_cols, base_full_results_config)
             
             st.dataframe(
                 results_df[full_results_cols],
