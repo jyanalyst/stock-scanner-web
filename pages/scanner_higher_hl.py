@@ -1,10 +1,8 @@
 """
-CRT Higher H/L Scanner - PART 1
-Enhanced with flexible base filtering for Valid CRT and/or Higher H/L patterns
-PHASE 2 ENHANCED: Added strategy filtering with momentum + autocorr analysis
-Updated for dual timeframe momentum (5-day and 20-day) display
-UPDATED: Dynamic decimal display for stocks under $1.00
-UPDATED: Simplified percentile-based strategy filter matching CRT Velocity UI
+CRT Higher H/L Scanner - PART 1 (Utility Functions)
+REDESIGNED WITH MPI STRATEGY FILTERING
+Enhanced with MPI (Market Positivity Index) replacing complex momentum system
+Column 4 now uses intuitive strategy-based filtering instead of percentiles
 """
 
 import streamlit as st
@@ -154,25 +152,119 @@ def get_dynamic_column_config(df: pd.DataFrame, display_cols: list, base_config:
     
     return config
 
-def calculate_momentum_percentiles(df: pd.DataFrame) -> pd.DataFrame:
+def format_mpi_visual(mpi_value: float) -> str:
     """
-    Calculate simple momentum rank based on 5-day momentum
-    Higher rank = stronger momentum
+    Convert MPI to visual blocks for intuitive display
     """
-    df = df.copy()
+    if pd.isna(mpi_value):
+        return "░░░░░░░░░░"
     
-    # Simple ranking based on 5-day momentum
-    df['Momentum_Rank'] = df['Momentum_5Day'].rank(pct=True) * 100
+    blocks = max(0, min(10, int(mpi_value * 10)))  # Ensure 0-10 range
+    return "█" * blocks + "░" * (10 - blocks)
+
+def get_mpi_strategy_zone(mpi_value: float) -> dict:
+def get_mpi_strategy_zone(mpi_value: float) -> Dict[str, str]:
+    """
+    Determine MPI strategy zone and characteristics
+    UPDATED: Now maps to MPI_State values for consistency
+    """
+    if pd.isna(mpi_value):
+        return {
+            'zone': 'Unknown',
+            'emoji': '❓',
+            'color': 'gray',
+            'interpretation': 'Insufficient data',
+            'action': 'Wait for more data'
+        }
     
-    # Round to nearest integer for cleaner display
-    df['Momentum_Rank'] = df['Momentum_Rank'].round(0)
+    # Map to MPI_State categories for consistency
+    if mpi_value >= 0.70:
+        return {
+            'zone': 'Strong Bull',
+            'emoji': '🚀',
+            'color': 'darkgreen',
+            'interpretation': f'{mpi_value:.0%} green days - Strong momentum',
+            'action': 'Buy on dips, ride the trend'
+        }
+    elif mpi_value >= 0.50:
+        return {
+            'zone': 'Bull Trend', 
+            'emoji': '📈',
+            'color': 'green',
+            'interpretation': f'{mpi_value:.0%} green days - Positive momentum',
+            'action': 'Buy breakouts, hold positions'
+        }
+    elif mpi_value >= 0.30:
+        return {
+            'zone': 'Neutral',
+            'emoji': '➖',
+            'color': 'orange', 
+            'interpretation': f'{mpi_value:.0%} green days - Mixed signals',
+            'action': 'Wait for clearer direction'
+        }
+    else:
+        return {
+            'zone': 'Bear Trend',
+            'emoji': '📉',
+            'color': 'red',
+            'interpretation': f'{mpi_value:.0%} green days - Weak momentum', 
+            'action': 'Avoid longs, consider shorts'
+        }
+
+def apply_mpi_strategy_filter(base_stocks: pd.DataFrame, selected_states: list) -> pd.DataFrame:
+    """
+    Apply MPI strategy-based filtering using advanced MPI State Classification
     
-    return df
+    Args:
+        base_stocks: Input DataFrame with MPI_State column
+        selected_states: List of selected MPI states
+    
+    Returns:
+        Filtered DataFrame sorted appropriately
+    """
+    if base_stocks.empty:
+        return base_stocks
+    
+    if 'MPI_State' not in base_stocks.columns:
+        st.warning("MPI_State column not found - using all stocks")
+        return base_stocks
+    
+    # If no states selected, return all stocks
+    if not selected_states:
+        filtered = base_stocks.copy()
+        return filtered.sort_values('MPI_Base', ascending=False)
+    
+    # Filter by selected MPI states using exact string matching
+    filtered = base_stocks[base_stocks['MPI_State'].isin(selected_states)].copy()
+    
+    # Smart sorting based on selected states
+    bear_states = ['Bear Market']
+    neutral_states = ['Neutral Zone']
+    bull_states = ['Strong Bull Rising', 'Strong Bull Slowing', 'Bull Acceleration', 'Bull Deceleration']
+    
+    selected_categories = []
+    if any(state in bear_states for state in selected_states):
+        selected_categories.append('bear')
+    if any(state in neutral_states for state in selected_states):
+        selected_categories.append('neutral')
+    if any(state in bull_states for state in selected_states):
+        selected_categories.append('bull')
+    
+    # Sort based on predominant selection
+    if selected_categories == ['bear']:
+        # For bear-only selections, sort weakest first (for shorting)
+        filtered = filtered.sort_values('MPI_Base', ascending=True)
+    else:
+        # For all other combinations, sort strongest first
+        # Secondary sort by acceleration for same MPI levels
+        filtered = filtered.sort_values(['MPI_Base', 'MPI_Acceleration'], ascending=[False, False])
+    
+    return filtered
 
 def apply_dynamic_filters(base_stocks, results_df):
     """
-    Apply dynamic filtering with CRT Velocity, IBS, Higher H/L, and Strategy filters
-    UPDATED: Simplified strategy filter matching CRT Velocity UI pattern
+    Apply dynamic filtering with CRT Velocity, IBS, Higher H/L, and NEW MPI Strategy filters
+    UPDATED: Column 4 now uses MPI Strategy Filter instead of complex momentum percentiles
     Returns filtered stocks
     """
     
@@ -188,16 +280,14 @@ def apply_dynamic_filters(base_stocks, results_df):
     # Initialize filtered stocks
     filtered_stocks = base_stocks.copy()
     
-    # COL 1: CRT VELOCITY PERCENTILE FILTER
+    # COL 1: CRT VELOCITY PERCENTILE FILTER (UNCHANGED)
     with col1:
         st.markdown("**CRT Velocity Filter:**")
         
         # Get velocity statistics - handle both Valid CRT and non-Valid CRT stocks
         if 'CRT_Velocity' in base_stocks.columns:
-            # For stocks with Valid CRT, use CRT_Velocity
             velocities = base_stocks['CRT_Velocity']
         else:
-            # If CRT_Velocity not in base_stocks, get from original results
             velocities = base_stocks.index.map(lambda idx: results_df.loc[idx, 'CRT_Velocity'] if idx in results_df.index else 0)
             velocities = pd.Series(velocities, index=base_stocks.index)
         
@@ -241,11 +331,11 @@ def apply_dynamic_filters(base_stocks, results_df):
                     ],
                     "Unit": ["stocks", "pp", "pp", "pp", "pp", "pp"]
                 }
-                st.dataframe(pd.DataFrame(stats_data), hide_index=True, width="stretch")
+                st.dataframe(pd.DataFrame(stats_data), hide_index=True, use_container_width=True)
         else:
             st.info("No CRT Velocity data available for filtering")
     
-    # COL 2: IBS FILTER
+    # COL 2: IBS FILTER (UNCHANGED)
     with col2:
         st.markdown("**IBS Filter:**")
         
@@ -303,9 +393,9 @@ def apply_dynamic_filters(base_stocks, results_df):
                 ],
                 "Unit": ["stocks", "", "", "", "", ""]
             }
-            st.dataframe(pd.DataFrame(ibs_stats), hide_index=True, width="stretch")
+            st.dataframe(pd.DataFrame(ibs_stats), hide_index=True, use_container_width=True)
     
-    # COL 3: HIGHER H/L FILTER
+    # COL 3: HIGHER H/L FILTER (UNCHANGED)
     with col3:
         # Check if we need this filter
         base_filter_type = st.session_state.get('base_filter_type', 'All Stocks')
@@ -350,93 +440,108 @@ def apply_dynamic_filters(base_stocks, results_df):
                         "100.0%"
                     ]
                 }
-                st.dataframe(pd.DataFrame(hl_stats), hide_index=True, width="stretch")
+                st.dataframe(pd.DataFrame(hl_stats), hide_index=True, use_container_width=True)
         else:
             st.markdown("**Additional Filters:**")
             st.info("Higher H/L filter not needed - already filtered by base selection")
             selected_higher_hl = "No Filter"
     
-    # COL 4: STRATEGY FILTER (SIMPLIFIED WITH PERCENTILE RANKING)
+    # COL 4: MULTI-SELECT MPI STATE FILTER (ADVANCED CLASSIFICATION)
     with col4:
-        st.markdown("**Strategy Filter:**")
+        st.markdown("**MPI Strategy Filter:**")
         
-        # Check if momentum data is available
-        if 'Momentum_5Day' in filtered_stocks.columns and 'Momentum_20Day' in filtered_stocks.columns:
+        # Check if MPI data is available
+        if 'MPI_State' in filtered_stocks.columns:
             
-            # Calculate momentum percentiles first
-            filtered_stocks = calculate_momentum_percentiles(filtered_stocks)
+            # MPI State options with advanced classification
+            strategy_options = [
+                "🚀 Strong Bull Rising",      # MPI≥70% + Acceleration>0.1
+                "📈 Strong Bull Slowing",     # MPI≥70% + Acceleration≤0.1  
+                "⚡ Bull Acceleration",       # MPI≥50% + Acceleration>0.1
+                "📊 Bull Deceleration",       # MPI≥50% + Acceleration≤0.1
+                "➖ Neutral Zone",            # MPI 30-50%
+                "📉 Bear Market"              # MPI<30%
+            ]
             
-            # Simple percentile options matching CRT Velocity Filter style
-            strategy_options = {
-                "Top 25% (Breakout)": 75,
-                "Top 50% (Momentum)": 50,
-                "Bottom 25% (Short)": 25,
-                "Middle 50% (Pullback)": "middle",
-                "No Filter": None
-            }
+            # Multi-select checkboxes with advanced states
+            st.markdown("Select momentum states:")
+            selected_strategies = []
             
-            selected_strategy = st.radio(
-                "Select momentum filter:",
-                list(strategy_options.keys()),
-                key="strategy_filter_radio"
-            )
-            
-            # Apply strategy filtering based on momentum rank
-            if selected_strategy == "Top 25% (Breakout)":
-                threshold = strategy_options[selected_strategy]
-                filtered_stocks = filtered_stocks[filtered_stocks['Momentum_Rank'] >= threshold]
-                filtered_stocks = filtered_stocks.sort_values('Momentum_Rank', ascending=False)
-                st.info(f"Momentum Rank ≥ {threshold} (Strongest)")
-                
-            elif selected_strategy == "Top 50% (Momentum)":
-                threshold = strategy_options[selected_strategy]
-                filtered_stocks = filtered_stocks[filtered_stocks['Momentum_Rank'] >= threshold]
-                filtered_stocks = filtered_stocks.sort_values('Momentum_Rank', ascending=False)
-                st.info(f"Momentum Rank ≥ {threshold} (Above average)")
-                
-            elif selected_strategy == "Bottom 25% (Short)":
-                threshold = strategy_options[selected_strategy]
-                filtered_stocks = filtered_stocks[filtered_stocks['Momentum_Rank'] <= threshold]
-                filtered_stocks = filtered_stocks.sort_values('Momentum_Rank', ascending=True)
-                st.info(f"Momentum Rank ≤ {threshold} (Weakest)")
-                
-            elif selected_strategy == "Middle 50% (Pullback)":
-                # Middle 50% = between 25th and 75th percentile
-                filtered_stocks = filtered_stocks[
-                    (filtered_stocks['Momentum_Rank'] >= 25) & 
-                    (filtered_stocks['Momentum_Rank'] <= 75)
-                ]
-                filtered_stocks = filtered_stocks.sort_values('Momentum_Rank', ascending=False)
-                st.info("Momentum Rank 25-75 (Pullback zone)")
-                
-            else:  # No Filter
-                st.info("All momentum ranks included")
-            
-            # Show momentum statistics
-            with st.expander("Momentum Statistics", expanded=False):
-                mom_stats = {
-                    "Metric": ["Count", "Min", "25th %ile", "Median", "75th %ile", "Max"],
-                    "Rank": [
-                        f"{len(base_stocks)}",
-                        f"{base_stocks['Momentum_Rank'].min():.0f}" if 'Momentum_Rank' in base_stocks.columns else "0",
-                        "25",
-                        "50", 
-                        "75",
-                        "100"
-                    ],
-                    "5-Day Mom": [
-                        "",
-                        f"{base_stocks['Momentum_5Day'].min():.1%}",
-                        f"{base_stocks['Momentum_5Day'].quantile(0.25):.1%}",
-                        f"{base_stocks['Momentum_5Day'].median():.1%}",
-                        f"{base_stocks['Momentum_5Day'].quantile(0.75):.1%}",
-                        f"{base_stocks['Momentum_5Day'].max():.1%}"
-                    ]
+            for i, strategy in enumerate(strategy_options):
+                # Map display names to internal MPI_State values
+                state_mapping = {
+                    "🚀 Strong Bull Rising": "Strong Bull Rising",
+                    "📈 Strong Bull Slowing": "Strong Bull Slowing", 
+                    "⚡ Bull Acceleration": "Bull Acceleration",
+                    "📊 Bull Deceleration": "Bull Deceleration",
+                    "➖ Neutral Zone": "Neutral Zone",
+                    "📉 Bear Market": "Bear Market"
                 }
-                st.dataframe(pd.DataFrame(mom_stats), hide_index=True, width="stretch")
+                
+                if st.checkbox(strategy, key=f"mpi_state_checkbox_{i}"):
+                    selected_strategies.append(state_mapping[strategy])
+            
+            # Apply MPI state filtering with advanced classification
+            if selected_strategies:
+                filtered_stocks = apply_mpi_strategy_filter(filtered_stocks, selected_strategies)
+                
+                # Show info about selected strategies with advanced details
+                display_names = [k for k, v in state_mapping.items() if v in selected_strategies]
+                st.info(f"Selected: {', '.join([name.split(' ')[0] for name in display_names])} ({len(filtered_stocks)} stocks)")
+                
+                # Show detailed explanations for selected states
+                with st.expander("Selected State Details", expanded=False):
+                    for strategy in selected_strategies:
+                        if strategy == "Strong Bull Rising":
+                            st.write("🚀 **Strong Bull Rising:** MPI ≥ 70% + Acceleration > 10% (Breakout momentum)")
+                        elif strategy == "Strong Bull Slowing":
+                            st.write("📈 **Strong Bull Slowing:** MPI ≥ 70% + Acceleration ≤ 10% (Strong but cooling)")
+                        elif strategy == "Bull Acceleration":
+                            st.write("⚡ **Bull Acceleration:** MPI ≥ 50% + Acceleration > 10% (Building momentum)")
+                        elif strategy == "Bull Deceleration":
+                            st.write("📊 **Bull Deceleration:** MPI ≥ 50% + Acceleration ≤ 10% (Slowing bull trend)")
+                        elif strategy == "Neutral Zone":
+                            st.write("➖ **Neutral Zone:** MPI 30-50% (Mixed signals)")
+                        elif strategy == "Bear Market":
+                            st.write("📉 **Bear Market:** MPI < 30% (Weak momentum)")
+            else:
+                st.info("No states selected - showing all MPI levels")
+            
+            # Show MPI State statistics and distribution
+            with st.expander("MPI State Statistics", expanded=False):
+                if 'MPI_State' in base_stocks.columns:
+                    state_counts = base_stocks['MPI_State'].value_counts()
+                    
+                    # Create comprehensive state statistics
+                    state_stats_data = []
+                    state_order = [
+                        'Strong Bull Rising', 'Strong Bull Slowing', 
+                        'Bull Acceleration', 'Bull Deceleration',
+                        'Neutral Zone', 'Bear Market'
+                    ]
+                    
+                    for state in state_order:
+                        count = state_counts.get(state, 0)
+                        if count > 0:
+                            state_stocks = base_stocks[base_stocks['MPI_State'] == state]
+                            avg_mpi = state_stocks['MPI_Base'].mean()
+                            avg_accel = state_stocks['MPI_Acceleration'].mean()
+                            
+                            state_stats_data.append({
+                                "MPI State": state,
+                                "Count": f"{count}",
+                                "Avg MPI": f"{avg_mpi:.1%}",
+                                "Avg Accel": f"{avg_accel:+.3f}",
+                                "Description": get_state_description(state)
+                            })
+                    
+                    if state_stats_data:
+                        st.dataframe(pd.DataFrame(state_stats_data), hide_index=True, use_container_width=True)
+                else:
+                    st.warning("MPI_State column not available")
         else:
-            st.warning("Strategy filtering not available - momentum data missing")
-            selected_strategy = "No Filter"
+            st.warning("MPI state filtering not available - MPI_State data missing")
+            selected_strategies = []
     
     # Show combined filter summary
     filter_summary = []
@@ -448,8 +553,9 @@ def apply_dynamic_filters(base_stocks, results_df):
         filter_summary.append(f"IBS {selected_ibs_option}")
     if 'selected_higher_hl' in locals() and selected_higher_hl != "No Filter":
         filter_summary.append("Higher H/L Only")
-    if selected_strategy != "No Filter":
-        filter_summary.append(f"Strategy: {selected_strategy.split(' ')[0]}")
+    if selected_strategies:
+        # Show count of selected MPI states
+        filter_summary.append(f"MPI: {len(selected_strategies)} states")
     
     if filter_summary:
         st.success(f"Active filters: {' + '.join(filter_summary)} → {len(filtered_stocks)} stocks")
@@ -462,15 +568,14 @@ def apply_dynamic_filters(base_stocks, results_df):
         
         # Velocity chart (if available)
         if 'non_zero_velocities' in locals() and len(non_zero_velocities) > 0:
-            charts_to_show.append(('velocity', non_zero_velocities, selected_percentile))
+            charts_to_show.append(('velocity', non_zero_velocities, selected_percentile if 'selected_percentile' in locals() else None))
         
         # IBS chart
-        charts_to_show.append(('ibs', ibs_values, selected_ibs_option))
+        charts_to_show.append(('ibs', filtered_stocks['IBS'] if not filtered_stocks.empty else pd.Series(), selected_ibs_option))
         
-        # Momentum chart (if available)
-        if 'Momentum_Rank' in filtered_stocks.columns:
-            charts_to_show.append(('momentum_rank', base_stocks['Momentum_Rank'], selected_strategy))
-            charts_to_show.append(('momentum_5day', base_stocks['Momentum_5Day'], selected_strategy))
+        # MPI chart (if available)
+        if 'MPI_Base' in base_stocks.columns:
+            charts_to_show.append(('mpi', base_stocks['MPI_Base'], selected_strategies))
         
         # Create charts in rows of 2
         num_charts = len(charts_to_show)
@@ -478,83 +583,88 @@ def apply_dynamic_filters(base_stocks, results_df):
             cols = st.columns(2)
             for j, (chart_type, data, filter_selection) in enumerate(charts_to_show[i:i+2]):
                 with cols[j]:
-                    if chart_type == 'velocity':
+                    if chart_type == 'velocity' and len(data) > 0:
                         fig = px.histogram(
                             x=data,
                             nbins=20,
                             title="CRT Velocity Distribution",
                             labels={'x': 'CRT Velocity (pp)', 'y': 'Count'}
                         )
-                        if selected_percentile != "No Filter":
-                            percentile_val = percentile_options[selected_percentile]
+                        if filter_selection and filter_selection != "No Filter":
+                            percentile_val = percentile_options[filter_selection]
                             threshold_value = np.percentile(non_zero_velocities, percentile_val)
                             fig.add_vline(x=threshold_value, line_dash="dash", line_color="red", 
-                                         annotation_text=f"{selected_percentile} threshold")
+                                         annotation_text=f"{filter_selection} threshold")
                         st.plotly_chart(fig, use_container_width=True)
                     
-                    elif chart_type == 'ibs':
+                    elif chart_type == 'ibs' and len(data) > 0:
                         fig = px.histogram(
                             x=data,
                             nbins=20,
                             title="IBS Distribution",
                             labels={'x': 'IBS', 'y': 'Count'}
                         )
-                        if selected_ibs_option == "Custom":
-                            fig.add_vline(x=custom_ibs_value, line_dash="dash", line_color="red",
-                                        annotation_text=f"Custom ≥ {custom_ibs_value:.2f}")
-                        elif selected_ibs_option != "No Filter":
-                            percentile_val = ibs_percentile_options[selected_ibs_option]
-                            threshold_value = np.percentile(ibs_values, percentile_val)
-                            fig.add_vline(x=threshold_value, line_dash="dash", line_color="red",
-                                        annotation_text=f"{selected_ibs_option} threshold")
+                        if filter_selection == "Custom":
+                            if 'custom_ibs_value' in locals():
+                                fig.add_vline(x=custom_ibs_value, line_dash="dash", line_color="red",
+                                            annotation_text=f"Custom ≥ {custom_ibs_value:.2f}")
+                        elif filter_selection != "No Filter" and filter_selection in ibs_percentile_options:
+                            percentile_val = ibs_percentile_options[filter_selection]
+                            if percentile_val is not None:
+                                threshold_value = np.percentile(data, percentile_val)
+                                fig.add_vline(x=threshold_value, line_dash="dash", line_color="red",
+                                            annotation_text=f"{filter_selection} threshold")
                         st.plotly_chart(fig, use_container_width=True)
                     
-                    elif chart_type == 'momentum_rank':
+                    elif chart_type == 'mpi' and len(data) > 0:
                         fig = px.histogram(
                             x=data,
                             nbins=20,
-                            title="Momentum Rank Distribution",
-                            labels={'x': 'Momentum Rank (0-100)', 'y': 'Count'}
+                            title="MPI Strategy Distribution",
+                            labels={'x': 'MPI Base (Market Positivity Index)', 'y': 'Count'}
                         )
-                        # Add filter zones
-                        if filter_selection == "Top 25% (Breakout)":
-                            fig.add_vline(x=75, line_dash="dash", line_color="green",
-                                         annotation_text="Top 25% threshold")
-                        elif filter_selection == "Bottom 25% (Short)":
-                            fig.add_vline(x=25, line_dash="dash", line_color="red",
-                                         annotation_text="Bottom 25% threshold")
-                        elif filter_selection == "Middle 50% (Pullback)":
-                            fig.add_vrect(x0=25, x1=75, fillcolor="yellow", opacity=0.2,
-                                         annotation_text="Pullback Zone")
-                        st.plotly_chart(fig, use_container_width=True)
-                    
-                    elif chart_type == 'momentum_5day':
-                        fig = px.histogram(
-                            x=data,
-                            nbins=20,
-                            title="5-Day Momentum Distribution",
-                            labels={'x': '5-Day Momentum', 'y': 'Count'}
-                        )
-                        # Add reference lines
-                        fig.add_vline(x=0.50, line_dash="dash", line_color="gray",
-                                     annotation_text="50% baseline")
+                        
+                        # Add strategy zone shading
+                        fig.add_vrect(x0=0.70, x1=1.00, fillcolor="green", opacity=0.2, annotation_text="Strong Bull")
+                        fig.add_vrect(x0=0.50, x1=0.70, fillcolor="lightgreen", opacity=0.2, annotation_text="Bull Trend")  
+                        fig.add_vrect(x0=0.30, x1=0.50, fillcolor="orange", opacity=0.2, annotation_text="Neutral")
+                        fig.add_vrect(x0=0.00, x1=0.30, fillcolor="red", opacity=0.2, annotation_text="Bear Trend")
+                        
+                        # Highlight selected MPI states on distribution chart
+                        if selected_strategies:
+                            # Add different colored lines for each selected state
+                            colors = ['darkgreen', 'green', 'blue', 'orange', 'gray', 'red']
+                            for i, strategy in enumerate(selected_strategies):
+                                color = colors[i % len(colors)]
+                                
+                                if strategy == "Strong Bull Rising":
+                                    fig.add_vline(x=0.70, line_dash="solid", line_color=color, line_width=3,
+                                                annotation_text="Strong Bull Rising")
+                                elif strategy == "Strong Bull Slowing":
+                                    fig.add_vline(x=0.70, line_dash="dash", line_color=color, line_width=2,
+                                                annotation_text="Strong Bull Slowing")
+                                elif strategy == "Bull Acceleration":
+                                    fig.add_vline(x=0.50, line_dash="solid", line_color=color, line_width=2,
+                                                annotation_text="Bull Acceleration")
+                                elif strategy == "Bull Deceleration":
+                                    fig.add_vline(x=0.50, line_dash="dash", line_color=color, line_width=2,
+                                                annotation_text="Bull Deceleration")
+                                elif strategy == "Neutral Zone":
+                                    fig.add_vline(x=0.40, line_dash="dot", line_color=color, line_width=2,
+                                                annotation_text="Neutral Zone")
+                                elif strategy == "Bear Market":
+                                    fig.add_vline(x=0.30, line_dash="solid", line_color=color, line_width=3,
+                                                annotation_text="Bear Market")
+                        
                         st.plotly_chart(fig, use_container_width=True)
     
     return filtered_stocks
 
-"""
-CRT Higher H/L Scanner - PART 2 (COMPLETE)
-Main application functions: show(), run_enhanced_stock_scan(), display_scan_results()
-Updated with dual timeframe momentum display and enhanced column configurations
-UPDATED: Dynamic decimal display for stocks under $1.00
-UPDATED: Simplified percentile-based strategy filter
-"""
-
 def show():
-    """Main scanner page display for Higher H/L patterns with flexible base filtering and strategy analysis"""
+    """Main scanner page display for Higher H/L patterns with MPI Strategy filtering"""
     
     st.title("📈 CRT Higher H/L Scanner")
-    st.markdown("Comprehensive analysis with momentum-based strategy filtering")
+    st.markdown("Enhanced with **MPI Strategy Filtering** - Market Positivity Index for intuitive momentum analysis")
     
     # Clear previous errors for new scan
     if st.button("🗑️ Clear Error Log"):
@@ -713,7 +823,7 @@ def show():
         display_scan_results(st.session_state.scan_results)
 
 def run_enhanced_stock_scan(stocks_to_scan, analysis_date=None, days_back=59, rolling_window=20, debug_mode=False):
-    """Execute the enhanced stock scanning process with comprehensive error logging and dynamic decimal formatting"""
+    """Execute the enhanced stock scanning process with MPI system integration"""
     
     error_logger = st.session_state.error_logger
     
@@ -721,7 +831,7 @@ def run_enhanced_stock_scan(stocks_to_scan, analysis_date=None, days_back=59, ro
         from core.data_fetcher import DataFetcher, set_global_data_fetcher
         from core.technical_analysis import add_enhanced_columns
         
-        error_logger.log_debug("Scan Start", "Starting enhanced stock scan", {
+        error_logger.log_debug("Scan Start", "Starting enhanced stock scan with MPI system", {
             "stocks_count": len(stocks_to_scan),
             "stocks": stocks_to_scan,
             "analysis_date": str(analysis_date) if analysis_date else "Current",
@@ -742,7 +852,7 @@ def run_enhanced_stock_scan(stocks_to_scan, analysis_date=None, days_back=59, ro
         else:
             date_text = "current data analysis"
         
-        st.info(f"🔄 Scanning {scope_text} with {date_text}... This may take a moment.")
+        st.info(f"🔄 Scanning {scope_text} with {date_text}... Calculating MPI indicators...")
         
         progress_bar = st.progress(0)
         status_text = st.empty()
@@ -791,7 +901,7 @@ def run_enhanced_stock_scan(stocks_to_scan, analysis_date=None, days_back=59, ro
             st.error("❌ Failed to download stock data. Check error log for details.")
             return
         
-        status_text.text("🔄 Analyzing technical indicators and dual timeframe momentum...")
+        status_text.text("🔄 Calculating MPI indicators and technical analysis...")
         progress_bar.progress(0.4)
         
         results = []
@@ -799,7 +909,7 @@ def run_enhanced_stock_scan(stocks_to_scan, analysis_date=None, days_back=59, ro
         
         for i, (ticker, df_raw) in enumerate(stock_data.items()):
             try:
-                error_logger.log_debug("Stock Processing", f"Processing {ticker}", {
+                error_logger.log_debug("Stock Processing", f"Processing {ticker} with MPI system", {
                     "data_shape": df_raw.shape,
                     "date_range": f"{df_raw.index[0]} to {df_raw.index[-1]}" if len(df_raw) > 0 else "No data",
                     "columns": list(df_raw.columns)
@@ -811,9 +921,10 @@ def run_enhanced_stock_scan(stocks_to_scan, analysis_date=None, days_back=59, ro
                 
                 try:
                     df_enhanced = add_enhanced_columns(df_raw, ticker, rolling_window)
-                    error_logger.log_debug("Technical Analysis", f"Enhanced columns added for {ticker}", {
+                    error_logger.log_debug("Technical Analysis", f"Enhanced columns with MPI added for {ticker}", {
                         "enhanced_shape": df_enhanced.shape,
-                        "new_columns": [col for col in df_enhanced.columns if col not in df_raw.columns]
+                        "mpi_columns": [col for col in df_enhanced.columns if 'MPI' in col],
+                        "has_mpi_base": 'MPI_Base' in df_enhanced.columns
                     })
                 except Exception as e:
                     error_logger.log_error("Technical Analysis", e, {
@@ -842,8 +953,6 @@ def run_enhanced_stock_scan(stocks_to_scan, analysis_date=None, days_back=59, ro
                         
                         error_logger.log_debug("Historical Date Processing", f"Date comparison for {ticker}", {
                             "target_date": str(target_date),
-                            "target_date_tz": str(target_date.tz) if hasattr(target_date, 'tz') else "None",
-                            "available_dates_tz": str(available_dates.tz) if hasattr(available_dates, 'tz') else "None",
                             "available_dates_count": len(available_dates),
                             "valid_dates_count": len(valid_dates)
                         })
@@ -851,8 +960,7 @@ def run_enhanced_stock_scan(stocks_to_scan, analysis_date=None, days_back=59, ro
                         if len(valid_dates) == 0:
                             error_logger.log_warning("Historical Analysis", f"No data for {ticker} on or before {analysis_date}", {
                                 "target_date": str(target_date),
-                                "available_date_range": f"{available_dates[0]} to {available_dates[-1]}" if len(available_dates) > 0 else "No dates",
-                                "total_available_days": len(available_dates)
+                                "available_date_range": f"{available_dates[0]} to {available_dates[-1]}" if len(available_dates) > 0 else "No dates"
                             })
                             continue
                         
@@ -862,11 +970,7 @@ def run_enhanced_stock_scan(stocks_to_scan, analysis_date=None, days_back=59, ro
                     except Exception as e:
                         error_logger.log_error("Historical Date Processing", e, {
                             "ticker": ticker,
-                            "target_date": str(analysis_date),
-                            "available_dates_count": len(df_enhanced),
-                            "index_dtype": str(df_enhanced.index.dtype),
-                            "index_tz": str(df_enhanced.index.tz) if hasattr(df_enhanced.index, 'tz') else "None",
-                            "sample_dates": [str(d) for d in df_enhanced.index[:3].tolist()] if len(df_enhanced) > 0 else []
+                            "target_date": str(analysis_date)
                         })
                         continue
                 else:
@@ -880,25 +984,27 @@ def run_enhanced_stock_scan(stocks_to_scan, analysis_date=None, days_back=59, ro
                     error_logger.log_warning("Company Name", f"Failed to get name for {ticker}: {e}")
                     company_name = ticker.replace('.SI', '')
                 
-                # DYNAMIC DECIMAL FORMATTING BASED ON PRICE
+                # Dynamic decimal formatting based on price level
                 close_price = float(analysis_row['Close'])
                 high_price = float(analysis_row['High'])
                 low_price = float(analysis_row['Low'])
                 
-                # Determine decimal places based on price level
                 if close_price < 1.00:
-                    price_decimals = 3  # For all stocks under $1.00
+                    price_decimals = 3
                 else:
-                    price_decimals = 2  # For regular stocks $1.00 and above
+                    price_decimals = 2
                 
-                # Helper function to safely round values
                 def safe_round(value, decimals):
                     try:
                         return round(float(value), decimals) if not pd.isna(value) else 0
                     except:
                         return 0
                 
-                # Collect results with DYNAMIC DECIMAL FORMATTING
+                # Get MPI strategy zone information
+                mpi_base = float(analysis_row.get('MPI_Base', 0.5)) if not pd.isna(analysis_row.get('MPI_Base', 0.5)) else 0.5
+                mpi_zone_info = get_mpi_strategy_zone(mpi_base)
+                
+                # Collect results with MPI-ENHANCED data
                 try:
                     result = {
                         'Ticker': ticker,
@@ -916,19 +1022,22 @@ def run_enhanced_stock_scan(stocks_to_scan, analysis_date=None, days_back=59, ro
                         'CRT_Low': safe_round(analysis_row.get('CRT_Low', 0), price_decimals),
                         'VW_Range_Percentile': round(float(analysis_row.get('VW_Range_Percentile', 0)), 4) if not pd.isna(analysis_row.get('VW_Range_Percentile', 0)) else 0,
                         'Rel_Range_Signal': int(analysis_row.get('Rel_Range_Signal', 0)),
-                        # NEW DUAL TIMEFRAME COLUMNS
-                        'Momentum_5Day': round(float(analysis_row.get('Momentum_5Day', 0.5)), 4) if not pd.isna(analysis_row.get('Momentum_5Day', 0.5)) else 0.5,
-                        'Momentum_20Day': round(float(analysis_row.get('Momentum_20Day', 0.5)), 4) if not pd.isna(analysis_row.get('Momentum_20Day', 0.5)) else 0.5,
-                        'Momentum_Spread': round(float(analysis_row.get('Momentum_Spread', 0.0)), 4) if not pd.isna(analysis_row.get('Momentum_Spread', 0.0)) else 0.0,
-                        'Momentum_Crossover': int(analysis_row.get('Momentum_Crossover', 0)) if not pd.isna(analysis_row.get('Momentum_Crossover', 0)) else 0,
-                        'Autocorr_5Day': round(float(analysis_row.get('Autocorr_5Day', 0.0)), 4) if not pd.isna(analysis_row.get('Autocorr_5Day', 0.0)) else 0.0,
-                        'Autocorr_20Day': round(float(analysis_row.get('Autocorr_20Day', 0.0)), 4) if not pd.isna(analysis_row.get('Autocorr_20Day', 0.0)) else 0.0,
-                        'Strategy_Type': str(analysis_row.get('Strategy_Type', 'Unknown')),
-                        'Strategy_Signal': str(analysis_row.get('Strategy_Signal', '❓')),
-                        # Keep backward compatibility columns
-                        'Momentum_1Day_Prob': round(float(analysis_row.get('Momentum_5Day', 0.5)), 4),
-                        'Momentum_3Day_Prob': round(float(analysis_row.get('Momentum_5Day', 0.5)), 4),
-                        'Autocorr_1Day': round(float(analysis_row.get('Autocorr_5Day', 0.0)), 4),
+                        
+                        # NEW MPI SYSTEM COLUMNS (replacing old complex momentum)
+                        'MPI_Base': round(mpi_base, 4),
+                        'MPI_Fast': round(float(analysis_row.get('MPI_Fast', 0.5)), 4) if not pd.isna(analysis_row.get('MPI_Fast', 0.5)) else 0.5,
+                        'MPI_Slow': round(float(analysis_row.get('MPI_Slow', 0.5)), 4) if not pd.isna(analysis_row.get('MPI_Slow', 0.5)) else 0.5,
+                        'MPI_Acceleration': round(float(analysis_row.get('MPI_Acceleration', 0.0)), 4) if not pd.isna(analysis_row.get('MPI_Acceleration', 0.0)) else 0.0,
+                        'MPI_State': str(analysis_row.get('MPI_State', 'Unknown')),
+                        'MPI_Zone': mpi_zone_info['zone'],
+                        'MPI_Zone_Emoji': mpi_zone_info['emoji'],
+                        'MPI_Visual': format_mpi_visual(mpi_base),
+                        
+                        # MPI Strategy Signals
+                        'Signal_Breakout': int(analysis_row.get('Signal_Breakout', 0)) if not pd.isna(analysis_row.get('Signal_Breakout', 0)) else 0,
+                        'Signal_Pullback': int(analysis_row.get('Signal_Pullback', 0)) if not pd.isna(analysis_row.get('Signal_Pullback', 0)) else 0,
+                        'Signal_Short': int(analysis_row.get('Signal_Short', 0)) if not pd.isna(analysis_row.get('Signal_Short', 0)) else 0,
+                        
                         # Store price level for display formatting
                         'Price_Decimals': price_decimals
                     }
@@ -936,17 +1045,17 @@ def run_enhanced_stock_scan(stocks_to_scan, analysis_date=None, days_back=59, ro
                     results.append(result)
                     
                     if debug_mode:
-                        error_logger.log_debug("Result Collection", f"Collected result for {ticker}", {
-                            "close_price": close_price,
-                            "price_decimals": price_decimals,
-                            "formatted_close": result['Close']
+                        error_logger.log_debug("Result Collection", f"Collected MPI result for {ticker}", {
+                            "mpi_base": mpi_base,
+                            "mpi_zone": mpi_zone_info['zone'],
+                            "mpi_visual": format_mpi_visual(mpi_base),
+                            "price_decimals": price_decimals
                         })
                         
                 except Exception as e:
                     error_logger.log_error("Result Collection", e, {
                         "ticker": ticker,
-                        "analysis_row_index": str(actual_date),
-                        "analysis_row_data": str(analysis_row.to_dict()) if hasattr(analysis_row, 'to_dict') else str(analysis_row)
+                        "analysis_row_index": str(actual_date)
                     })
                     processing_errors.append(f"{ticker}: Result collection failed")
                     continue
@@ -957,8 +1066,7 @@ def run_enhanced_stock_scan(stocks_to_scan, analysis_date=None, days_back=59, ro
             except Exception as e:
                 error_logger.log_error("Stock Processing", e, {
                     "ticker": ticker,
-                    "processing_step": "overall",
-                    "data_available": ticker in stock_data
+                    "processing_step": "overall"
                 })
                 processing_errors.append(f"{ticker}: {str(e)}")
                 continue
@@ -969,18 +1077,18 @@ def run_enhanced_stock_scan(stocks_to_scan, analysis_date=None, days_back=59, ro
                 "success_rate": f"{len(results)}/{len(stock_data)} ({len(results)/len(stock_data)*100:.1f}%)"
             })
         
-        status_text.text("📊 Preparing results...")
+        status_text.text("📊 Preparing MPI-enhanced results...")
         progress_bar.progress(0.9)
         
         try:
             results_df = pd.DataFrame(results)
-            error_logger.log_debug("Results Finalization", f"Created results dataframe", {
+            error_logger.log_debug("Results Finalization", f"Created MPI-enhanced results dataframe", {
                 "results_count": len(results_df),
-                "columns": list(results_df.columns) if not results_df.empty else []
+                "mpi_columns": [col for col in results_df.columns if 'MPI' in col] if not results_df.empty else []
             })
         except Exception as e:
             error_logger.log_error("Results DataFrame Creation", e, {
-                "results_data": results
+                "results_data_sample": results[:3] if results else []
             })
             raise
         
@@ -993,20 +1101,20 @@ def run_enhanced_stock_scan(stocks_to_scan, analysis_date=None, days_back=59, ro
         }
         
         progress_bar.progress(1.0)
-        status_text.text("✅ Scan completed!")
+        status_text.text("✅ MPI scan completed!")
         
         time.sleep(1)
         progress_bar.empty()
         status_text.empty()
         
-        success_message = f"🎉 Scan completed! Analyzed {len(results_df)} stocks successfully"
+        success_message = f"🎉 MPI Scan completed! Analyzed {len(results_df)} stocks successfully"
         if processing_errors:
             success_message += f" ({len(processing_errors)} errors - check log for details)"
         if is_historical:
             success_message += f" as of {analysis_date}"
         
         st.success(success_message)
-        error_logger.log_debug("Scan Completion", "Scan completed successfully", {
+        error_logger.log_debug("Scan Completion", "MPI scan completed successfully", {
             "successful_stocks": len(results_df),
             "total_requested": len(stocks_to_scan),
             "processing_errors": len(processing_errors)
@@ -1023,7 +1131,7 @@ def run_enhanced_stock_scan(stocks_to_scan, analysis_date=None, days_back=59, ro
                 "rolling_window": rolling_window
             }
         })
-        st.error("❌ Scan failed with critical error - check error log for full details")
+        st.error("❌ MPI scan failed with critical error - check error log for full details")
         
         if 'progress_bar' in locals():
             progress_bar.empty()
@@ -1031,7 +1139,7 @@ def run_enhanced_stock_scan(stocks_to_scan, analysis_date=None, days_back=59, ro
             status_text.empty()
 
 def display_scan_results(results_df: pd.DataFrame):
-    """Display scanning results with dual timeframe momentum columns and dynamic decimal formatting"""
+    """Display scanning results with MPI Strategy filtering and intuitive momentum display"""
     
     error_logger = st.session_state.error_logger
     
@@ -1041,27 +1149,23 @@ def display_scan_results(results_df: pd.DataFrame):
             error_logger.log_warning("Results Display", "Empty results dataframe")
             return
         
-        # Calculate momentum percentiles for all results upfront
-        if 'Momentum_5Day' in results_df.columns and 'Momentum_Rank' not in results_df.columns:
-            results_df = calculate_momentum_percentiles(results_df)
-        
-        # Summary metrics with MOMENTUM STATISTICS
-        st.subheader("📊 Scan Summary")
+        # Summary metrics with MPI STATISTICS
+        st.subheader("📊 Scan Summary with MPI Analysis")
         
         total_stocks = len(results_df)
         higher_hl_count = len(results_df[results_df['Higher_HL'] == 1])
         valid_crt_count = len(results_df[results_df['Valid_CRT'] == 1])
         higher_hl_with_crt = len(results_df[(results_df['Higher_HL'] == 1) & (results_df['Valid_CRT'] == 1)])
         
-        # Momentum statistics
-        if 'Momentum_5Day' in results_df.columns:
-            high_momentum_count = len(results_df[results_df['Momentum_5Day'] > 0.60])
-            momentum_accel_count = len(results_df[results_df['Momentum_Spread'] > 0.15])
-            avg_momentum_5d = results_df['Momentum_5Day'].mean()
-            avg_momentum_20d = results_df['Momentum_20Day'].mean()
+        # MPI statistics
+        if 'MPI_Base' in results_df.columns:
+            strong_bull_count = len(results_df[results_df['MPI_Base'] >= 0.70])
+            bull_trend_count = len(results_df[(results_df['MPI_Base'] >= 0.50) & (results_df['MPI_Base'] < 0.70)])
+            bear_trend_count = len(results_df[results_df['MPI_Base'] < 0.30])
+            avg_mpi = results_df['MPI_Base'].mean()
         else:
-            high_momentum_count = momentum_accel_count = 0
-            avg_momentum_5d = avg_momentum_20d = 0.5
+            strong_bull_count = bull_trend_count = bear_trend_count = 0
+            avg_mpi = 0.5
         
         col1, col2, col3, col4, col5, col6 = st.columns(6)
         
@@ -1074,19 +1178,19 @@ def display_scan_results(results_df: pd.DataFrame):
         with col4:
             st.metric("Both Patterns", higher_hl_with_crt)
         with col5:
-            st.metric("High Momentum", high_momentum_count, delta="5d > 60%")
+            st.metric("🚀 Strong Bull", strong_bull_count, delta="MPI ≥70%")
         with col6:
-            st.metric("Accelerating", momentum_accel_count, delta="Spread > 15%")
+            st.metric("📈 Bull Trend", bull_trend_count, delta="MPI 50-70%")
         
-        # Analysis Date Info with momentum averages
+        # Analysis Date Info with MPI summary
         if len(results_df) > 0:
             analysis_dates = results_df['Analysis_Date'].unique()
             if len(analysis_dates) == 1:
-                st.info(f"📅 Analysis date: **{analysis_dates[0]}** | Avg Momentum: **{avg_momentum_5d:.1%}** (5d) / **{avg_momentum_20d:.1%}** (20d)")
+                st.info(f"📅 Analysis date: **{analysis_dates[0]}** | Average MPI: **{avg_mpi:.1%}** | Strong Bulls: **{strong_bull_count}** | Bears: **{bear_trend_count}**")
             else:
-                st.info(f"📅 Analysis dates: **{', '.join(analysis_dates)}** | Avg Momentum: **{avg_momentum_5d:.1%}** (5d) / **{avg_momentum_20d:.1%}** (20d)")
+                st.info(f"📅 Analysis dates: **{', '.join(analysis_dates)}** | Average MPI: **{avg_mpi:.1%}**")
         
-        # Base Filter Selection
+        # Base Filter Selection (UNCHANGED)
         st.subheader("🎯 Pattern Analysis")
         
         base_filter_options = {
@@ -1124,117 +1228,87 @@ def display_scan_results(results_df: pd.DataFrame):
             st.info(f"Showing all {len(base_stocks)} scanned stocks")
         
         if len(base_stocks) > 0:
-            # Ensure base_stocks has Momentum_Rank
-            if 'Momentum_5Day' in base_stocks.columns and 'Momentum_Rank' not in base_stocks.columns:
-                base_stocks = calculate_momentum_percentiles(base_stocks)
-            
-            # Apply dynamic filters (includes new strategy filter)
+            # Apply dynamic filters (now includes MPI Strategy Filter)
             filtered_stocks = apply_dynamic_filters(base_stocks, results_df)
             
             # Display filtered results
-            st.subheader(f"📋 Filtered Results ({len(filtered_stocks)} stocks)")
+            st.subheader(f"📋 MPI-Filtered Results ({len(filtered_stocks)} stocks)")
             
             if len(filtered_stocks) > 0:
-                # Ensure we have momentum rank
-                if 'Momentum_Rank' not in filtered_stocks.columns and 'Momentum_5Day' in filtered_stocks.columns:
-                    filtered_stocks = calculate_momentum_percentiles(filtered_stocks)
+                # Display columns in FILTER SEQUENCE ORDER: Price Context → Col1 → Col2 → Col3 → Col4
+                # ALWAYS include Higher_HL column for all base filters
+                display_cols = ['Ticker', 'Name', 'Close', 'CRT_High', 'CRT_Low',
+                               'CRT_Velocity', 'IBS', 'Higher_HL', 'MPI_Zone_Emoji', 'MPI_Base', 'MPI_Visual']
                 
-                # Sort by momentum rank (already sorted in filter function)
-                filtered_stocks_sorted = filtered_stocks
+                base_column_config = {
+                    'Ticker': st.column_config.TextColumn('Ticker', width='small'),
+                    'Name': st.column_config.TextColumn('Company Name', width='medium'),
+                    'CRT_Velocity': st.column_config.NumberColumn('CRT Vel', format='%+.4f'),
+                    'IBS': st.column_config.NumberColumn('IBS', format='%.3f'),
+                    'Higher_HL': st.column_config.NumberColumn('H/L', width='small'),
+                    'MPI_Zone_Emoji': st.column_config.TextColumn('📊', width='small', help='MPI Strategy Zone'),
+                    'MPI_Base': st.column_config.NumberColumn('MPI', format='%.1%', help='Market Positivity Index'),
+                    'MPI_Visual': st.column_config.TextColumn('MPI Visual', width='medium', help='Visual MPI representation')
+                }
                 
-                # Display columns based on selected filter
-                if selected_base_filter in ["Valid CRT + Higher H/L", "Valid CRT Only"]:
-                    # Show CRT-focused columns with momentum rank
-                    display_cols = ['Ticker', 'Name', 'Close', 'CRT_High', 'CRT_Low', 
-                                   'CRT_Velocity', 'IBS']
-                    
-                    # Only add momentum columns if they exist
-                    if 'Momentum_Rank' in filtered_stocks_sorted.columns:
-                        display_cols.extend(['Momentum_Rank', 'Momentum_5Day'])
-                    
-                    base_column_config = {
-                        'Ticker': st.column_config.TextColumn('Ticker', width='small'),
-                        'Name': st.column_config.TextColumn('Company Name', width='medium'),
-                        'CRT_Velocity': st.column_config.NumberColumn('CRT Vel', format='%+.4f'),
-                        'IBS': st.column_config.NumberColumn('IBS', format='%.3f'),
-                        'Momentum_Rank': st.column_config.NumberColumn('Mom Rank', format='%.0f', help='Percentile (0-100)'),
-                        'Momentum_5Day': st.column_config.NumberColumn('5D Mom', format='%.1%')
-                    }
-                    
-                    # Apply dynamic price formatting
-                    column_config = get_dynamic_column_config(filtered_stocks_sorted, display_cols, base_column_config)
-                
-                elif selected_base_filter == "Higher H/L Only":
-                    # Show H/L pattern-focused columns with momentum
-                    display_cols = ['Ticker', 'Name', 'Close', 'High', 'Low', 'IBS']
-                    
-                    # Only add momentum columns if they exist
-                    if 'Momentum_Rank' in filtered_stocks_sorted.columns:
-                        display_cols.extend(['Momentum_Rank', 'Momentum_5Day'])
-                    
-                    base_column_config = {
-                        'Ticker': st.column_config.TextColumn('Ticker', width='small'),
-                        'Name': st.column_config.TextColumn('Company Name', width='medium'),
-                        'IBS': st.column_config.NumberColumn('IBS', format='%.3f'),
-                        'Momentum_Rank': st.column_config.NumberColumn('Mom Rank', format='%.0f'),
-                        'Momentum_5Day': st.column_config.NumberColumn('5D Mom', format='%.1%')
-                    }
-                    
-                    # Apply dynamic price formatting
-                    column_config = get_dynamic_column_config(filtered_stocks_sorted, display_cols, base_column_config)
-                
-                else:  # All Stocks
-                    # Show comprehensive columns
-                    display_cols = ['Ticker', 'Name', 'Close', 'IBS', 'Valid_CRT', 'Higher_HL']
-                    
-                    # Only add momentum columns if they exist
-                    if 'Momentum_Rank' in filtered_stocks_sorted.columns:
-                        display_cols.extend(['Momentum_Rank', 'Momentum_5Day'])
-                    
-                    base_column_config = {
-                        'Ticker': st.column_config.TextColumn('Ticker', width='small'),
-                        'Name': st.column_config.TextColumn('Company Name', width='medium'),
-                        'IBS': st.column_config.NumberColumn('IBS', format='%.3f'),
-                        'Valid_CRT': st.column_config.NumberColumn('CRT', width='small'),
-                        'Higher_HL': st.column_config.NumberColumn('H/L', width='small'),
-                        'Momentum_Rank': st.column_config.NumberColumn('Mom Rank', format='%.0f'),
-                        'Momentum_5Day': st.column_config.NumberColumn('5D Mom', format='%.1%')
-                    }
-                    
-                    # Apply dynamic price formatting
-                    column_config = get_dynamic_column_config(filtered_stocks_sorted, display_cols, base_column_config)
+                # Apply dynamic price formatting
+                column_config = get_dynamic_column_config(filtered_stocks, display_cols, base_column_config)
                 
                 # Filter display_cols to only include existing columns
-                display_cols = [col for col in display_cols if col in filtered_stocks_sorted.columns]
+                display_cols = [col for col in display_cols if col in filtered_stocks.columns]
                 
-                st.dataframe(
-                    filtered_stocks_sorted[display_cols],
-                    column_config=column_config,
-                    width='stretch',
-                    hide_index=True
-                )
-                
-                # TradingView Export
-                st.subheader("📋 TradingView Export (Filtered)")
-                tv_tickers = [f"SGX:{ticker.replace('.SI', '')}" for ticker in filtered_stocks_sorted['Ticker'].tolist()]
-                tv_string = ','.join(tv_tickers)
-                
-                st.text_area(
-                    f"Singapore Exchange (SGX) - {selected_base_filter} ({len(tv_tickers)} stocks):",
-                    value=tv_string,
-                    height=100,
-                    help="Copy and paste into TradingView watchlist. SGX: prefix ensures Singapore Exchange stocks."
-                )
-                
-                # Export filtered data
-                csv_data = filtered_stocks_sorted.to_csv(index=False)
-                filename_prefix = selected_base_filter.lower().replace(' ', '_').replace('+', 'and')
-                st.download_button(
-                    label="📥 Download Filtered Data (CSV)",
-                    data=csv_data,
-                    file_name=f"{filename_prefix}_{len(filtered_stocks)}_stocks.csv",
-                    mime="text/csv"
-                )
+                # Verify we have all required columns before displaying
+                missing_cols = [col for col in display_cols if col not in filtered_stocks.columns]
+                if missing_cols:
+                    st.error(f"❌ Missing columns in filtered results: {missing_cols}")
+                    st.write("Available columns:", list(filtered_stocks.columns))
+                else:
+                    try:
+                        st.dataframe(
+                            filtered_stocks[display_cols],
+                            column_config=column_config,
+                            use_container_width=True,
+                            hide_index=True
+                        )
+                        
+                        # TradingView Export (ENHANCED with MPI info)
+                        st.subheader("📋 TradingView Export (MPI-Filtered)")
+                        tv_tickers = [f"SGX:{ticker.replace('.SI', '')}" for ticker in filtered_stocks['Ticker'].tolist()]
+                        tv_string = ','.join(tv_tickers)
+                        
+                        # Calculate MPI summary for export description
+                        if 'MPI_Base' in filtered_stocks.columns:
+                            mpi_summary = f"Avg MPI: {filtered_stocks['MPI_Base'].mean():.1%}"
+                            strong_bulls_in_export = len(filtered_stocks[filtered_stocks['MPI_Base'] >= 0.70])
+                            if strong_bulls_in_export > 0:
+                                mpi_summary += f" | {strong_bulls_in_export} Strong Bulls"
+                        else:
+                            mpi_summary = ""
+                        
+                        st.text_area(
+                            f"Singapore Exchange (SGX) - {selected_base_filter} ({len(tv_tickers)} stocks) {mpi_summary}:",
+                            value=tv_string,
+                            height=100,
+                            help="Copy and paste into TradingView watchlist. Sorted by MPI strategy zones."
+                        )
+                        
+                        # Export filtered data with MPI
+                        csv_data = filtered_stocks.to_csv(index=False)
+                        filename_prefix = selected_base_filter.lower().replace(' ', '_').replace('+', 'and')
+                        st.download_button(
+                            label="📥 Download MPI-Enhanced Data (CSV)",
+                            data=csv_data,
+                            file_name=f"mpi_{filename_prefix}_{len(filtered_stocks)}_stocks.csv",
+                            mime="text/csv"
+                        )
+                        
+                    except Exception as e:
+                        st.error(f"❌ Error displaying filtered results: {str(e)}")
+                        error_logger.log_error("Filtered Results Display", e, {
+                            "filtered_stocks_shape": filtered_stocks.shape,
+                            "display_cols": display_cols,
+                            "missing_cols": missing_cols
+                        })
             
             else:
                 st.warning("No stocks match the current filter criteria")
@@ -1242,55 +1316,111 @@ def display_scan_results(results_df: pd.DataFrame):
         else:
             st.warning(f"No stocks found for pattern: {selected_base_filter}")
         
-        # Full Results Table with DUAL TIMEFRAME and dynamic formatting
-        with st.expander("📋 Full Analysis Results", expanded=False):
-            full_results_cols = [
-                'Analysis_Date', 'Ticker', 'Name', 'Strategy_Signal', 'Strategy_Type', 
-                'High', 'Low', 'Close', 'Higher_HL', 'Valid_CRT', 'CRT_Velocity', 'IBS', 
-                'Momentum_5Day', 'Momentum_20Day', 'Momentum_Spread', 'Momentum_Crossover',
-                'Autocorr_5Day', 'Autocorr_20Day'
-            ]
-            
-            base_full_results_config = {
-                'Analysis_Date': st.column_config.TextColumn('Date', width='small'),
-                'Ticker': st.column_config.TextColumn('Ticker', width='small'),
-                'Name': st.column_config.TextColumn('Company Name', width='medium'),
-                'Strategy_Signal': st.column_config.TextColumn('', width='small'),
-                'Strategy_Type': st.column_config.TextColumn('Strategy', width='medium'),
-                'Higher_HL': st.column_config.NumberColumn('H/L', width='small'),
-                'Valid_CRT': st.column_config.NumberColumn('CRT', width='small'),
-                'CRT_Velocity': st.column_config.NumberColumn('CRT Vel', format='%+.4f'),
-                'IBS': st.column_config.NumberColumn('IBS', format='%.3f'),
-                'Momentum_5Day': st.column_config.NumberColumn('Mom 5D', format='%.4f'),
-                'Momentum_20Day': st.column_config.NumberColumn('Mom 20D', format='%.4f'),
-                'Momentum_Spread': st.column_config.NumberColumn('Spread', format='%+.4f'),
-                'Momentum_Crossover': st.column_config.NumberColumn('Cross', width='small'),
-                'Autocorr_5Day': st.column_config.NumberColumn('Auto 5D', format='%+.4f'),
-                'Autocorr_20Day': st.column_config.NumberColumn('Auto 20D', format='%+.4f')
-            }
-            
-            # Apply dynamic price formatting for full results
-            full_results_column_config = get_dynamic_column_config(results_df, full_results_cols, base_full_results_config)
-            
-            st.dataframe(
-                results_df[full_results_cols],
-                column_config=full_results_column_config,
-                width='stretch',
-                hide_index=True
-            )
+        # Full Results Table with MPI SYSTEM (same column order as filtered results)
+        with st.expander("📋 Full MPI Analysis Results", expanded=False):
+            try:
+                full_results_cols = [
+                    'Analysis_Date', 'Ticker', 'Name', 'Close', 'CRT_High', 'CRT_Low',
+                    'CRT_Velocity', 'IBS', 'Higher_HL', 'Valid_CRT', 
+                    'MPI_Zone_Emoji', 'MPI_Zone', 'MPI_Base', 'MPI_Acceleration', 'MPI_Visual', 
+                    'Signal_Breakout', 'Signal_Pullback', 'Signal_Short'
+                ]
+                
+                base_full_results_config = {
+                    'Analysis_Date': st.column_config.TextColumn('Date', width='small'),
+                    'Ticker': st.column_config.TextColumn('Ticker', width='small'),
+                    'Name': st.column_config.TextColumn('Company Name', width='medium'),
+                    'CRT_Velocity': st.column_config.NumberColumn('CRT Vel', format='%+.4f'),
+                    'IBS': st.column_config.NumberColumn('IBS', format='%.3f'),
+                    'Higher_HL': st.column_config.NumberColumn('H/L', width='small'),
+                    'Valid_CRT': st.column_config.NumberColumn('CRT', width='small'),
+                    'MPI_Zone_Emoji': st.column_config.TextColumn('📊', width='small'),
+                    'MPI_Zone': st.column_config.TextColumn('MPI Zone', width='medium'),
+                    'MPI_Base': st.column_config.NumberColumn('MPI Base', format='%.1%'),
+                    'MPI_Acceleration': st.column_config.NumberColumn('MPI Accel', format='%+.3f'),
+                    'MPI_Visual': st.column_config.TextColumn('MPI Visual', width='medium'),
+                    'Signal_Breakout': st.column_config.NumberColumn('🚀', width='small'),
+                    'Signal_Pullback': st.column_config.NumberColumn('🎯', width='small'),
+                    'Signal_Short': st.column_config.NumberColumn('📉', width='small')
+                }
+                
+                # Apply dynamic price formatting for full results
+                full_results_column_config = get_dynamic_column_config(results_df, full_results_cols, base_full_results_config)
+                
+                # Filter to only existing columns
+                full_results_cols = [col for col in full_results_cols if col in results_df.columns]
+                
+                # Check for missing columns
+                missing_cols = [col for col in ['Ticker', 'Name', 'Close', 'MPI_Base'] if col not in results_df.columns]
+                if missing_cols:
+                    st.error(f"❌ Missing essential columns in results: {missing_cols}")
+                    st.write("Available columns:", list(results_df.columns))
+                else:
+                    st.dataframe(
+                        results_df[full_results_cols],
+                        column_config=full_results_column_config,
+                        use_container_width=True,
+                        hide_index=True
+                    )
+                    
+            except Exception as e:
+                st.error(f"❌ Error displaying full results: {str(e)}")
+                error_logger.log_error("Full Results Display", e, {
+                    "results_df_shape": results_df.shape if not results_df.empty else "Empty",
+                    "attempted_columns": full_results_cols if 'full_results_cols' in locals() else "Unknown"
+                })
         
-        error_logger.log_debug("Results Display", "Successfully displayed all results", {
+        # MPI Strategy Insights
+        if 'MPI_Base' in results_df.columns:
+            with st.expander("📈 MPI Strategy Insights", expanded=False):
+                
+                # Create strategy zone summary
+                zone_summary = []
+                for zone in ['Strong Bull', 'Bull Trend', 'Neutral', 'Bear Trend']:
+                    zone_stocks = results_df[results_df['MPI_Zone'] == zone]
+                    if len(zone_stocks) > 0:
+                        avg_mpi = zone_stocks['MPI_Base'].mean()
+                        zone_summary.append({
+                            'Zone': zone,
+                            'Count': len(zone_stocks),
+                            'Avg MPI': f"{avg_mpi:.1%}",
+                            'Top Stock': zone_stocks.iloc[zone_stocks['MPI_Base'].idxmax()]['Name'] if len(zone_stocks) > 0 else 'N/A'
+                        })
+                
+                if zone_summary:
+                    st.dataframe(pd.DataFrame(zone_summary), hide_index=True, use_container_width=True)
+                
+                # MPI distribution chart
+                if len(results_df) > 1:
+                    fig = px.histogram(
+                        results_df, 
+                        x='MPI_Base',
+                        nbins=20,
+                        title="MPI Distribution Across All Stocks",
+                        labels={'MPI_Base': 'Market Positivity Index', 'count': 'Number of Stocks'}
+                    )
+                    
+                    # Add strategy zone shading
+                    fig.add_vrect(x0=0.70, x1=1.00, fillcolor="green", opacity=0.2, annotation_text="🚀 Strong Bull")
+                    fig.add_vrect(x0=0.50, x1=0.70, fillcolor="lightgreen", opacity=0.2, annotation_text="📈 Bull Trend")
+                    fig.add_vrect(x0=0.30, x1=0.50, fillcolor="orange", opacity=0.2, annotation_text="➖ Neutral")
+                    fig.add_vrect(x0=0.00, x1=0.30, fillcolor="red", opacity=0.2, annotation_text="📉 Bear Trend")
+                    
+                    st.plotly_chart(fig, use_container_width=True)
+        
+        error_logger.log_debug("Results Display", "Successfully displayed MPI-enhanced results", {
             "total_displayed": len(results_df),
             "base_filter": selected_base_filter,
-            "base_stocks_count": len(base_stocks) if 'base_stocks' in locals() else 0,
-            "filtered_stocks_count": len(filtered_stocks) if 'filtered_stocks' in locals() else 0
+            "mpi_available": 'MPI_Base' in results_df.columns,
+            "strong_bull_count": strong_bull_count
         })
         
     except Exception as e:
         error_logger.log_error("Results Display", e, {
-            "results_shape": results_df.shape if not results_df.empty else "Empty DataFrame"
+            "results_shape": results_df.shape if not results_df.empty else "Empty DataFrame",
+            "has_mpi_columns": 'MPI_Base' in results_df.columns if not results_df.empty else False
         })
-        st.error("❌ Error displaying results - check error log for details")
+        st.error("❌ Error displaying MPI results - check error log for details")
 
 if __name__ == "__main__":
     show()
