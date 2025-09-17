@@ -3,108 +3,177 @@ Technical Analysis Module
 Contains the enhanced columns function migrated from notebook Cell 6
 This is the complete implementation from your original Jupyter notebook
 Updated with Higher_HL logic - daily check for higher high AND higher low
-PHASE 1: Added momentum persistence calculations with independent signal assessment
+ENHANCED: Dual timeframe momentum (5-day and 20-day) with crossover detection
+Optimized for short-term trading (1-3 day holding periods)
 """
 
 import pandas as pd
 import numpy as np
-from typing import Optional
+from typing import Optional, Dict, Tuple
 
-def calculate_momentum_persistence(returns: pd.Series, periods: list = [1, 3, 5]) -> dict:
+def calculate_dual_rolling_momentum(returns: pd.Series) -> pd.DataFrame:
     """
-    Calculate momentum persistence probabilities for multiple periods
-    Pure statistical calculation - no CRT signal contamination
-    
-    Args:
-        returns: Daily returns series
-        periods: List of forward-looking periods to calculate
-    
-    Returns:
-        Dictionary with momentum probabilities for each period
-    """
-    momentum_results = {}
-    
-    # Calculate up/down days
-    up_days = returns > 0
-    
-    for period in periods:
-        if len(returns) < period + 10:  # Need minimum data
-            momentum_results[f'momentum_{period}day'] = 0.0
-            continue
-        
-        # Calculate future returns for this period
-        future_positive = returns.rolling(window=period).sum().shift(-period) > 0
-        
-        # Calculate conditional probability: P(future positive | today positive)
-        up_days_mask = up_days & future_positive.notna()
-        if up_days_mask.sum() > 0:
-            up_followed_by_positive = (up_days & future_positive).sum()
-            total_up_days = up_days_mask.sum()
-            momentum_prob = up_followed_by_positive / total_up_days if total_up_days > 0 else 0.0
-        else:
-            momentum_prob = 0.0
-        
-        momentum_results[f'momentum_{period}day'] = momentum_prob
-    
-    return momentum_results
-
-
-def calculate_simple_momentum_persistence(returns: pd.Series) -> dict:
-    """
-    Calculate simple next-day momentum persistence
-    P(Up tomorrow | Up today)
+    Calculate dual timeframe rolling momentum persistence and autocorrelation
+    Uses 5-day (short-term) and 20-day (medium-term) windows
     
     Args:
         returns: Daily returns series
     
     Returns:
-        Dictionary with momentum statistics
+        DataFrame with rolling momentum probabilities and autocorrelation for both timeframes
     """
-    if len(returns) < 20:  # Need minimum data
-        return {
-            'momentum_1day': 0.0,
-            'momentum_3day': 0.0,
-            'autocorr_1day': 0.0
-        }
+    # Initialize result dataframe
+    result_df = pd.DataFrame(index=returns.index)
     
-    # Calculate up days
-    up_days = returns > 0
+    # Initialize columns with default values
+    result_df['momentum_5day'] = np.nan
+    result_df['momentum_20day'] = np.nan
+    result_df['autocorr_5day'] = np.nan
+    result_df['autocorr_20day'] = np.nan
+    result_df['momentum_crossover'] = 0  # 1 = bullish cross, -1 = bearish cross
+    result_df['momentum_spread'] = np.nan
+    result_df['autocorr_alignment'] = 'Mixed'  # Both Positive, Both Negative, Mixed
     
-    # 1-day momentum persistence
-    up_tomorrow = up_days.shift(-1)
-    up_today_and_tomorrow = up_days & up_tomorrow
-    momentum_1day = up_today_and_tomorrow.sum() / up_days.sum() if up_days.sum() > 0 else 0.0
+    # Calculate for both windows
+    windows = {'5day': 5, '20day': 20}
     
-    # 3-day momentum persistence (positive return in next 3 days)
-    future_3day_returns = returns.rolling(window=3).sum().shift(-3)
-    future_3day_positive = future_3day_returns > 0
-    up_today_and_3day_positive = up_days & future_3day_positive
-    momentum_3day = up_today_and_3day_positive.sum() / up_days.sum() if up_days.sum() > 0 else 0.0
+    for window_name, window_size in windows.items():
+        # Calculate rolling momentum for each date
+        for i in range(window_size, len(returns)):
+            # Get the window of returns
+            window_returns = returns.iloc[i-window_size:i]
+            
+            # Calculate up days in the window
+            up_days = window_returns > 0
+            
+            # Skip if no up days in window
+            if up_days.sum() == 0:
+                result_df.loc[returns.index[i], f'momentum_{window_name}'] = 0.5
+                result_df.loc[returns.index[i], f'autocorr_{window_name}'] = 0.0
+                continue
+            
+            # 1-day momentum persistence for this window
+            up_tomorrow = up_days.shift(-1)
+            up_today_and_tomorrow = up_days & up_tomorrow
+            momentum_1day = up_today_and_tomorrow.sum() / up_days.sum()
+            
+            # Autocorrelation for this window
+            try:
+                autocorr = window_returns.autocorr(lag=1)
+                if pd.isna(autocorr):
+                    autocorr = 0.0
+            except:
+                autocorr = 0.0
+            
+            # Store results for this date
+            result_df.loc[returns.index[i], f'momentum_{window_name}'] = momentum_1day
+            result_df.loc[returns.index[i], f'autocorr_{window_name}'] = autocorr
     
-    # Autocorrelation (1-day lag)
-    try:
-        autocorr_1day = returns.autocorr(lag=1)
-        if pd.isna(autocorr_1day):
-            autocorr_1day = 0.0
-    except:
-        autocorr_1day = 0.0
+    # Calculate momentum spread (5-day minus 20-day)
+    result_df['momentum_spread'] = result_df['momentum_5day'] - result_df['momentum_20day']
     
-    return {
-        'momentum_1day': momentum_1day,
-        'momentum_3day': momentum_3day,
-        'autocorr_1day': autocorr_1day
-    }
+    # Detect crossovers (need at least 2 days of data)
+    for i in range(1, len(result_df)):
+        if pd.notna(result_df['momentum_5day'].iloc[i]) and pd.notna(result_df['momentum_20day'].iloc[i]):
+            # Current and previous spreads
+            curr_spread = result_df['momentum_spread'].iloc[i]
+            prev_spread = result_df['momentum_spread'].iloc[i-1]
+            
+            # Detect crossovers
+            if pd.notna(prev_spread) and pd.notna(curr_spread):
+                if prev_spread <= 0 and curr_spread > 0:
+                    result_df.loc[result_df.index[i], 'momentum_crossover'] = 1  # Bullish
+                elif prev_spread >= 0 and curr_spread < 0:
+                    result_df.loc[result_df.index[i], 'momentum_crossover'] = -1  # Bearish
+    
+    # Classify autocorrelation alignment
+    for i in range(len(result_df)):
+        auto_5 = result_df['autocorr_5day'].iloc[i]
+        auto_20 = result_df['autocorr_20day'].iloc[i]
+        
+        if pd.notna(auto_5) and pd.notna(auto_20):
+            if auto_5 > 0.10 and auto_20 > 0:
+                result_df.loc[result_df.index[i], 'autocorr_alignment'] = 'Both Positive'
+            elif auto_5 < -0.10 and auto_20 < 0:
+                result_df.loc[result_df.index[i], 'autocorr_alignment'] = 'Both Negative'
+            elif abs(auto_5 - auto_20) > 0.40:
+                result_df.loc[result_df.index[i], 'autocorr_alignment'] = 'Divergent'
+            else:
+                result_df.loc[result_df.index[i], 'autocorr_alignment'] = 'Mixed'
+    
+    # Fill initial NaN values with neutral values
+    result_df['momentum_5day'] = result_df['momentum_5day'].fillna(0.5)
+    result_df['momentum_20day'] = result_df['momentum_20day'].fillna(0.5)
+    result_df['autocorr_5day'] = result_df['autocorr_5day'].fillna(0.0)
+    result_df['autocorr_20day'] = result_df['autocorr_20day'].fillna(0.0)
+    result_df['momentum_spread'] = result_df['momentum_spread'].fillna(0.0)
+    
+    return result_df
+
+
+def classify_advanced_trading_strategy(mom_5d: float, mom_20d: float, auto_5d: float, auto_20d: float, 
+                                     crossover: int, spread: float) -> Tuple[str, str]:
+    """
+    Advanced strategy classification using dual timeframe analysis
+    Optimized for 1-3 day holding periods
+    
+    Returns:
+        Tuple of (strategy_name, emoji_indicator)
+    """
+    
+    # Strong momentum continuation - ideal for trend following
+    if mom_5d > 0.60 and mom_20d > 0.55:
+        if auto_5d > 0.15 and auto_20d > 0:
+            if crossover == 1:
+                return ("Fresh Momentum Surge", "🚀")
+            return ("Strong Momentum Continuation", "📈")
+        elif auto_5d < -0.15:
+            return ("Momentum with Intraday Reversals", "🔄")
+    
+    # Mean reversion opportunity
+    elif mom_5d < 0.40 and mom_20d > 0.55:
+        if auto_5d < -0.20:
+            return ("Oversold Bounce Setup", "🎯")
+        return ("Short-term Weakness", "📉")
+    
+    # Momentum acceleration - catching the move
+    elif spread > 0.15 and mom_5d > 0.55:
+        if crossover == 1:
+            return ("Bullish Momentum Cross", "✨")
+        return ("Momentum Acceleration", "⚡")
+    
+    # Momentum exhaustion - warning sign
+    elif spread < -0.15 and mom_20d > 0.60:
+        if crossover == -1:
+            return ("Bearish Momentum Cross", "⚠️")
+        return ("Momentum Exhaustion", "🔻")
+    
+    # Pure mean reversion
+    elif mom_5d < 0.45 and mom_20d < 0.45:
+        if auto_5d < -0.15 and auto_20d < -0.10:
+            return ("Strong Mean Reversion", "🔁")
+    
+    # Regime change detected
+    elif abs(auto_5d - auto_20d) > 0.40:
+        return ("Regime Change - Caution", "⚠️")
+    
+    # Stable but weak
+    elif 0.45 <= mom_5d <= 0.55 and 0.45 <= mom_20d <= 0.55:
+        return ("Neutral - No Edge", "➖")
+    
+    # Default case
+    return ("Mixed Signals", "❓")
 
 
 def add_enhanced_columns(df_daily: pd.DataFrame, ticker: str, rolling_window: int = 20) -> pd.DataFrame:
     """
-    Add all enhanced columns for a single stock with simplified forward fill logic
-    UPDATED: Now includes momentum persistence calculations (independent of CRT signals)
+    Add all enhanced columns for a single stock with dual timeframe analysis
+    ENHANCED: Now includes 5-day and 20-day momentum/autocorrelation with crossover detection
     
     Simplified Logic:
     - Monday: Sets CRT levels and Valid_CRT
     - Tue-Fri: Forward fill from Monday
-    - Momentum: Pure statistical calculation based on price returns only
+    - Momentum: Dual timeframe (5-day and 20-day) rolling calculations
     
     Args:
         df_daily: Raw OHLCV data from yfinance
@@ -112,7 +181,7 @@ def add_enhanced_columns(df_daily: pd.DataFrame, ticker: str, rolling_window: in
         rolling_window: Window for moving averages (default 20)
     
     Returns:
-        DataFrame with enhanced technical analysis columns including momentum persistence
+        DataFrame with enhanced technical analysis columns including dual timeframe momentum
     """
     
     df = df_daily.copy()
@@ -196,30 +265,70 @@ def add_enhanced_columns(df_daily: pd.DataFrame, ticker: str, rolling_window: in
     df['Valid_CRT'] = df['Valid_CRT'].ffill()
     df['CRT_Qualifying_Velocity'] = df['CRT_Qualifying_Velocity'].ffill()
     
-    # 16. NEW: MOMENTUM PERSISTENCE CALCULATIONS (Independent of CRT signals)
+    # 16. ENHANCED: DUAL TIMEFRAME MOMENTUM CALCULATIONS
     # Calculate daily returns for momentum analysis
     df['Daily_Returns'] = df['Close'].pct_change()
     
-    # Calculate momentum persistence probabilities
+    # Calculate dual timeframe momentum and autocorrelation
     try:
-        momentum_stats = calculate_simple_momentum_persistence(df['Daily_Returns'])
+        momentum_df = calculate_dual_rolling_momentum(df['Daily_Returns'])
         
-        # Add momentum columns (constant values for all rows - represents stock's historical momentum characteristics)
-        df['Momentum_1Day_Prob'] = momentum_stats['momentum_1day']
-        df['Momentum_3Day_Prob'] = momentum_stats['momentum_3day'] 
-        df['Autocorr_1Day'] = momentum_stats['autocorr_1day']
+        # Add all momentum-related columns
+        df['Momentum_5Day'] = momentum_df['momentum_5day']
+        df['Momentum_20Day'] = momentum_df['momentum_20day']
+        df['Autocorr_5Day'] = momentum_df['autocorr_5day']
+        df['Autocorr_20Day'] = momentum_df['autocorr_20day']
+        df['Momentum_Crossover'] = momentum_df['momentum_crossover']
+        df['Momentum_Spread'] = momentum_df['momentum_spread']
+        df['Autocorr_Alignment'] = momentum_df['autocorr_alignment']
         
-        # Debug print for momentum calculations
-        print(f"DEBUG {ticker}: Momentum 1-day: {momentum_stats['momentum_1day']:.4f}")
-        print(f"DEBUG {ticker}: Momentum 3-day: {momentum_stats['momentum_3day']:.4f}")
-        print(f"DEBUG {ticker}: Autocorr 1-day: {momentum_stats['autocorr_1day']:.4f}")
+        # Add advanced strategy classification
+        strategy_classifications = []
+        strategy_emojis = []
+        
+        for i in range(len(df)):
+            if pd.notna(df['Momentum_5Day'].iloc[i]):
+                strategy, emoji = classify_advanced_trading_strategy(
+                    df['Momentum_5Day'].iloc[i],
+                    df['Momentum_20Day'].iloc[i],
+                    df['Autocorr_5Day'].iloc[i],
+                    df['Autocorr_20Day'].iloc[i],
+                    df['Momentum_Crossover'].iloc[i],
+                    df['Momentum_Spread'].iloc[i]
+                )
+                strategy_classifications.append(strategy)
+                strategy_emojis.append(emoji)
+            else:
+                strategy_classifications.append("Insufficient Data")
+                strategy_emojis.append("❌")
+        
+        df['Strategy_Type'] = strategy_classifications
+        df['Strategy_Signal'] = strategy_emojis
+        
+        # Debug print
+        print(f"DEBUG {ticker}: Dual timeframe momentum calculated (5-day and 20-day)")
+        print(f"DEBUG {ticker}: Latest Momentum 5-day: {df['Momentum_5Day'].iloc[-1]:.4f}")
+        print(f"DEBUG {ticker}: Latest Momentum 20-day: {df['Momentum_20Day'].iloc[-1]:.4f}")
+        print(f"DEBUG {ticker}: Latest Momentum Spread: {df['Momentum_Spread'].iloc[-1]:+.4f}")
+        print(f"DEBUG {ticker}: Latest Strategy: {df['Strategy_Type'].iloc[-1]} {df['Strategy_Signal'].iloc[-1]}")
         
     except Exception as e:
-        print(f"WARNING {ticker}: Momentum calculation failed: {e}")
-        # Fallback values if momentum calculation fails
-        df['Momentum_1Day_Prob'] = 0.5  # 50% = no momentum edge
-        df['Momentum_3Day_Prob'] = 0.5
-        df['Autocorr_1Day'] = 0.0
+        print(f"WARNING {ticker}: Dual momentum calculation failed: {e}")
+        # Fallback values
+        df['Momentum_5Day'] = 0.5
+        df['Momentum_20Day'] = 0.5
+        df['Autocorr_5Day'] = 0.0
+        df['Autocorr_20Day'] = 0.0
+        df['Momentum_Crossover'] = 0
+        df['Momentum_Spread'] = 0.0
+        df['Autocorr_Alignment'] = 'Unknown'
+        df['Strategy_Type'] = 'Calculation Error'
+        df['Strategy_Signal'] = '❌'
+    
+    # Keep backward compatibility columns (map from 5-day values)
+    df['Momentum_1Day_Prob'] = df['Momentum_5Day']
+    df['Momentum_3Day_Prob'] = df['Momentum_5Day']  # Simplified for compatibility
+    df['Autocorr_1Day'] = df['Autocorr_5Day']
     
     # 17. Initialize signal columns
     df['Wick_Below'] = 0
@@ -292,24 +401,27 @@ def add_enhanced_columns(df_daily: pd.DataFrame, ticker: str, rolling_window: in
     )
     
     # Debug print to verify column creation
-    print(f"DEBUG {ticker}: Created columns: {list(df.columns)}")
-    print(f"DEBUG {ticker}: CRT_Qualifying_Velocity sample: {df['CRT_Qualifying_Velocity'].tail().values}")
-    print(f"DEBUG {ticker}: Higher_HL sample: {df['Higher_HL'].tail().values}")
-    
-    # Debug Higher_HL pattern checks
-    higher_hl_days = df[df['Higher_HL'] == 1]
-    print(f"DEBUG {ticker}: Total Higher_HL patterns: {len(higher_hl_days)} out of {len(df)} days")
-    if len(higher_hl_days) > 0:
-        print(f"DEBUG {ticker}: Recent Higher_HL dates: {higher_hl_days.index[-5:].tolist()}")
-    
-    # Debug momentum statistics
-    momentum_1day_unique = df['Momentum_1Day_Prob'].nunique()
-    momentum_3day_unique = df['Momentum_3Day_Prob'].nunique()
-    print(f"DEBUG {ticker}: Momentum columns created successfully")
-    print(f"DEBUG {ticker}: Momentum_1Day_Prob unique values: {momentum_1day_unique} (should be 1)")
-    print(f"DEBUG {ticker}: Momentum_3Day_Prob unique values: {momentum_3day_unique} (should be 1)")
+    print(f"DEBUG {ticker}: Created {len(df.columns)} columns including dual timeframe analysis")
     
     return df
+
+
+def classify_trading_strategy(momentum_1d, autocorr):
+    """
+    DEPRECATED: Use classify_advanced_trading_strategy() instead
+    Kept for backward compatibility with scanner
+    """
+    # Map 5-day values to old classification for compatibility
+    if momentum_1d > 0.60 and autocorr > 0.15:
+        return "Pure Momentum"
+    elif momentum_1d < 0.45 and autocorr < -0.15:
+        return "Pure Mean Reversion"
+    elif momentum_1d > 0.60 and autocorr < -0.15:
+        return "Momentum + Daily Reversals"
+    elif momentum_1d < 0.50 and autocorr > 0.15:
+        return "Weak Momentum + Persistence"
+    else:
+        return "Neutral/Mixed"
 
 
 def calculate_ibs(high: float, low: float, close: float) -> float:
@@ -350,13 +462,13 @@ def detect_range_expansion(df: pd.DataFrame) -> pd.DataFrame:
 def get_latest_signals(df: pd.DataFrame) -> dict:
     """
     Get the latest signal information for a stock
-    UPDATED: Now includes momentum persistence signals
+    ENHANCED: Now includes dual timeframe momentum signals
     
     Args:
         df: Enhanced DataFrame with all indicators
     
     Returns:
-        Dictionary with latest signal information including momentum
+        Dictionary with latest signal information including dual timeframe momentum
     """
     if df.empty:
         return {}
@@ -378,17 +490,22 @@ def get_latest_signals(df: pd.DataFrame) -> dict:
         'crt_low': float(latest.get('CRT_Low', 0)) if not pd.isna(latest.get('CRT_Low', 0)) else 0.0,
         'crt_qualifying_velocity': float(latest.get('CRT_Qualifying_Velocity', 0)) if not pd.isna(latest.get('CRT_Qualifying_Velocity', 0)) else 0.0,
         'higher_hl': bool(latest.get('Higher_HL', 0)),
-        # NEW: Momentum signals
-        'momentum_1day_prob': float(latest.get('Momentum_1Day_Prob', 0.5)) if not pd.isna(latest.get('Momentum_1Day_Prob', 0.5)) else 0.5,
-        'momentum_3day_prob': float(latest.get('Momentum_3Day_Prob', 0.5)) if not pd.isna(latest.get('Momentum_3Day_Prob', 0.5)) else 0.5,
-        'autocorr_1day': float(latest.get('Autocorr_1Day', 0.0)) if not pd.isna(latest.get('Autocorr_1Day', 0.0)) else 0.0
+        # Dual timeframe momentum signals
+        'momentum_5day': float(latest.get('Momentum_5Day', 0.5)) if not pd.isna(latest.get('Momentum_5Day', 0.5)) else 0.5,
+        'momentum_20day': float(latest.get('Momentum_20Day', 0.5)) if not pd.isna(latest.get('Momentum_20Day', 0.5)) else 0.5,
+        'momentum_spread': float(latest.get('Momentum_Spread', 0.0)) if not pd.isna(latest.get('Momentum_Spread', 0.0)) else 0.0,
+        'momentum_crossover': int(latest.get('Momentum_Crossover', 0)),
+        'autocorr_5day': float(latest.get('Autocorr_5Day', 0.0)) if not pd.isna(latest.get('Autocorr_5Day', 0.0)) else 0.0,
+        'autocorr_20day': float(latest.get('Autocorr_20Day', 0.0)) if not pd.isna(latest.get('Autocorr_20Day', 0.0)) else 0.0,
+        'strategy_type': str(latest.get('Strategy_Type', 'Unknown')),
+        'strategy_signal': str(latest.get('Strategy_Signal', '❓'))
     }
 
 
 def validate_data_quality(df: pd.DataFrame) -> dict:
     """
     Validate the quality of the enhanced data
-    UPDATED: Now includes momentum column validation
+    ENHANCED: Now includes dual timeframe momentum validation
     
     Args:
         df: Enhanced DataFrame
@@ -396,7 +513,8 @@ def validate_data_quality(df: pd.DataFrame) -> dict:
     Returns:
         Dictionary with validation results
     """
-    required_columns = ['Close', 'High', 'Low', 'Volume', 'IBS', 'Buy_Signal', 'Momentum_1Day_Prob', 'Momentum_3Day_Prob', 'Autocorr_1Day']
+    required_columns = ['Close', 'High', 'Low', 'Volume', 'IBS', 'Buy_Signal', 
+                       'Momentum_5Day', 'Momentum_20Day', 'Autocorr_5Day', 'Autocorr_20Day']
     missing_columns = [col for col in required_columns if col not in df.columns]
     
     validation_results = {
@@ -406,7 +524,8 @@ def validate_data_quality(df: pd.DataFrame) -> dict:
         'has_recent_data': len(df) > 0,
         'buy_signals_count': int(df['Buy_Signal'].sum()) if 'Buy_Signal' in df.columns else 0,
         'expansion_signals_count': int(df['Rel_Range_Signal'].sum()) if 'Rel_Range_Signal' in df.columns else 0,
-        'momentum_data_available': all(col in df.columns for col in ['Momentum_1Day_Prob', 'Momentum_3Day_Prob', 'Autocorr_1Day'])
+        'momentum_data_available': all(col in df.columns for col in ['Momentum_5Day', 'Momentum_20Day']),
+        'crossover_signals': int(df['Momentum_Crossover'].abs().sum()) if 'Momentum_Crossover' in df.columns else 0
     }
     
     return validation_results
@@ -415,7 +534,7 @@ def validate_data_quality(df: pd.DataFrame) -> dict:
 def get_signal_summary(df: pd.DataFrame) -> dict:
     """
     Get a summary of all signals in the DataFrame
-    UPDATED: Now includes momentum signal statistics
+    ENHANCED: Now includes dual timeframe momentum statistics
     
     Args:
         df: Enhanced DataFrame with signals
@@ -430,9 +549,11 @@ def get_signal_summary(df: pd.DataFrame) -> dict:
             'expansion_signals': 0,
             'high_ibs_days': 0,
             'valid_crt_days': 0,
-            'momentum_1day_avg': 0.5,
-            'momentum_3day_avg': 0.5,
-            'autocorr_avg': 0.0
+            'momentum_5day_latest': 0.5,
+            'momentum_20day_latest': 0.5,
+            'momentum_spread_latest': 0.0,
+            'bullish_crossovers': 0,
+            'bearish_crossovers': 0
         }
     
     return {
@@ -443,10 +564,12 @@ def get_signal_summary(df: pd.DataFrame) -> dict:
         'valid_crt_days': int(df['Valid_CRT'].sum()) if 'Valid_CRT' in df.columns else 0,
         'wick_below_signals': int(df['Wick_Below'].sum()) if 'Wick_Below' in df.columns else 0,
         'close_above_signals': int(df['Close_Above'].sum()) if 'Close_Above' in df.columns else 0,
-        # NEW: Momentum statistics
-        'momentum_1day_avg': float(df['Momentum_1Day_Prob'].iloc[0]) if 'Momentum_1Day_Prob' in df.columns and len(df) > 0 else 0.5,
-        'momentum_3day_avg': float(df['Momentum_3Day_Prob'].iloc[0]) if 'Momentum_3Day_Prob' in df.columns and len(df) > 0 else 0.5,
-        'autocorr_avg': float(df['Autocorr_1Day'].iloc[0]) if 'Autocorr_1Day' in df.columns and len(df) > 0 else 0.0
+        # Dual timeframe momentum
+        'momentum_5day_latest': float(df['Momentum_5Day'].iloc[-1]) if 'Momentum_5Day' in df.columns and len(df) > 0 else 0.5,
+        'momentum_20day_latest': float(df['Momentum_20Day'].iloc[-1]) if 'Momentum_20Day' in df.columns and len(df) > 0 else 0.5,
+        'momentum_spread_latest': float(df['Momentum_Spread'].iloc[-1]) if 'Momentum_Spread' in df.columns and len(df) > 0 else 0.0,
+        'bullish_crossovers': int((df['Momentum_Crossover'] == 1).sum()) if 'Momentum_Crossover' in df.columns else 0,
+        'bearish_crossovers': int((df['Momentum_Crossover'] == -1).sum()) if 'Momentum_Crossover' in df.columns else 0
     }
 
 
@@ -468,80 +591,131 @@ def get_buy_signals(df: pd.DataFrame) -> pd.DataFrame:
     return df[df['Buy_Signal'] == 1].copy()
 
 
-# NEW: Momentum-specific utility functions
-def get_momentum_summary(df: pd.DataFrame) -> dict:
+# Enhanced momentum analysis functions
+def get_momentum_analysis(df: pd.DataFrame) -> dict:
     """
-    Get momentum-specific summary statistics
+    Get comprehensive momentum analysis using dual timeframe
     
     Args:
         df: Enhanced DataFrame with momentum columns
     
     Returns:
-        Dictionary with momentum summary
+        Dictionary with detailed momentum analysis
     """
-    if df.empty or 'Momentum_1Day_Prob' not in df.columns:
+    if df.empty or 'Momentum_5Day' not in df.columns:
         return {
-            'momentum_available': False,
-            'momentum_1day': 0.5,
-            'momentum_3day': 0.5,
-            'autocorr': 0.0,
-            'momentum_strength': 'Unknown'
+            'analysis_available': False,
+            'error': 'Insufficient data for analysis'
         }
     
-    momentum_1day = df['Momentum_1Day_Prob'].iloc[0] if len(df) > 0 else 0.5
-    momentum_3day = df['Momentum_3Day_Prob'].iloc[0] if len(df) > 0 else 0.5
-    autocorr = df['Autocorr_1Day'].iloc[0] if len(df) > 0 else 0.0
+    # Get latest values
+    latest = df.iloc[-1]
     
-    # Classify momentum strength
-    if momentum_1day > 0.65:
-        momentum_strength = 'Strong Positive'
-    elif momentum_1day > 0.55:
-        momentum_strength = 'Moderate Positive'
-    elif momentum_1day < 0.35:
-        momentum_strength = 'Strong Negative (Mean Reversion)'
-    elif momentum_1day < 0.45:
-        momentum_strength = 'Moderate Negative'
+    # Recent crossover detection (last 3 days)
+    recent_data = df.iloc[-3:] if len(df) >= 3 else df
+    recent_bullish_cross = (recent_data['Momentum_Crossover'] == 1).any()
+    recent_bearish_cross = (recent_data['Momentum_Crossover'] == -1).any()
+    
+    # Momentum trend analysis
+    if len(df) >= 10:
+        mom_5d_trend = df['Momentum_5Day'].iloc[-5:].mean() - df['Momentum_5Day'].iloc[-10:-5].mean()
+        mom_20d_trend = df['Momentum_20Day'].iloc[-5:].mean() - df['Momentum_20Day'].iloc[-10:-5].mean()
     else:
-        momentum_strength = 'Neutral'
+        mom_5d_trend = 0
+        mom_20d_trend = 0
     
     return {
-        'momentum_available': True,
-        'momentum_1day': momentum_1day,
-        'momentum_3day': momentum_3day,
-        'autocorr': autocorr,
-        'momentum_strength': momentum_strength
+        'analysis_available': True,
+        'latest': {
+            'momentum_5day': float(latest['Momentum_5Day']),
+            'momentum_20day': float(latest['Momentum_20Day']),
+            'momentum_spread': float(latest['Momentum_Spread']),
+            'autocorr_5day': float(latest['Autocorr_5Day']),
+            'autocorr_20day': float(latest['Autocorr_20Day']),
+            'strategy': str(latest['Strategy_Type']),
+            'signal': str(latest['Strategy_Signal'])
+        },
+        'crossovers': {
+            'recent_bullish': recent_bullish_cross,
+            'recent_bearish': recent_bearish_cross,
+            'total_bullish': int((df['Momentum_Crossover'] == 1).sum()),
+            'total_bearish': int((df['Momentum_Crossover'] == -1).sum())
+        },
+        'trends': {
+            '5day_trend': 'Strengthening' if mom_5d_trend > 0.05 else 'Weakening' if mom_5d_trend < -0.05 else 'Stable',
+            '20day_trend': 'Strengthening' if mom_20d_trend > 0.05 else 'Weakening' if mom_20d_trend < -0.05 else 'Stable',
+            '5day_trend_value': float(mom_5d_trend),
+            '20day_trend_value': float(mom_20d_trend)
+        },
+        'regime': {
+            'current': 'Momentum' if latest['Momentum_5Day'] > 0.55 else 'Mean Reversion' if latest['Momentum_5Day'] < 0.45 else 'Neutral',
+            'stability': 'Stable' if abs(latest['Autocorr_5Day'] - latest['Autocorr_20Day']) < 0.30 else 'Changing'
+        }
     }
 
 
-def validate_momentum_calculations(df: pd.DataFrame, ticker: str) -> bool:
+def get_trading_recommendation(analysis: dict) -> dict:
     """
-    Validate that momentum calculations were successful
+    Generate trading recommendations based on momentum analysis
     
     Args:
-        df: Enhanced DataFrame
-        ticker: Stock symbol for logging
+        analysis: Result from get_momentum_analysis()
     
     Returns:
-        Boolean indicating if momentum data is valid
+        Dictionary with trading recommendations
     """
-    required_momentum_cols = ['Momentum_1Day_Prob', 'Momentum_3Day_Prob', 'Autocorr_1Day']
+    if not analysis.get('analysis_available', False):
+        return {'recommendation': 'No Analysis Available', 'confidence': 'N/A'}
     
-    # Check if columns exist
-    if not all(col in df.columns for col in required_momentum_cols):
-        print(f"ERROR {ticker}: Missing momentum columns")
-        return False
+    latest = analysis['latest']
+    crossovers = analysis['crossovers']
     
-    # Check if values are reasonable (probabilities between 0 and 1)
-    momentum_1day = df['Momentum_1Day_Prob'].iloc[0] if len(df) > 0 else None
-    momentum_3day = df['Momentum_3Day_Prob'].iloc[0] if len(df) > 0 else None
+    # Strong buy conditions
+    if crossovers['recent_bullish'] and latest['momentum_5day'] > 0.60:
+        return {
+            'recommendation': 'STRONG BUY',
+            'confidence': 'High',
+            'rationale': 'Recent bullish crossover with strong momentum',
+            'entry': 'Buy at market or on any intraday dip',
+            'exit': 'Trail stop or exit on bearish crossover'
+        }
     
-    if momentum_1day is None or momentum_3day is None:
-        print(f"ERROR {ticker}: No momentum data available")
-        return False
+    # Buy conditions
+    elif latest['strategy'] == "Oversold Bounce Setup":
+        return {
+            'recommendation': 'BUY',
+            'confidence': 'Medium',
+            'rationale': 'Oversold with mean reversion setup',
+            'entry': 'Buy on confirmation of bounce',
+            'exit': 'Take profit at 20-day momentum level'
+        }
     
-    if not (0 <= momentum_1day <= 1) or not (0 <= momentum_3day <= 1):
-        print(f"ERROR {ticker}: Invalid momentum probabilities - 1day: {momentum_1day}, 3day: {momentum_3day}")
-        return False
+    # Hold conditions
+    elif latest['strategy'] == "Strong Momentum Continuation":
+        return {
+            'recommendation': 'HOLD/ADD',
+            'confidence': 'High',
+            'rationale': 'Strong momentum in both timeframes',
+            'entry': 'Add on pullbacks to support',
+            'exit': 'Hold until momentum weakens'
+        }
     
-    print(f"SUCCESS {ticker}: Momentum validation passed")
-    return True
+    # Caution conditions
+    elif crossovers['recent_bearish'] or latest['strategy'] == "Momentum Exhaustion":
+        return {
+            'recommendation': 'SELL/AVOID',
+            'confidence': 'High',
+            'rationale': 'Bearish crossover or exhaustion detected',
+            'entry': 'Do not enter new positions',
+            'exit': 'Exit existing positions'
+        }
+    
+    # Neutral
+    else:
+        return {
+            'recommendation': 'NEUTRAL',
+            'confidence': 'Low',
+            'rationale': 'Mixed signals - wait for clearer setup',
+            'entry': 'Wait for crossover or extreme readings',
+            'exit': 'N/A'
+        }
