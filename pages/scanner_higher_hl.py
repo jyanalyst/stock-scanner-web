@@ -672,7 +672,7 @@ def show():
         display_scan_results(st.session_state.scan_results)
 
 def run_enhanced_stock_scan(stocks_to_scan, analysis_date=None, days_back=59, rolling_window=20, debug_mode=False):
-    """Execute the enhanced stock scanning process with comprehensive error logging"""
+    """Execute the enhanced stock scanning process with comprehensive error logging and dynamic decimal formatting"""
     
     error_logger = st.session_state.error_logger
     
@@ -839,22 +839,40 @@ def run_enhanced_stock_scan(stocks_to_scan, analysis_date=None, days_back=59, ro
                     error_logger.log_warning("Company Name", f"Failed to get name for {ticker}: {e}")
                     company_name = ticker.replace('.SI', '')
                 
-                # Collect results with DUAL TIMEFRAME MOMENTUM
+                # DYNAMIC DECIMAL FORMATTING BASED ON PRICE
+                close_price = float(analysis_row['Close'])
+                high_price = float(analysis_row['High'])
+                low_price = float(analysis_row['Low'])
+                
+                # Determine decimal places based on price level
+                if close_price < 1.00:
+                    price_decimals = 3  # For all stocks under $1.00
+                else:
+                    price_decimals = 2  # For regular stocks $1.00 and above
+                
+                # Helper function to safely round values
+                def safe_round(value, decimals):
+                    try:
+                        return round(float(value), decimals) if not pd.isna(value) else 0
+                    except:
+                        return 0
+                
+                # Collect results with DYNAMIC DECIMAL FORMATTING
                 try:
                     result = {
                         'Ticker': ticker,
                         'Name': company_name,
                         'Analysis_Date': actual_date.strftime('%Y-%m-%d') if hasattr(actual_date, 'strftime') else str(actual_date),
-                        'Close': round(float(analysis_row['Close']), 2),
-                        'High': round(float(analysis_row['High']), 2),
-                        'Low': round(float(analysis_row['Low']), 2),
+                        'Close': round(close_price, price_decimals),
+                        'High': round(high_price, price_decimals),
+                        'Low': round(low_price, price_decimals),
                         'IBS': round(float(analysis_row['IBS']), 3) if not pd.isna(analysis_row['IBS']) else 0,
                         'Valid_CRT': int(analysis_row.get('Valid_CRT', 0)),
                         'Higher_HL': int(analysis_row.get('Higher_HL', 0)) if not pd.isna(analysis_row.get('Higher_HL', 0)) else 0,
                         'CRT_Velocity': round(float(analysis_row.get('CRT_Qualifying_Velocity', 0)), 4) if not pd.isna(analysis_row.get('CRT_Qualifying_Velocity', 0)) else 0,
-                        'Weekly_Open': round(float(analysis_row.get('Weekly_Open', 0)), 2) if not pd.isna(analysis_row.get('Weekly_Open', 0)) else 0,
-                        'CRT_High': round(float(analysis_row.get('CRT_High', 0)), 2) if not pd.isna(analysis_row.get('CRT_High', 0)) else 0,
-                        'CRT_Low': round(float(analysis_row.get('CRT_Low', 0)), 2) if not pd.isna(analysis_row.get('CRT_Low', 0)) else 0,
+                        'Weekly_Open': safe_round(analysis_row.get('Weekly_Open', 0), price_decimals),
+                        'CRT_High': safe_round(analysis_row.get('CRT_High', 0), price_decimals),
+                        'CRT_Low': safe_round(analysis_row.get('CRT_Low', 0), price_decimals),
                         'VW_Range_Percentile': round(float(analysis_row.get('VW_Range_Percentile', 0)), 4) if not pd.isna(analysis_row.get('VW_Range_Percentile', 0)) else 0,
                         'Rel_Range_Signal': int(analysis_row.get('Rel_Range_Signal', 0)),
                         # NEW DUAL TIMEFRAME COLUMNS
@@ -869,13 +887,19 @@ def run_enhanced_stock_scan(stocks_to_scan, analysis_date=None, days_back=59, ro
                         # Keep backward compatibility columns
                         'Momentum_1Day_Prob': round(float(analysis_row.get('Momentum_5Day', 0.5)), 4),
                         'Momentum_3Day_Prob': round(float(analysis_row.get('Momentum_5Day', 0.5)), 4),
-                        'Autocorr_1Day': round(float(analysis_row.get('Autocorr_5Day', 0.0)), 4)
+                        'Autocorr_1Day': round(float(analysis_row.get('Autocorr_5Day', 0.0)), 4),
+                        # Store price level for display formatting
+                        'Price_Decimals': price_decimals
                     }
                     
                     results.append(result)
                     
                     if debug_mode:
-                        error_logger.log_debug("Result Collection", f"Collected result for {ticker}", result)
+                        error_logger.log_debug("Result Collection", f"Collected result for {ticker}", {
+                            "close_price": close_price,
+                            "price_decimals": price_decimals,
+                            "formatted_close": result['Close']
+                        })
                         
                 except Exception as e:
                     error_logger.log_error("Result Collection", e, {

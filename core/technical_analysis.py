@@ -137,7 +137,7 @@ def classify_advanced_trading_strategy(mom_5d: float, mom_20d: float, auto_5d: f
         return ("Short-term Weakness", "📉")
     
     # Momentum acceleration - catching the move
-    elif spread > 0.15 and mom_5d > 0.55:
+    elif spread > 0.10 and mom_5d > 0.55:
         if crossover == 1:
             return ("Bullish Momentum Cross", "✨")
         return ("Momentum Acceleration", "⚡")
