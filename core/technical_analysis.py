@@ -1,3 +1,4 @@
+# File: core/technical_analysis.py
 """
 Technical Analysis Module - CLEAN MPI SYSTEM
 Complete replacement of complex dual timeframe momentum with simple MPI
@@ -188,8 +189,8 @@ def add_enhanced_columns(df_daily: pd.DataFrame, ticker: str, rolling_window: in
     # 5. Calculate volume-weighted range percentile
     df['VW_Range_Percentile'] = df['Volume_Weighted_Range'].rolling(window=50, min_periods=20).rank(pct=True)
     
-    # 5a. Calculate velocity
-    df['VW_Range_Velocity'] = df['VW_Range_Percentile'] - df['VW_Range_Percentile'].shift(1)
+    # 5a. Calculate VCRE velocity (renamed from VW_Range_Velocity)
+    df['VCRE_Velocity'] = df['VW_Range_Percentile'] - df['VW_Range_Percentile'].shift(1)
     
     # 6. Range Expansion Signal
     range_expanding = (df['VW_Range_Percentile'] > df['VW_Range_Percentile'].shift(1))
@@ -230,12 +231,7 @@ def add_enhanced_columns(df_daily: pd.DataFrame, ticker: str, rolling_window: in
         np.where(df['Is_First_Trading_Day'] == 1, 0, np.nan)
     )
     
-    # 13. Capture qualifying velocity
-    df['CRT_Qualifying_Velocity'] = np.where(
-        (df['Is_First_Trading_Day'] == 1) & (df['Rel_Range_Signal'] == 1),
-        df['VW_Range_Velocity'],
-        np.nan
-    )
+    # NOTE: CRT_Qualifying_Velocity removed - using VCRE_Velocity directly
     
     # 14. Higher_HL pattern
     df['Higher_HL'] = np.where(
@@ -244,9 +240,8 @@ def add_enhanced_columns(df_daily: pd.DataFrame, ticker: str, rolling_window: in
         0
     )
 
-    # 15. Forward fill Valid_CRT and CRT_Qualifying_Velocity
+    # 15. Forward fill Valid_CRT
     df['Valid_CRT'] = df['Valid_CRT'].ffill()
-    df['CRT_Qualifying_Velocity'] = df['CRT_Qualifying_Velocity'].ffill()
     
     # 16. ✨ CLEAN MPI SYSTEM (replaces ALL complex momentum calculations)
     try:

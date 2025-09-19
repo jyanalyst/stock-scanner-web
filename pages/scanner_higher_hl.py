@@ -1,8 +1,10 @@
+# File: pages/scanner_higher_hl.py
+# Part 1 of 3
 """
 CRT Higher H/L Scanner - COMPLETE PART 1
-REDESIGNED WITH ADVANCED MPI STATE CLASSIFICATION
-Enhanced with MPI (Market Positivity Index) using state-based filtering
-Column 4 now uses advanced MPI states with acceleration analysis
+REDESIGNED WITH PURE MPI EXPANSION SYSTEM
+Enhanced with MPI (Market Positivity Index) using velocity-based expansion filtering
+Focus on momentum direction rather than absolute levels
 """
 
 import streamlit as st
@@ -163,122 +165,77 @@ def format_mpi_visual(mpi_value: float) -> str:
     blocks = max(0, min(10, int(mpi_value * 10)))  # Ensure 0-10 range
     return "█" * blocks + "░" * (10 - blocks)
 
-def get_state_description(state: str) -> str:
+def get_trend_description(trend: str) -> str:
     """
-    Get trading description for MPI states
+    Get trading description for MPI trends
     """
     descriptions = {
-        'Strong Bull Rising': 'Breakout momentum',
-        'Strong Bull Slowing': 'Strong but cooling',
-        'Bull Acceleration': 'Building momentum', 
-        'Bull Deceleration': 'Slowing bull trend',
-        'Neutral Zone': 'Mixed signals',
-        'Bear Market': 'Weak momentum'
+        'Strong Expansion': 'Buy - Strong momentum',
+        'Expanding': 'Buy - Building momentum',
+        'Flat': 'Hold - No change',
+        'Mild Contraction': 'Caution - Weakening',
+        'Strong Contraction': 'Sell/Short - Momentum lost'
     }
-    return descriptions.get(state, 'Unknown')
+    return descriptions.get(trend, 'Unknown')
 
-def get_mpi_strategy_zone(mpi_value: float) -> Dict[str, str]:
+def apply_mpi_expansion_filter(base_stocks: pd.DataFrame, selected_trends: list) -> pd.DataFrame:
     """
-    Determine MPI strategy zone and characteristics
-    UPDATED: Now maps to MPI_State values for consistency
-    """
-    if pd.isna(mpi_value):
-        return {
-            'zone': 'Unknown',
-            'emoji': '❓',
-            'color': 'gray',
-            'interpretation': 'Insufficient data',
-            'action': 'Wait for more data'
-        }
-    
-    # Map to MPI_State categories for consistency
-    if mpi_value >= 0.70:
-        return {
-            'zone': 'Strong Bull',
-            'emoji': '🚀',
-            'color': 'darkgreen',
-            'interpretation': f'{mpi_value:.0%} green days - Strong momentum',
-            'action': 'Buy on dips, ride the trend'
-        }
-    elif mpi_value >= 0.50:
-        return {
-            'zone': 'Bull Trend', 
-            'emoji': '📈',
-            'color': 'green',
-            'interpretation': f'{mpi_value:.0%} green days - Positive momentum',
-            'action': 'Buy breakouts, hold positions'
-        }
-    elif mpi_value >= 0.30:
-        return {
-            'zone': 'Neutral',
-            'emoji': '➖',
-            'color': 'orange', 
-            'interpretation': f'{mpi_value:.0%} green days - Mixed signals',
-            'action': 'Wait for clearer direction'
-        }
-    else:
-        return {
-            'zone': 'Bear Trend',
-            'emoji': '📉',
-            'color': 'red',
-            'interpretation': f'{mpi_value:.0%} green days - Weak momentum', 
-            'action': 'Avoid longs, consider shorts'
-        }
-
-def apply_mpi_strategy_filter(base_stocks: pd.DataFrame, selected_states: list) -> pd.DataFrame:
-    """
-    Apply MPI strategy-based filtering using advanced MPI State Classification
+    Apply pure MPI expansion-based filtering with intelligent sorting
     
     Args:
-        base_stocks: Input DataFrame with MPI_State column
-        selected_states: List of selected MPI states
+        base_stocks: Input DataFrame with MPI_Trend column
+        selected_trends: List of selected MPI trends
     
     Returns:
-        Filtered DataFrame sorted appropriately
+        Filtered DataFrame sorted by velocity
     """
     if base_stocks.empty:
         return base_stocks
     
-    if 'MPI_State' not in base_stocks.columns:
-        st.warning("MPI_State column not found - using all stocks")
+    if 'MPI_Trend' not in base_stocks.columns:
+        st.warning("MPI_Trend column not found - using all stocks")
         return base_stocks
     
-    # If no states selected, return all stocks
-    if not selected_states:
+    # If no trends selected, return all stocks
+    if not selected_trends:
         filtered = base_stocks.copy()
-        return filtered.sort_values('MPI_Base', ascending=False)
+        return filtered.sort_values('MPI_Velocity', ascending=False)
     
-    # Filter by selected MPI states using exact string matching
-    filtered = base_stocks[base_stocks['MPI_State'].isin(selected_states)].copy()
+    # Filter by selected MPI trends
+    filtered = base_stocks[base_stocks['MPI_Trend'].isin(selected_trends)].copy()
     
-    # Smart sorting based on selected states
-    bear_states = ['Bear Market']
-    neutral_states = ['Neutral Zone']
-    bull_states = ['Strong Bull Rising', 'Strong Bull Slowing', 'Bull Acceleration', 'Bull Deceleration']
+    # Smart sorting based on selected trends
+    expansion_trends = ['Strong Expansion', 'Expanding']
+    contraction_trends = ['Mild Contraction', 'Strong Contraction']
     
     selected_categories = []
-    if any(state in bear_states for state in selected_states):
-        selected_categories.append('bear')
-    if any(state in neutral_states for state in selected_states):
-        selected_categories.append('neutral')
-    if any(state in bull_states for state in selected_states):
-        selected_categories.append('bull')
+    if any(trend in expansion_trends for trend in selected_trends):
+        selected_categories.append('expansion')
+    if any(trend in contraction_trends for trend in selected_trends):
+        selected_categories.append('contraction')
+    if 'Flat' in selected_trends:
+        selected_categories.append('flat')
     
     # Sort based on predominant selection
-    if selected_categories == ['bear']:
-        # For bear-only selections, sort weakest first (for shorting)
-        filtered = filtered.sort_values('MPI_Base', ascending=True)
+    if selected_categories == ['contraction']:
+        # For shorting - sort weakest first (most negative velocity)
+        filtered = filtered.sort_values('MPI_Velocity', ascending=True)
+    elif selected_categories == ['expansion']:
+        # For long trades - sort strongest first (highest positive velocity)
+        filtered = filtered.sort_values('MPI_Velocity', ascending=False)
     else:
-        # For all other combinations, sort strongest first
-        # Secondary sort by acceleration for same MPI levels
-        filtered = filtered.sort_values(['MPI_Base', 'MPI_Acceleration'], ascending=[False, False])
+        # Mixed selection - sort by MPI level, then velocity
+        filtered = filtered.sort_values(['MPI', 'MPI_Velocity'], ascending=[False, False])
     
     return filtered
 
+# File: pages/scanner_higher_hl.py
+# Part 2 of 3
+
 def apply_dynamic_filters(base_stocks, results_df):
     """
-    Apply dynamic filtering with CRT Velocity, IBS, Higher H/L, and ADVANCED MPI STATE filters
-    UPDATED: Column 4 now uses MPI State Classification instead of simple zones
+    Apply dynamic filtering with VCRE Velocity, IBS, Higher H/L, and PURE MPI EXPANSION filters
+    UPDATED: Column 4 now shows MPI Expansion Filter with velocity-based trends
     Returns filtered stocks
     """
     
@@ -294,15 +251,15 @@ def apply_dynamic_filters(base_stocks, results_df):
     # Initialize filtered stocks
     filtered_stocks = base_stocks.copy()
     
-    # COL 1: CRT VELOCITY PERCENTILE FILTER (UNCHANGED)
+    # COL 1: VCRE VELOCITY PERCENTILE FILTER (UNCHANGED)
     with col1:
-        st.markdown("**CRT Velocity Filter:**")
+        st.markdown("**VCRE Velocity Filter:**")
         
-        # Get velocity statistics - handle both Valid CRT and non-Valid CRT stocks
-        if 'CRT_Velocity' in base_stocks.columns:
-            velocities = base_stocks['CRT_Velocity']
+        # Get velocity statistics
+        if 'VCRE_Velocity' in base_stocks.columns:
+            velocities = base_stocks['VCRE_Velocity']
         else:
-            velocities = base_stocks.index.map(lambda idx: results_df.loc[idx, 'CRT_Velocity'] if idx in results_df.index else 0)
+            velocities = base_stocks.index.map(lambda idx: results_df.loc[idx, 'VCRE_Velocity'] if idx in results_df.index else 0)
             velocities = pd.Series(velocities, index=base_stocks.index)
         
         # Remove any zero velocities for percentile calculation
@@ -319,7 +276,7 @@ def apply_dynamic_filters(base_stocks, results_df):
             selected_percentile = st.radio(
                 "Select velocity filter:",
                 list(percentile_options.keys()),
-                key="crt_velocity_percentile_radio"
+                key="vcre_velocity_percentile_radio"
             )
             
             # Apply percentile filtering
@@ -327,12 +284,12 @@ def apply_dynamic_filters(base_stocks, results_df):
                 percentile_val = percentile_options[selected_percentile]
                 threshold_value = np.percentile(non_zero_velocities, percentile_val)
                 filtered_stocks = filtered_stocks[velocities >= threshold_value]
-                st.info(f"CRT Velocity ≥ {threshold_value:+.4f} pp")
+                st.info(f"VCRE Velocity ≥ {threshold_value:+.4f} pp")
             else:
                 st.info("All velocities included")
             
             # Show velocity statistics
-            with st.expander("CRT Velocity Statistics", expanded=False):
+            with st.expander("VCRE Velocity Statistics", expanded=False):
                 stats_data = {
                     "Metric": ["Count", "Min", "25th %ile", "Median", "75th %ile", "Max"],
                     "Value": [
@@ -347,7 +304,7 @@ def apply_dynamic_filters(base_stocks, results_df):
                 }
                 st.dataframe(pd.DataFrame(stats_data), hide_index=True, use_container_width=True)
         else:
-            st.info("No CRT Velocity data available for filtering")
+            st.info("No VCRE Velocity data available for filtering")
     
     # COL 2: IBS FILTER (UNCHANGED)
     with col2:
@@ -460,116 +417,109 @@ def apply_dynamic_filters(base_stocks, results_df):
             st.info("Higher H/L filter not needed - already filtered by base selection")
             selected_higher_hl = "No Filter"
     
-    # COL 4: MULTI-SELECT MPI STATE FILTER (ADVANCED CLASSIFICATION)
+    # COL 4: MULTI-SELECT MPI EXPANSION FILTER (PURE VELOCITY-BASED)
     with col4:
-        st.markdown("**MPI Strategy Filter:**")
+        st.markdown("**MPI Expansion Filter:**")
         
-        # Check if MPI data is available
-        if 'MPI_State' in filtered_stocks.columns:
-            
-            # MPI State options with advanced classification
-            strategy_options = [
-                "🚀 Strong Bull Rising",      # MPI≥70% + Acceleration>0.1
-                "📈 Strong Bull Slowing",     # MPI≥70% + Acceleration≤0.1  
-                "⚡ Bull Acceleration",       # MPI≥50% + Acceleration>0.1
-                "📊 Bull Deceleration",       # MPI≥50% + Acceleration≤0.1
-                "➖ Neutral Zone",            # MPI 30-50%
-                "📉 Bear Market"              # MPI<30%
+        # Add toggle to enable/disable MPI filtering
+        use_mpi_filter = st.checkbox("Enable MPI Filtering", value=True, key="mpi_filter_toggle")
+        
+        if use_mpi_filter and 'MPI_Trend' in filtered_stocks.columns:
+            # MPI Expansion trend options (velocity-based, not threshold-based)
+            trend_options = [
+                "🚀 Strong Expansion",      # MPI Velocity ≥ 5%
+                "📈 Expanding",            # MPI Velocity > 0%  
+                "➖ Flat",                 # MPI Velocity = 0%
+                "⚠️ Mild Contraction",     # MPI Velocity < 0% but > -5%
+                "📉 Strong Contraction"    # MPI Velocity ≤ -5%
             ]
             
-            # Multi-select checkboxes with advanced states
-            st.markdown("Select momentum states:")
-            selected_strategies = []
+            # Multi-select checkboxes
+            st.markdown("Select momentum trends:")
+            selected_trends = []
             
-            for i, strategy in enumerate(strategy_options):
-                # Map display names to internal MPI_State values
-                state_mapping = {
-                    "🚀 Strong Bull Rising": "Strong Bull Rising",
-                    "📈 Strong Bull Slowing": "Strong Bull Slowing", 
-                    "⚡ Bull Acceleration": "Bull Acceleration",
-                    "📊 Bull Deceleration": "Bull Deceleration",
-                    "➖ Neutral Zone": "Neutral Zone",
-                    "📉 Bear Market": "Bear Market"
-                }
-                
-                if st.checkbox(strategy, key=f"mpi_state_checkbox_{i}"):
-                    selected_strategies.append(state_mapping[strategy])
+            for i, trend in enumerate(trend_options):
+                if st.checkbox(trend, key=f"mpi_trend_checkbox_{i}"):
+                    # Remove emoji from trend name for internal use
+                    trend_name = trend.split(' ', 1)[1] if ' ' in trend else trend
+                    selected_trends.append(trend_name)
             
-            # Apply MPI state filtering with advanced classification
-            if selected_strategies:
-                filtered_stocks = apply_mpi_strategy_filter(filtered_stocks, selected_strategies)
+            # Apply MPI expansion filtering
+            if selected_trends:
+                filtered_stocks = apply_mpi_expansion_filter(filtered_stocks, selected_trends)
                 
-                # Show info about selected strategies with advanced details
-                display_names = [k for k, v in state_mapping.items() if v in selected_strategies]
-                st.info(f"Selected: {', '.join([name.split(' ')[0] for name in display_names])} ({len(filtered_stocks)} stocks)")
+                # Show info about selected trends
+                trend_emojis = [trend.split(' ')[0] for trend in trend_options if trend.split(' ', 1)[1] in selected_trends]
+                st.info(f"Selected: {', '.join(trend_emojis)} ({len(filtered_stocks)} stocks)")
                 
-                # Show detailed explanations for selected states
-                with st.expander("Selected State Details", expanded=False):
-                    for strategy in selected_strategies:
-                        if strategy == "Strong Bull Rising":
-                            st.write("🚀 **Strong Bull Rising:** MPI ≥ 70% + Acceleration > 10% (Breakout momentum)")
-                        elif strategy == "Strong Bull Slowing":
-                            st.write("📈 **Strong Bull Slowing:** MPI ≥ 70% + Acceleration ≤ 10% (Strong but cooling)")
-                        elif strategy == "Bull Acceleration":
-                            st.write("⚡ **Bull Acceleration:** MPI ≥ 50% + Acceleration > 10% (Building momentum)")
-                        elif strategy == "Bull Deceleration":
-                            st.write("📊 **Bull Deceleration:** MPI ≥ 50% + Acceleration ≤ 10% (Slowing bull trend)")
-                        elif strategy == "Neutral Zone":
-                            st.write("➖ **Neutral Zone:** MPI 30-50% (Mixed signals)")
-                        elif strategy == "Bear Market":
-                            st.write("📉 **Bear Market:** MPI < 30% (Weak momentum)")
+                # Show detailed explanations for selected trends
+                with st.expander("Selected Trend Details", expanded=False):
+                    for trend in selected_trends:
+                        if trend == "Strong Expansion":
+                            st.write("🚀 **Strong Expansion:** MPI Velocity ≥ 5% (Strong momentum building)")
+                        elif trend == "Expanding":
+                            st.write("📈 **Expanding:** MPI Velocity > 0% (Momentum improving)")
+                        elif trend == "Flat":
+                            st.write("➖ **Flat:** MPI Velocity = 0% (No momentum change)")
+                        elif trend == "Mild Contraction":
+                            st.write("⚠️ **Mild Contraction:** MPI Velocity > -5% (Slight weakening)")
+                        elif trend == "Strong Contraction":
+                            st.write("📉 **Strong Contraction:** MPI Velocity ≤ -5% (Momentum lost)")
             else:
-                st.info("No states selected - showing all MPI levels")
+                st.info("No trends selected - showing all MPI levels")
             
-            # Show MPI State statistics and distribution
-            with st.expander("MPI State Statistics", expanded=False):
-                if 'MPI_State' in base_stocks.columns:
-                    state_counts = base_stocks['MPI_State'].value_counts()
+            # Show MPI Trend statistics and distribution
+            with st.expander("MPI Trend Statistics", expanded=False):
+                if 'MPI_Trend' in base_stocks.columns:
+                    trend_counts = base_stocks['MPI_Trend'].value_counts()
                     
-                    # Create comprehensive state statistics
-                    state_stats_data = []
-                    state_order = [
-                        'Strong Bull Rising', 'Strong Bull Slowing', 
-                        'Bull Acceleration', 'Bull Deceleration',
-                        'Neutral Zone', 'Bear Market'
+                    # Create comprehensive trend statistics
+                    trend_stats_data = []
+                    trend_order = [
+                        'Strong Expansion', 'Expanding', 'Flat',
+                        'Mild Contraction', 'Strong Contraction'
                     ]
                     
-                    for state in state_order:
-                        count = state_counts.get(state, 0)
+                    for trend in trend_order:
+                        count = trend_counts.get(trend, 0)
                         if count > 0:
-                            state_stocks = base_stocks[base_stocks['MPI_State'] == state]
-                            avg_mpi = state_stocks['MPI_Base'].mean()
-                            avg_accel = state_stocks['MPI_Acceleration'].mean()
+                            trend_stocks = base_stocks[base_stocks['MPI_Trend'] == trend]
+                            avg_mpi = trend_stocks['MPI'].mean()
+                            avg_velocity = trend_stocks['MPI_Velocity'].mean()
                             
-                            state_stats_data.append({
-                                "MPI State": state,
+                            trend_stats_data.append({
+                                "MPI Trend": trend,
                                 "Count": f"{count}",
                                 "Avg MPI": f"{avg_mpi:.1%}",
-                                "Avg Accel": f"{avg_accel:+.3f}",
-                                "Description": get_state_description(state)
+                                "Avg Velocity": f"{avg_velocity:+.1%}",
+                                "Action": get_trend_description(trend)
                             })
                     
-                    if state_stats_data:
-                        st.dataframe(pd.DataFrame(state_stats_data), hide_index=True, use_container_width=True)
+                    if trend_stats_data:
+                        st.dataframe(pd.DataFrame(trend_stats_data), hide_index=True, use_container_width=True)
                 else:
-                    st.warning("MPI_State column not available")
+                    st.warning("MPI_Trend column not available")
+        elif not use_mpi_filter:
+            st.info("MPI filtering disabled - showing all stocks")
+            selected_trends = []
         else:
-            st.warning("MPI state filtering not available - MPI_State data missing")
-            selected_strategies = []
+            st.warning("MPI trend filtering not available - MPI_Trend data missing")
+            selected_trends = []
     
     # Show combined filter summary
     filter_summary = []
     if 'selected_percentile' in locals() and selected_percentile != "No Filter" and len(non_zero_velocities) > 0:
-        filter_summary.append(f"CRT Velocity {selected_percentile}")
+        filter_summary.append(f"VCRE Velocity {selected_percentile}")
     if selected_ibs_option == "Custom":
         filter_summary.append(f"IBS ≥ {custom_ibs_value:.2f}")
     elif selected_ibs_option != "No Filter":
         filter_summary.append(f"IBS {selected_ibs_option}")
     if 'selected_higher_hl' in locals() and selected_higher_hl != "No Filter":
         filter_summary.append("Higher H/L Only")
-    if selected_strategies:
-        # Show count of selected MPI states
-        filter_summary.append(f"MPI: {len(selected_strategies)} states")
+    if use_mpi_filter and selected_trends:
+        filter_summary.append(f"MPI: {len(selected_trends)} trends")
+    elif not use_mpi_filter:
+        filter_summary.append("MPI: Disabled")
     
     if filter_summary:
         st.success(f"Active filters: {' + '.join(filter_summary)} → {len(filtered_stocks)} stocks")
@@ -587,9 +537,9 @@ def apply_dynamic_filters(base_stocks, results_df):
         # IBS chart
         charts_to_show.append(('ibs', filtered_stocks['IBS'] if not filtered_stocks.empty else pd.Series(), selected_ibs_option))
         
-        # MPI chart (if available)
-        if 'MPI_Base' in base_stocks.columns:
-            charts_to_show.append(('mpi', base_stocks['MPI_Base'], selected_strategies))
+        # MPI Velocity chart (if available)
+        if 'MPI_Velocity' in base_stocks.columns:
+            charts_to_show.append(('mpi_velocity', base_stocks['MPI_Velocity'], selected_trends))
         
         # Create charts in rows of 2
         num_charts = len(charts_to_show)
@@ -601,8 +551,8 @@ def apply_dynamic_filters(base_stocks, results_df):
                         fig = px.histogram(
                             x=data,
                             nbins=20,
-                            title="CRT Velocity Distribution",
-                            labels={'x': 'CRT Velocity (pp)', 'y': 'Count'}
+                            title="VCRE Velocity Distribution",
+                            labels={'x': 'VCRE Velocity (pp)', 'y': 'Count'}
                         )
                         if filter_selection and filter_selection != "No Filter":
                             percentile_val = percentile_options[filter_selection]
@@ -630,55 +580,46 @@ def apply_dynamic_filters(base_stocks, results_df):
                                             annotation_text=f"{filter_selection} threshold")
                         st.plotly_chart(fig, use_container_width=True)
                     
-                    elif chart_type == 'mpi' and len(data) > 0:
+                    elif chart_type == 'mpi_velocity' and len(data) > 0:
+                        # Create histogram colored by MPI_Trend
+                        df_for_plot = base_stocks[['MPI_Velocity', 'MPI_Trend']].copy()
+                        
                         fig = px.histogram(
-                            x=data,
-                            nbins=20,
-                            title="MPI State Distribution",
-                            labels={'x': 'MPI Base (Market Positivity Index)', 'y': 'Count'}
+                            df_for_plot,
+                            x='MPI_Velocity',
+                            color='MPI_Trend',
+                            nbins=30,
+                            title="MPI Velocity Distribution - Pure Expansion Focus",
+                            labels={'MPI_Velocity': 'MPI Velocity (Day-over-Day Change)', 'count': 'Count'},
+                            color_discrete_map={
+                                'Strong Expansion': 'darkgreen',
+                                'Expanding': 'green',
+                                'Flat': 'gray',
+                                'Mild Contraction': 'orange',
+                                'Strong Contraction': 'red'
+                            }
                         )
                         
-                        # Add strategy zone shading
-                        fig.add_vrect(x0=0.70, x1=1.00, fillcolor="green", opacity=0.2, annotation_text="Strong Bull")
-                        fig.add_vrect(x0=0.50, x1=0.70, fillcolor="lightgreen", opacity=0.2, annotation_text="Bull Trend")  
-                        fig.add_vrect(x0=0.30, x1=0.50, fillcolor="orange", opacity=0.2, annotation_text="Neutral")
-                        fig.add_vrect(x0=0.00, x1=0.30, fillcolor="red", opacity=0.2, annotation_text="Bear Trend")
-                        
-                        # Highlight selected MPI states on distribution chart
-                        if selected_strategies:
-                            # Add different colored lines for each selected state
-                            colors = ['darkgreen', 'green', 'blue', 'orange', 'gray', 'red']
-                            for i, strategy in enumerate(selected_strategies):
-                                color = colors[i % len(colors)]
-                                
-                                if strategy == "Strong Bull Rising":
-                                    fig.add_vline(x=0.70, line_dash="solid", line_color=color, line_width=3,
-                                                annotation_text="Strong Bull Rising")
-                                elif strategy == "Strong Bull Slowing":
-                                    fig.add_vline(x=0.70, line_dash="dash", line_color=color, line_width=2,
-                                                annotation_text="Strong Bull Slowing")
-                                elif strategy == "Bull Acceleration":
-                                    fig.add_vline(x=0.50, line_dash="solid", line_color=color, line_width=2,
-                                                annotation_text="Bull Acceleration")
-                                elif strategy == "Bull Deceleration":
-                                    fig.add_vline(x=0.50, line_dash="dash", line_color=color, line_width=2,
-                                                annotation_text="Bull Deceleration")
-                                elif strategy == "Neutral Zone":
-                                    fig.add_vline(x=0.40, line_dash="dot", line_color=color, line_width=2,
-                                                annotation_text="Neutral Zone")
-                                elif strategy == "Bear Market":
-                                    fig.add_vline(x=0.30, line_dash="solid", line_color=color, line_width=3,
-                                                annotation_text="Bear Market")
+                        # Add threshold lines
+                        fig.add_vline(x=0.05, line_dash="dash", line_color="darkgreen", 
+                                     annotation_text="Strong Expansion (≥5%)")
+                        fig.add_vline(x=0, line_dash="solid", line_color="black", 
+                                     annotation_text="Zero Velocity")
+                        fig.add_vline(x=-0.05, line_dash="dash", line_color="red", 
+                                     annotation_text="Strong Contraction (≤-5%)")
                         
                         st.plotly_chart(fig, use_container_width=True)
     
     return filtered_stocks
 
+# File: pages/scanner_higher_hl.py
+# Part 3 of 3
+
 def show():
-    """Main scanner page display for Higher H/L patterns with Advanced MPI State filtering"""
+    """Main scanner page display for Higher H/L patterns with Pure MPI Expansion filtering"""
     
     st.title("📈 CRT Higher H/L Scanner")
-    st.markdown("Enhanced with **Advanced MPI State Classification** - Momentum + Acceleration analysis for precision trading")
+    st.markdown("Enhanced with **Pure MPI Expansion System** - Focus on momentum velocity, not absolute levels")
     
     # Clear previous errors for new scan
     if st.button("🗑️ Clear Error Log"):
@@ -837,15 +778,15 @@ def show():
         display_scan_results(st.session_state.scan_results)
 
 def run_enhanced_stock_scan(stocks_to_scan, analysis_date=None, days_back=59, rolling_window=20, debug_mode=False):
-    """Execute the enhanced stock scanning process with Advanced MPI State system integration"""
+    """Execute the enhanced stock scanning process with Pure MPI Expansion system integration"""
     
     error_logger = st.session_state.error_logger
     
     try:
         from core.data_fetcher import DataFetcher, set_global_data_fetcher
-        from core.technical_analysis import add_enhanced_columns
+        from core.technical_analysis import add_enhanced_columns  # Remove get_mpi_trend_emoji
         
-        error_logger.log_debug("Scan Start", "Starting enhanced stock scan with Advanced MPI States", {
+        error_logger.log_debug("Scan Start", "Starting enhanced stock scan with Pure MPI Expansion", {
             "stocks_count": len(stocks_to_scan),
             "stocks": stocks_to_scan,
             "analysis_date": str(analysis_date) if analysis_date else "Current",
@@ -866,7 +807,7 @@ def run_enhanced_stock_scan(stocks_to_scan, analysis_date=None, days_back=59, ro
         else:
             date_text = "current data analysis"
         
-        st.info(f"🔄 Scanning {scope_text} with {date_text}... Calculating Advanced MPI States...")
+        st.info(f"🔄 Scanning {scope_text} with {date_text}... Calculating Pure MPI Expansion...")
         
         progress_bar = st.progress(0)
         status_text = st.empty()
@@ -915,7 +856,7 @@ def run_enhanced_stock_scan(stocks_to_scan, analysis_date=None, days_back=59, ro
             st.error("❌ Failed to download stock data. Check error log for details.")
             return
         
-        status_text.text("🔄 Calculating Advanced MPI States and technical analysis...")
+        status_text.text("🔄 Calculating Pure MPI Expansion and technical analysis...")
         progress_bar.progress(0.4)
         
         results = []
@@ -923,7 +864,7 @@ def run_enhanced_stock_scan(stocks_to_scan, analysis_date=None, days_back=59, ro
         
         for i, (ticker, df_raw) in enumerate(stock_data.items()):
             try:
-                error_logger.log_debug("Stock Processing", f"Processing {ticker} with Advanced MPI States", {
+                error_logger.log_debug("Stock Processing", f"Processing {ticker} with Pure MPI Expansion", {
                     "data_shape": df_raw.shape,
                     "date_range": f"{df_raw.index[0]} to {df_raw.index[-1]}" if len(df_raw) > 0 else "No data",
                     "columns": list(df_raw.columns)
@@ -935,10 +876,10 @@ def run_enhanced_stock_scan(stocks_to_scan, analysis_date=None, days_back=59, ro
                 
                 try:
                     df_enhanced = add_enhanced_columns(df_raw, ticker, rolling_window)
-                    error_logger.log_debug("Technical Analysis", f"Enhanced columns with Advanced MPI States added for {ticker}", {
+                    error_logger.log_debug("Technical Analysis", f"Enhanced columns with Pure MPI Expansion added for {ticker}", {
                         "enhanced_shape": df_enhanced.shape,
                         "mpi_columns": [col for col in df_enhanced.columns if 'MPI' in col],
-                        "has_mpi_state": 'MPI_State' in df_enhanced.columns
+                        "has_mpi_trend": 'MPI_Trend' in df_enhanced.columns
                     })
                 except Exception as e:
                     error_logger.log_error("Technical Analysis", e, {
@@ -1014,11 +955,12 @@ def run_enhanced_stock_scan(stocks_to_scan, analysis_date=None, days_back=59, ro
                     except:
                         return 0
                 
-                # Get MPI strategy zone information (for backward compatibility)
-                mpi_base = float(analysis_row.get('MPI_Base', 0.5)) if not pd.isna(analysis_row.get('MPI_Base', 0.5)) else 0.5
-                mpi_zone_info = get_mpi_strategy_zone(mpi_base)
+                # Get MPI values
+                mpi_value = float(analysis_row.get('MPI', 0.5)) if not pd.isna(analysis_row.get('MPI', 0.5)) else 0.5
+                mpi_velocity = float(analysis_row.get('MPI_Velocity', 0.0)) if not pd.isna(analysis_row.get('MPI_Velocity', 0.0)) else 0.0
+                mpi_trend = str(analysis_row.get('MPI_Trend', 'Unknown'))
                 
-                # Collect results with ADVANCED MPI STATE data
+                # Collect results with PURE MPI EXPANSION data
                 try:
                     result = {
                         'Ticker': ticker,
@@ -1030,27 +972,19 @@ def run_enhanced_stock_scan(stocks_to_scan, analysis_date=None, days_back=59, ro
                         'IBS': round(float(analysis_row['IBS']), 3) if not pd.isna(analysis_row['IBS']) else 0,
                         'Valid_CRT': int(analysis_row.get('Valid_CRT', 0)),
                         'Higher_HL': int(analysis_row.get('Higher_HL', 0)) if not pd.isna(analysis_row.get('Higher_HL', 0)) else 0,
-                        'CRT_Velocity': round(float(analysis_row.get('CRT_Qualifying_Velocity', 0)), 4) if not pd.isna(analysis_row.get('CRT_Qualifying_Velocity', 0)) else 0,
+                        'VCRE_Velocity': round(float(analysis_row.get('VCRE_Velocity', 0)), 4) if not pd.isna(analysis_row.get('VCRE_Velocity', 0)) else 0,
                         'Weekly_Open': safe_round(analysis_row.get('Weekly_Open', 0), price_decimals),
                         'CRT_High': safe_round(analysis_row.get('CRT_High', 0), price_decimals),
                         'CRT_Low': safe_round(analysis_row.get('CRT_Low', 0), price_decimals),
                         'VW_Range_Percentile': round(float(analysis_row.get('VW_Range_Percentile', 0)), 4) if not pd.isna(analysis_row.get('VW_Range_Percentile', 0)) else 0,
                         'Rel_Range_Signal': int(analysis_row.get('Rel_Range_Signal', 0)),
                         
-                        # ADVANCED MPI STATE SYSTEM COLUMNS (replacing old simple zones)
-                        'MPI_Base': round(mpi_base, 4),
-                        'MPI_Fast': round(float(analysis_row.get('MPI_Fast', 0.5)), 4) if not pd.isna(analysis_row.get('MPI_Fast', 0.5)) else 0.5,
-                        'MPI_Slow': round(float(analysis_row.get('MPI_Slow', 0.5)), 4) if not pd.isna(analysis_row.get('MPI_Slow', 0.5)) else 0.5,
-                        'MPI_Acceleration': round(float(analysis_row.get('MPI_Acceleration', 0.0)), 4) if not pd.isna(analysis_row.get('MPI_Acceleration', 0.0)) else 0.0,
-                        'MPI_State': str(analysis_row.get('MPI_State', 'Unknown')),
-                        'MPI_Zone': mpi_zone_info['zone'],
-                        'MPI_Zone_Emoji': mpi_zone_info['emoji'],
-                        'MPI_Visual': format_mpi_visual(mpi_base),
-                        
-                        # Advanced MPI Strategy Signals
-                        'Signal_Breakout': int(analysis_row.get('Signal_Breakout', 0)) if not pd.isna(analysis_row.get('Signal_Breakout', 0)) else 0,
-                        'Signal_Pullback': int(analysis_row.get('Signal_Pullback', 0)) if not pd.isna(analysis_row.get('Signal_Pullback', 0)) else 0,
-                        'Signal_Short': int(analysis_row.get('Signal_Short', 0)) if not pd.isna(analysis_row.get('Signal_Short', 0)) else 0,
+                        # PURE MPI EXPANSION COLUMNS
+                        'MPI': round(mpi_value, 4),
+                        'MPI_Velocity': round(mpi_velocity, 4),
+                        'MPI_Trend': mpi_trend,
+                        'MPI_Trend_Emoji': str(analysis_row.get('MPI_Trend_Emoji', '❓')),
+                        'MPI_Visual': format_mpi_visual(mpi_value),
                         
                         # Store price level for display formatting
                         'Price_Decimals': price_decimals
@@ -1059,12 +993,12 @@ def run_enhanced_stock_scan(stocks_to_scan, analysis_date=None, days_back=59, ro
                     results.append(result)
                     
                     if debug_mode:
-                        error_logger.log_debug("Result Collection", f"Collected Advanced MPI State result for {ticker}", {
-                            "mpi_base": mpi_base,
-                            "mpi_state": analysis_row.get('MPI_State', 'Unknown'),
-                            "mpi_acceleration": analysis_row.get('MPI_Acceleration', 0.0),
-                            "mpi_zone": mpi_zone_info['zone'],
-                            "mpi_visual": format_mpi_visual(mpi_base),
+                        error_logger.log_debug("Result Collection", f"Collected Pure MPI Expansion result for {ticker}", {
+                            "mpi": mpi_value,
+                            "mpi_velocity": mpi_velocity,
+                            "mpi_trend": mpi_trend,
+                            "mpi_visual": format_mpi_visual(mpi_value),
+                            "vcre_velocity": analysis_row.get('VCRE_Velocity', 0.0),
                             "price_decimals": price_decimals
                         })
                         
@@ -1093,12 +1027,12 @@ def run_enhanced_stock_scan(stocks_to_scan, analysis_date=None, days_back=59, ro
                 "success_rate": f"{len(results)}/{len(stock_data)} ({len(results)/len(stock_data)*100:.1f}%)"
             })
         
-        status_text.text("📊 Preparing Advanced MPI State results...")
+        status_text.text("📊 Preparing Pure MPI Expansion results...")
         progress_bar.progress(0.9)
         
         try:
             results_df = pd.DataFrame(results)
-            error_logger.log_debug("Results Finalization", f"Created Advanced MPI State results dataframe", {
+            error_logger.log_debug("Results Finalization", f"Created Pure MPI Expansion results dataframe", {
                 "results_count": len(results_df),
                 "mpi_columns": [col for col in results_df.columns if 'MPI' in col] if not results_df.empty else []
             })
@@ -1117,20 +1051,20 @@ def run_enhanced_stock_scan(stocks_to_scan, analysis_date=None, days_back=59, ro
         }
         
         progress_bar.progress(1.0)
-        status_text.text("✅ Advanced MPI State scan completed!")
+        status_text.text("✅ Pure MPI Expansion scan completed!")
         
         time.sleep(1)
         progress_bar.empty()
         status_text.empty()
         
-        success_message = f"🎉 Advanced MPI State Scan completed! Analyzed {len(results_df)} stocks successfully"
+        success_message = f"🎉 Pure MPI Expansion Scan completed! Analyzed {len(results_df)} stocks successfully"
         if processing_errors:
             success_message += f" ({len(processing_errors)} errors - check log for details)"
         if is_historical:
             success_message += f" as of {analysis_date}"
         
         st.success(success_message)
-        error_logger.log_debug("Scan Completion", "Advanced MPI State scan completed successfully", {
+        error_logger.log_debug("Scan Completion", "Pure MPI Expansion scan completed successfully", {
             "successful_stocks": len(results_df),
             "total_requested": len(stocks_to_scan),
             "processing_errors": len(processing_errors)
@@ -1147,7 +1081,7 @@ def run_enhanced_stock_scan(stocks_to_scan, analysis_date=None, days_back=59, ro
                 "rolling_window": rolling_window
             }
         })
-        st.error("❌ Advanced MPI State scan failed with critical error - check error log for full details")
+        st.error("❌ Pure MPI Expansion scan failed with critical error - check error log for full details")
         
         if 'progress_bar' in locals():
             progress_bar.empty()
@@ -1155,7 +1089,7 @@ def run_enhanced_stock_scan(stocks_to_scan, analysis_date=None, days_back=59, ro
             status_text.empty()
 
 def display_scan_results(results_df: pd.DataFrame):
-    """Display scanning results with Advanced MPI State filtering and state-based momentum display"""
+    """Display scanning results with Pure MPI Expansion filtering and velocity-based display"""
     
     error_logger = st.session_state.error_logger
     
@@ -1165,24 +1099,26 @@ def display_scan_results(results_df: pd.DataFrame):
             error_logger.log_warning("Results Display", "Empty results dataframe")
             return
         
-        # Summary metrics with ADVANCED MPI STATE STATISTICS
-        st.subheader("📊 Scan Summary with Advanced MPI State Analysis")
+        # Summary metrics with PURE MPI EXPANSION STATISTICS
+        st.subheader("📊 Scan Summary with Pure MPI Expansion Analysis")
         
         total_stocks = len(results_df)
         higher_hl_count = len(results_df[results_df['Higher_HL'] == 1])
         valid_crt_count = len(results_df[results_df['Valid_CRT'] == 1])
         higher_hl_with_crt = len(results_df[(results_df['Higher_HL'] == 1) & (results_df['Valid_CRT'] == 1)])
         
-        # Advanced MPI State statistics
-        if 'MPI_State' in results_df.columns:
-            state_counts = results_df['MPI_State'].value_counts()
-            strong_bull_rising = state_counts.get('Strong Bull Rising', 0)
-            bull_acceleration = state_counts.get('Bull Acceleration', 0)
-            bear_market = state_counts.get('Bear Market', 0)
-            avg_mpi = results_df['MPI_Base'].mean()
+        # Pure MPI Expansion statistics
+        if 'MPI_Trend' in results_df.columns:
+            trend_counts = results_df['MPI_Trend'].value_counts()
+            strong_expansion = trend_counts.get('Strong Expansion', 0)
+            expanding = trend_counts.get('Expanding', 0)
+            contracting = trend_counts.get('Strong Contraction', 0) + trend_counts.get('Mild Contraction', 0)
+            avg_mpi = results_df['MPI'].mean()
+            avg_velocity = results_df['MPI_Velocity'].mean()
         else:
-            strong_bull_rising = bull_acceleration = bear_market = 0
+            strong_expansion = expanding = contracting = 0
             avg_mpi = 0.5
+            avg_velocity = 0.0
         
         col1, col2, col3, col4, col5, col6 = st.columns(6)
         
@@ -1195,15 +1131,15 @@ def display_scan_results(results_df: pd.DataFrame):
         with col4:
             st.metric("Both Patterns", higher_hl_with_crt)
         with col5:
-            st.metric("🚀 Rising", strong_bull_rising, delta="Strong Bull Rising")
+            st.metric("🚀 Strong Exp", strong_expansion, delta="Velocity ≥5%")
         with col6:
-            st.metric("⚡ Accelerating", bull_acceleration, delta="Bull Acceleration")
+            st.metric("📈 Expanding", expanding, delta="Velocity >0%")
         
-        # Analysis Date Info with Advanced MPI State summary
+        # Analysis Date Info with Pure MPI Expansion summary
         if len(results_df) > 0:
             analysis_dates = results_df['Analysis_Date'].unique()
             if len(analysis_dates) == 1:
-                st.info(f"📅 Analysis date: **{analysis_dates[0]}** | Average MPI: **{avg_mpi:.1%}** | Rising: **{strong_bull_rising}** | Bears: **{bear_market}**")
+                st.info(f"📅 Analysis date: **{analysis_dates[0]}** | Avg MPI: **{avg_mpi:.1%}** | Avg Velocity: **{avg_velocity:+.1%}** | Expanding: **{strong_expansion + expanding}** | Contracting: **{contracting}**")
             else:
                 st.info(f"📅 Analysis dates: **{', '.join(analysis_dates)}** | Average MPI: **{avg_mpi:.1%}**")
         
@@ -1245,26 +1181,27 @@ def display_scan_results(results_df: pd.DataFrame):
             st.info(f"Showing all {len(base_stocks)} scanned stocks")
         
         if len(base_stocks) > 0:
-            # Apply dynamic filters (now includes Advanced MPI State Filter)
+            # Apply dynamic filters (now includes Pure MPI Expansion Filter)
             filtered_stocks = apply_dynamic_filters(base_stocks, results_df)
             
             # Display filtered results
-            st.subheader(f"📋 Advanced MPI State Results ({len(filtered_stocks)} stocks)")
+            st.subheader(f"📋 Pure MPI Expansion Results ({len(filtered_stocks)} stocks)")
             
             if len(filtered_stocks) > 0:
-                # Display columns in FILTER SEQUENCE ORDER: Price Context → Col1 → Col2 → Col3 → Col4
-                # ALWAYS include Higher_HL column for all base filters
+                # Display columns in FILTER SEQUENCE ORDER with MPI Expansion focus
                 display_cols = ['Ticker', 'Name', 'Close', 'CRT_High', 'CRT_Low',
-                               'CRT_Velocity', 'IBS', 'Higher_HL', 'MPI_Zone_Emoji', 'MPI_Base', 'MPI_Visual']
+                               'VCRE_Velocity', 'IBS', 'Higher_HL', 
+                               'MPI_Trend_Emoji', 'MPI', 'MPI_Velocity', 'MPI_Visual']
                 
                 base_column_config = {
                     'Ticker': st.column_config.TextColumn('Ticker', width='small'),
                     'Name': st.column_config.TextColumn('Company Name', width='medium'),
-                    'CRT_Velocity': st.column_config.NumberColumn('CRT Vel', format='%+.4f'),
+                    'VCRE_Velocity': st.column_config.NumberColumn('VCRE Vel', format='%+.4f'),
                     'IBS': st.column_config.NumberColumn('IBS', format='%.3f'),
                     'Higher_HL': st.column_config.NumberColumn('H/L', width='small'),
-                    'MPI_Zone_Emoji': st.column_config.TextColumn('📊', width='small', help='MPI Strategy Zone'),
-                    'MPI_Base': st.column_config.NumberColumn('MPI', format='%.1%', help='Market Positivity Index'),
+                    'MPI': st.column_config.NumberColumn('MPI', format='%.0%%', help='Market Positivity Index'),
+                    'MPI': st.column_config.NumberColumn('MPI', format='%.0%%', help='Market Positivity Index'),
+                    'MPI_Velocity': st.column_config.NumberColumn('MPI Vel', format='%+.0%%', help='MPI Velocity (Day-over-Day Change)'),
                     'MPI_Visual': st.column_config.TextColumn('MPI Visual', width='medium', help='Visual MPI representation')
                 }
                 
@@ -1288,18 +1225,18 @@ def display_scan_results(results_df: pd.DataFrame):
                             hide_index=True
                         )
                         
-                        # TradingView Export (ENHANCED with Advanced MPI State info)
-                        st.subheader("📋 TradingView Export (Advanced MPI State Filtered)")
+                        # TradingView Export (ENHANCED with Pure MPI Expansion info)
+                        st.subheader("📋 TradingView Export (Pure MPI Expansion Filtered)")
                         tv_tickers = [f"SGX:{ticker.replace('.SI', '')}" for ticker in filtered_stocks['Ticker'].tolist()]
                         tv_string = ','.join(tv_tickers)
                         
-                        # Calculate Advanced MPI State summary for export description
-                        if 'MPI_State' in filtered_stocks.columns:
-                            state_summary = filtered_stocks['MPI_State'].value_counts()
-                            top_state = state_summary.index[0] if len(state_summary) > 0 else "Mixed"
-                            mpi_summary = f"Top State: {top_state}"
-                            if 'MPI_Base' in filtered_stocks.columns:
-                                mpi_summary += f" | Avg MPI: {filtered_stocks['MPI_Base'].mean():.1%}"
+                        # Calculate Pure MPI Expansion summary for export description
+                        if 'MPI_Trend' in filtered_stocks.columns:
+                            trend_summary = filtered_stocks['MPI_Trend'].value_counts()
+                            top_trend = trend_summary.index[0] if len(trend_summary) > 0 else "Mixed"
+                            mpi_summary = f"Top Trend: {top_trend}"
+                            if 'MPI_Velocity' in filtered_stocks.columns:
+                                mpi_summary += f" | Avg Velocity: {filtered_stocks['MPI_Velocity'].mean():+.1%}"
                         else:
                             mpi_summary = ""
                         
@@ -1307,16 +1244,16 @@ def display_scan_results(results_df: pd.DataFrame):
                             f"Singapore Exchange (SGX) - {selected_base_filter} ({len(tv_tickers)} stocks) {mpi_summary}:",
                             value=tv_string,
                             height=100,
-                            help="Copy and paste into TradingView watchlist. Sorted by Advanced MPI States."
+                            help="Copy and paste into TradingView watchlist. Sorted by MPI Expansion trends."
                         )
                         
-                        # Export filtered data with Advanced MPI States
+                        # Export filtered data with Pure MPI Expansion
                         csv_data = filtered_stocks.to_csv(index=False)
                         filename_prefix = selected_base_filter.lower().replace(' ', '_').replace('+', 'and')
                         st.download_button(
-                            label="📥 Download Advanced MPI State Data (CSV)",
+                            label="📥 Download Pure MPI Expansion Data (CSV)",
                             data=csv_data,
-                            file_name=f"advanced_mpi_{filename_prefix}_{len(filtered_stocks)}_stocks.csv",
+                            file_name=f"pure_mpi_{filename_prefix}_{len(filtered_stocks)}_stocks.csv",
                             mime="text/csv"
                         )
                         
@@ -1334,32 +1271,28 @@ def display_scan_results(results_df: pd.DataFrame):
         else:
             st.warning(f"No stocks found for pattern: {selected_base_filter}")
         
-        # Full Results Table with ADVANCED MPI STATE SYSTEM (same column order as filtered results)
-        with st.expander("📋 Full Advanced MPI State Analysis Results", expanded=False):
+        # Full Results Table with PURE MPI EXPANSION SYSTEM
+        with st.expander("📋 Full Pure MPI Expansion Analysis Results", expanded=False):
             try:
                 full_results_cols = [
                     'Analysis_Date', 'Ticker', 'Name', 'Close', 'CRT_High', 'CRT_Low',
-                    'CRT_Velocity', 'IBS', 'Higher_HL', 'Valid_CRT', 
-                    'MPI_Zone_Emoji', 'MPI_State', 'MPI_Base', 'MPI_Acceleration', 'MPI_Visual', 
-                    'Signal_Breakout', 'Signal_Pullback', 'Signal_Short'
+                    'VCRE_Velocity', 'IBS', 'Higher_HL', 'Valid_CRT', 
+                    'MPI_Trend_Emoji', 'MPI_Trend', 'MPI', 'MPI_Velocity', 'MPI_Visual'
                 ]
                 
                 base_full_results_config = {
                     'Analysis_Date': st.column_config.TextColumn('Date', width='small'),
                     'Ticker': st.column_config.TextColumn('Ticker', width='small'),
                     'Name': st.column_config.TextColumn('Company Name', width='medium'),
-                    'CRT_Velocity': st.column_config.NumberColumn('CRT Vel', format='%+.4f'),
+                    'VCRE_Velocity': st.column_config.NumberColumn('VCRE Vel', format='%+.4f'),
                     'IBS': st.column_config.NumberColumn('IBS', format='%.3f'),
                     'Higher_HL': st.column_config.NumberColumn('H/L', width='small'),
                     'Valid_CRT': st.column_config.NumberColumn('CRT', width='small'),
-                    'MPI_Zone_Emoji': st.column_config.TextColumn('📊', width='small'),
-                    'MPI_State': st.column_config.TextColumn('MPI State', width='medium'),
-                    'MPI_Base': st.column_config.NumberColumn('MPI Base', format='%.1%'),
-                    'MPI_Acceleration': st.column_config.NumberColumn('MPI Accel', format='%+.3f'),
-                    'MPI_Visual': st.column_config.TextColumn('MPI Visual', width='medium'),
-                    'Signal_Breakout': st.column_config.NumberColumn('🚀', width='small'),
-                    'Signal_Pullback': st.column_config.NumberColumn('🎯', width='small'),
-                    'Signal_Short': st.column_config.NumberColumn('📉', width='small')
+                    'MPI_Trend_Emoji': st.column_config.TextColumn('📊', width='small'),
+                    'MPI_Trend': st.column_config.TextColumn('MPI Trend', width='medium'),
+                    'MPI': st.column_config.NumberColumn('MPI', format='%.1%'),
+                    'MPI_Velocity': st.column_config.NumberColumn('MPI Velocity', format='%+.1%'),
+                    'MPI_Visual': st.column_config.TextColumn('MPI Visual', width='medium')
                 }
                 
                 # Apply dynamic price formatting for full results
@@ -1369,7 +1302,7 @@ def display_scan_results(results_df: pd.DataFrame):
                 full_results_cols = [col for col in full_results_cols if col in results_df.columns]
                 
                 # Check for missing columns
-                missing_cols = [col for col in ['Ticker', 'Name', 'Close', 'MPI_Base'] if col not in results_df.columns]
+                missing_cols = [col for col in ['Ticker', 'Name', 'Close', 'MPI'] if col not in results_df.columns]
                 if missing_cols:
                     st.error(f"❌ Missing essential columns in results: {missing_cols}")
                     st.write("Available columns:", list(results_df.columns))
@@ -1388,80 +1321,100 @@ def display_scan_results(results_df: pd.DataFrame):
                     "attempted_columns": full_results_cols if 'full_results_cols' in locals() else "Unknown"
                 })
         
-        # Advanced MPI State Insights
-        if 'MPI_State' in results_df.columns:
-            with st.expander("📈 Advanced MPI State Insights", expanded=False):
+        # Pure MPI Expansion Insights
+        if 'MPI_Trend' in results_df.columns:
+            with st.expander("📈 Pure MPI Expansion Insights", expanded=False):
                 
-                # Create comprehensive state summary
-                state_summary = []
-                state_counts = results_df['MPI_State'].value_counts()
+                # Create comprehensive trend summary
+                trend_summary = []
+                trend_counts = results_df['MPI_Trend'].value_counts()
                 
-                for state in ['Strong Bull Rising', 'Strong Bull Slowing', 'Bull Acceleration', 
-                             'Bull Deceleration', 'Neutral Zone', 'Bear Market']:
-                    if state in state_counts.index:
-                        count = state_counts[state]
-                        state_stocks = results_df[results_df['MPI_State'] == state]
-                        avg_mpi = state_stocks['MPI_Base'].mean()
-                        avg_accel = state_stocks['MPI_Acceleration'].mean()
+                for trend in ['Strong Expansion', 'Expanding', 'Flat', 'Mild Contraction', 'Strong Contraction']:
+                    if trend in trend_counts.index:
+                        count = trend_counts[trend]
+                        trend_stocks = results_df[results_df['MPI_Trend'] == trend]
+                        avg_mpi = trend_stocks['MPI'].mean()
+                        avg_velocity = trend_stocks['MPI_Velocity'].mean()
                         
-                        # Get top stock by MPI in this state
-                        if len(state_stocks) > 0:
-                            top_stock_idx = state_stocks['MPI_Base'].idxmax()
-                            top_stock = state_stocks.loc[top_stock_idx, 'Name']
+                        # Get top stock by velocity in this trend
+                        if len(trend_stocks) > 0:
+                            if trend in ['Strong Expansion', 'Expanding']:
+                                top_stock_idx = trend_stocks['MPI_Velocity'].idxmax()
+                            else:
+                                top_stock_idx = trend_stocks['MPI'].idxmax()
+                            top_stock = trend_stocks.loc[top_stock_idx, 'Name']
                         else:
                             top_stock = 'N/A'
                         
-                        state_summary.append({
-                            'State': state,
+                        trend_summary.append({
+                            'Trend': trend,
                             'Count': count,
                             'Avg MPI': f"{avg_mpi:.1%}",
-                            'Avg Accel': f"{avg_accel:+.3f}",
+                            'Avg Velocity': f"{avg_velocity:+.1%}",
                             'Top Stock': top_stock,
-                            'Trading Action': get_state_description(state)
+                            'Trading Action': get_trend_description(trend)
                         })
                 
-                if state_summary:
-                    st.dataframe(pd.DataFrame(state_summary), hide_index=True, use_container_width=True)
+                if trend_summary:
+                    st.dataframe(pd.DataFrame(trend_summary), hide_index=True, use_container_width=True)
                 
-                # Advanced MPI State distribution chart
+                # MPI Velocity distribution chart
                 if len(results_df) > 1:
                     fig = px.histogram(
                         results_df, 
-                        x='MPI_Base',
-                        color='MPI_State',
-                        nbins=20,
-                        title="Advanced MPI State Distribution Across All Stocks",
-                        labels={'MPI_Base': 'Market Positivity Index', 'count': 'Number of Stocks'},
+                        x='MPI_Velocity',
+                        color='MPI_Trend',
+                        nbins=30,
+                        title="Pure MPI Velocity Distribution - Focus on Momentum Direction",
+                        labels={'MPI_Velocity': 'MPI Velocity (Day-over-Day Change)', 'count': 'Number of Stocks'},
                         color_discrete_map={
-                            'Strong Bull Rising': 'darkgreen',
-                            'Strong Bull Slowing': 'green', 
-                            'Bull Acceleration': 'lightgreen',
-                            'Bull Deceleration': 'yellow',
-                            'Neutral Zone': 'orange',
-                            'Bear Market': 'red'
+                            'Strong Expansion': 'darkgreen',
+                            'Expanding': 'green',
+                            'Flat': 'gray',
+                            'Mild Contraction': 'orange',
+                            'Strong Contraction': 'red'
                         }
                     )
                     
-                    # Add state boundary lines
-                    fig.add_vline(x=0.70, line_dash="dash", line_color="black", annotation_text="Strong Bull Threshold")
-                    fig.add_vline(x=0.50, line_dash="dash", line_color="gray", annotation_text="Bull Threshold")
-                    fig.add_vline(x=0.30, line_dash="dash", line_color="red", annotation_text="Bear Threshold")
+                    # Add velocity threshold lines
+                    fig.add_vline(x=0.05, line_dash="dash", line_color="darkgreen", annotation_text="Strong Expansion (≥5%)")
+                    fig.add_vline(x=0, line_dash="solid", line_color="black", annotation_text="Zero Velocity")
+                    fig.add_vline(x=-0.05, line_dash="dash", line_color="red", annotation_text="Strong Contraction (≤-5%)")
                     
                     st.plotly_chart(fig, use_container_width=True)
+                
+                # Real example explanation
+                with st.expander("💡 Understanding Pure MPI Expansion", expanded=False):
+                    st.markdown("""
+                    **Why Pure Expansion?**
+                    
+                    Traditional systems wait for MPI > 50% before buying. This misses huge moves:
+                    
+                    **Example: Stock recovering from oversold**
+                    - Day 1: MPI = 20% (2 of 10 days green)
+                    - Day 2: MPI = 30%, Velocity = +10% → **Strong Expansion Signal** 🚀
+                    - Day 3: MPI = 50%, Velocity = +20% → Still expanding
+                    - Day 4: MPI = 70%, Velocity = +20% → Strong trend continues
+                    
+                    Traditional system: Waits until Day 3 (50% threshold)
+                    Pure MPI: Enters on Day 2 (catches 250% more of the move!)
+                    
+                    **The key insight:** It's not about WHERE momentum is, but WHERE IT'S GOING!
+                    """)
         
-        error_logger.log_debug("Results Display", "Successfully displayed Advanced MPI State results", {
+        error_logger.log_debug("Results Display", "Successfully displayed Pure MPI Expansion results", {
             "total_displayed": len(results_df),
             "base_filter": selected_base_filter,
-            "mpi_state_available": 'MPI_State' in results_df.columns,
-            "strong_bull_rising_count": strong_bull_rising
+            "mpi_trend_available": 'MPI_Trend' in results_df.columns,
+            "strong_expansion_count": strong_expansion
         })
         
     except Exception as e:
         error_logger.log_error("Results Display", e, {
             "results_shape": results_df.shape if not results_df.empty else "Empty DataFrame",
-            "has_mpi_state_columns": 'MPI_State' in results_df.columns if not results_df.empty else False
+            "has_mpi_trend_columns": 'MPI_Trend' in results_df.columns if not results_df.empty else False
         })
-        st.error("❌ Error displaying Advanced MPI State results - check error log for details")
+        st.error("❌ Error displaying Pure MPI Expansion results - check error log for details")
 
 if __name__ == "__main__":
     show()
