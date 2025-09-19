@@ -1,23 +1,23 @@
-# File: core/technical_analysis.py
 """
-Technical Analysis Module - CLEAN MPI SYSTEM
-Complete replacement of complex dual timeframe momentum with simple MPI
-NO backward compatibility - clean slate implementation
-MPI = Market Positivity Index (percentage of positive days in rolling window)
+Technical Analysis Module - PURE MPI EXPANSION SYSTEM
+Simple MPI with pure expansion/contraction detection
+No baseline threshold - expansion at any level is opportunity
+MPI = Market Positivity Index (percentage of positive days)
 """
 
 import pandas as pd
 import numpy as np
 from typing import Optional, Dict, Tuple
 
-def calculate_enhanced_mpi(df: pd.DataFrame) -> pd.DataFrame:
+def calculate_mpi_expansion(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Enhanced MPI - A complete momentum system in one indicator
+    Calculate MPI with pure expansion/contraction focus
+    No baseline threshold - all expansion is opportunity
     
-    Core Concept: Just count positive days and divide by window size
-    - MPI_Fast (3-day): Current momentum pulse
-    - MPI_Base (5-day): Core momentum reading  
-    - MPI_Slow (10-day): Underlying trend strength
+    Core Concept: Count positive days and track expansion velocity
+    - MPI: 10-day percentage of positive days (0-1 scale)
+    - MPI_Velocity: Day-over-day change in MPI
+    - MPI_Trend: Categorized by velocity alone
     
     Args:
         df: DataFrame with OHLCV data
@@ -29,60 +29,47 @@ def calculate_enhanced_mpi(df: pd.DataFrame) -> pd.DataFrame:
     returns = df['Close'].pct_change()
     positive_days = (returns > 0).astype(int)
     
-    # Core MPI calculations - just counting positive days!
-    df['MPI_Fast'] = positive_days.rolling(3, min_periods=2).mean()    # 3-day: Current momentum
-    df['MPI_Base'] = positive_days.rolling(5, min_periods=3).mean()    # 5-day: Base momentum  
-    df['MPI_Slow'] = positive_days.rolling(10, min_periods=5).mean()   # 10-day: Trend strength
+    # Core MPI calculation - 10-day rolling percentage
+    df['MPI'] = positive_days.rolling(10, min_periods=5).mean()
     
-    # Momentum Quality Metrics
-    df['MPI_Acceleration'] = df['MPI_Fast'] - df['MPI_Slow']           # Is momentum accelerating?
-    df['MPI_Consistency'] = df['MPI_Base'].rolling(5, min_periods=3).std()  # Is momentum stable?
+    # Pure velocity calculation (expansion/contraction)
+    df['MPI_Velocity'] = df['MPI'] - df['MPI'].shift(1)
     
-    # Convert to Market State (categorical - easy to understand!)
+    # Velocity-based classification (NO BASELINE)
     conditions = [
-        (df['MPI_Base'] >= 0.7) & (df['MPI_Acceleration'] > 0.1),     # Strong Bull + Accelerating
-        (df['MPI_Base'] >= 0.7) & (df['MPI_Acceleration'] <= 0.1),    # Strong Bull + Slowing
-        (df['MPI_Base'] >= 0.5) & (df['MPI_Acceleration'] > 0.1),     # Weak Bull + Accelerating
-        (df['MPI_Base'] >= 0.5) & (df['MPI_Acceleration'] <= 0.1),    # Weak Bull + Slowing
-        (df['MPI_Base'] < 0.5) & (df['MPI_Base'] >= 0.3),             # Neutral/Choppy
-        (df['MPI_Base'] < 0.3)                                         # Bearish
+        df['MPI_Velocity'] >= 0.05,     # Strong expansion (5%+ improvement)
+        df['MPI_Velocity'] > 0,         # Any expansion
+        df['MPI_Velocity'] == 0,        # Flat/unchanged
+        df['MPI_Velocity'] > -0.05,     # Mild contraction
+        df['MPI_Velocity'] <= -0.05,    # Strong contraction
     ]
     
     choices = [
-        'Strong Bull Rising',
-        'Strong Bull Slowing', 
-        'Bull Acceleration',
-        'Bull Deceleration',
-        'Neutral Zone',
-        'Bear Market'
+        'Strong Expansion',      # 🚀 Best entry signal
+        'Expanding',            # 📈 Good entry signal
+        'Flat',                 # ➖ Hold/neutral
+        'Mild Contraction',     # ⚠️ Warning signal
+        'Strong Contraction'    # 📉 Exit/Short signal
     ]
     
-    df['MPI_State'] = pd.Series(np.select(conditions, choices, default='Neutral Zone'), index=df.index)
+    df['MPI_Trend'] = pd.Series(np.select(conditions, choices, default='Flat'), index=df.index)
     
-    # Generate Trading Signals (3 clear strategies)
-    df['Signal_Breakout'] = (
-        (df['MPI_Base'] >= 0.7) & 
-        (df['MPI_Acceleration'] > 0.1)
+    # Trading signals based on pure expansion
+    df['Signal_Expansion_Buy'] = (
+        df['MPI_Velocity'] > 0  # Any expansion is a buy signal
     ).astype(int)
     
-    df['Signal_Pullback'] = (
-        (df['MPI_Base'] >= 0.4) & 
-        (df['MPI_Base'] <= 0.6) & 
-        (df['MPI_Slow'] > 0.6)
+    df['Signal_Strong_Buy'] = (
+        df['MPI_Velocity'] >= 0.05  # Strong expansion
     ).astype(int)
     
-    df['Signal_Short'] = (
-        (df['MPI_Base'] < 0.3) & 
-        (df['MPI_Acceleration'] < -0.1)
+    df['Signal_Exit'] = (
+        df['MPI_Velocity'] < 0  # Any contraction is exit signal
     ).astype(int)
     
-    # Fill NaN values with neutral defaults
-    mpi_columns = ['MPI_Fast', 'MPI_Base', 'MPI_Slow']
-    for col in mpi_columns:
-        df[col] = df[col].fillna(0.5)  # 50% = neutral
-    
-    df['MPI_Acceleration'] = df['MPI_Acceleration'].fillna(0.0)
-    df['MPI_Consistency'] = df['MPI_Consistency'].fillna(0.0)
+    # Fill NaN values
+    df['MPI'] = df['MPI'].fillna(0.5)  # Neutral default
+    df['MPI_Velocity'] = df['MPI_Velocity'].fillna(0.0)
     
     return df
 
@@ -102,62 +89,72 @@ def format_mpi_visual(mpi_value: float) -> str:
     blocks = max(0, min(10, int(mpi_value * 10)))  # Ensure 0-10 range
     return "█" * blocks + "░" * (10 - blocks)
 
-def get_mpi_strategy_zone(mpi_value: float) -> Dict[str, str]:
+def get_mpi_trend_info(trend: str, mpi_value: float = None) -> Dict[str, str]:
     """
-    Determine MPI strategy zone and characteristics
+    Get trading guidance for MPI trend (pure expansion focus)
     
     Args:
-        mpi_value: MPI Base value (0.0 to 1.0)
+        trend: MPI trend classification
+        mpi_value: Optional MPI value for context
     
     Returns:
-        Dictionary with zone info, color, and interpretation
+        Dictionary with trend info and trading guidance
     """
-    if pd.isna(mpi_value):
-        return {
-            'zone': 'Unknown',
-            'emoji': '❓',
-            'color': 'gray',
-            'interpretation': 'Insufficient data',
-            'action': 'Wait for more data'
-        }
-    
-    if mpi_value >= 0.70:
-        return {
-            'zone': 'Strong Bull',
+    trend_info = {
+        'Strong Expansion': {
             'emoji': '🚀',
             'color': 'darkgreen',
-            'interpretation': f'{mpi_value:.0%} green days - Strong upward momentum',
-            'action': 'Buy on dips, ride the trend'
-        }
-    elif mpi_value >= 0.50:
-        return {
-            'zone': 'Bull Trend',
+            'interpretation': 'Strong momentum building (≥5% MPI improvement)',
+            'action': 'Strong buy signal - ride the momentum',
+            'risk': 'Low - momentum strongly favors upside'
+        },
+        'Expanding': {
             'emoji': '📈',
             'color': 'green',
-            'interpretation': f'{mpi_value:.0%} green days - Positive momentum',
-            'action': 'Buy breakouts, hold positions'
-        }
-    elif mpi_value >= 0.30:
-        return {
-            'zone': 'Neutral',
+            'interpretation': 'Positive momentum developing',
+            'action': 'Buy signal - enter or add to positions',
+            'risk': 'Low to moderate - positive momentum'
+        },
+        'Flat': {
             'emoji': '➖',
+            'color': 'gray',
+            'interpretation': 'No momentum change',
+            'action': 'Hold - wait for directional signal',
+            'risk': 'Moderate - no clear direction'
+        },
+        'Mild Contraction': {
+            'emoji': '⚠️',
             'color': 'orange',
-            'interpretation': f'{mpi_value:.0%} green days - Mixed signals',
-            'action': 'Wait for clearer direction'
-        }
-    else:
-        return {
-            'zone': 'Bear Trend',
+            'interpretation': 'Momentum weakening slightly',
+            'action': 'Caution - consider reducing position',
+            'risk': 'Moderate to high - momentum fading'
+        },
+        'Strong Contraction': {
             'emoji': '📉',
             'color': 'red',
-            'interpretation': f'{mpi_value:.0%} green days - Weak momentum',
-            'action': 'Avoid longs, consider shorts'
+            'interpretation': 'Significant momentum loss (≥5% MPI decline)',
+            'action': 'Exit long positions - consider shorts',
+            'risk': 'High - strong negative momentum'
         }
+    }
+    
+    info = trend_info.get(trend, {
+        'emoji': '❓',
+        'color': 'gray',
+        'interpretation': 'Unknown trend',
+        'action': 'No action - invalid data',
+        'risk': 'Unknown'
+    })
+    
+    # Add MPI context if provided
+    if mpi_value is not None:
+        info['mpi_level'] = f"{mpi_value:.0%}"
+        
+    return info
 
 def add_enhanced_columns(df_daily: pd.DataFrame, ticker: str, rolling_window: int = 20) -> pd.DataFrame:
     """
-    Add enhanced columns with CLEAN MPI system
-    Removes ALL legacy momentum/autocorrelation complexity
+    Add enhanced columns with PURE MPI EXPANSION system
     
     Args:
         df_daily: Raw OHLCV data from yfinance
@@ -189,8 +186,8 @@ def add_enhanced_columns(df_daily: pd.DataFrame, ticker: str, rolling_window: in
     # 5. Calculate volume-weighted range percentile
     df['VW_Range_Percentile'] = df['Volume_Weighted_Range'].rolling(window=50, min_periods=20).rank(pct=True)
     
-    # 5a. Calculate VCRE velocity (renamed from VW_Range_Velocity)
-    df['VCRE_Velocity'] = df['VW_Range_Percentile'] - df['VW_Range_Percentile'].shift(1)
+    # 5a. Calculate velocity
+    df['VW_Range_Velocity'] = df['VW_Range_Percentile'] - df['VW_Range_Percentile'].shift(1)
     
     # 6. Range Expansion Signal
     range_expanding = (df['VW_Range_Percentile'] > df['VW_Range_Percentile'].shift(1))
@@ -231,7 +228,12 @@ def add_enhanced_columns(df_daily: pd.DataFrame, ticker: str, rolling_window: in
         np.where(df['Is_First_Trading_Day'] == 1, 0, np.nan)
     )
     
-    # NOTE: CRT_Qualifying_Velocity removed - using VCRE_Velocity directly
+    # 13. Capture qualifying velocity
+    df['CRT_Qualifying_Velocity'] = np.where(
+        (df['Is_First_Trading_Day'] == 1) & (df['Rel_Range_Signal'] == 1),
+        df['VW_Range_Velocity'],
+        np.nan
+    )
     
     # 14. Higher_HL pattern
     df['Higher_HL'] = np.where(
@@ -240,36 +242,34 @@ def add_enhanced_columns(df_daily: pd.DataFrame, ticker: str, rolling_window: in
         0
     )
 
-    # 15. Forward fill Valid_CRT
+    # 15. Forward fill Valid_CRT and CRT_Qualifying_Velocity
     df['Valid_CRT'] = df['Valid_CRT'].ffill()
+    df['CRT_Qualifying_Velocity'] = df['CRT_Qualifying_Velocity'].ffill()
     
-    # 16. ✨ CLEAN MPI SYSTEM (replaces ALL complex momentum calculations)
+    # 16. ✨ PURE MPI EXPANSION SYSTEM
     try:
-        df = calculate_enhanced_mpi(df)
+        df = calculate_mpi_expansion(df)
         
         # Debug print for MPI system
-        print(f"DEBUG {ticker}: Clean MPI system calculated successfully")
-        print(f"DEBUG {ticker}: Latest MPI Base: {df['MPI_Base'].iloc[-1]:.1%}")
-        print(f"DEBUG {ticker}: Latest MPI State: {df['MPI_State'].iloc[-1]}")
-        print(f"DEBUG {ticker}: Latest MPI Acceleration: {df['MPI_Acceleration'].iloc[-1]:+.3f}")
+        print(f"DEBUG {ticker}: Pure MPI expansion calculated successfully")
+        print(f"DEBUG {ticker}: Latest MPI: {df['MPI'].iloc[-1]:.1%}")
+        print(f"DEBUG {ticker}: Latest MPI Velocity: {df['MPI_Velocity'].iloc[-1]:+.3f}")
+        print(f"DEBUG {ticker}: Latest MPI Trend: {df['MPI_Trend'].iloc[-1]}")
         
         # Create visual representation
-        latest_mpi = df['MPI_Base'].iloc[-1]
+        latest_mpi = df['MPI'].iloc[-1]
         visual = format_mpi_visual(latest_mpi)
         print(f"DEBUG {ticker}: MPI Visual: {visual} ({latest_mpi:.1%})")
         
     except Exception as e:
         print(f"WARNING {ticker}: MPI calculation failed: {e}")
         # Fallback values
-        df['MPI_Fast'] = 0.5
-        df['MPI_Base'] = 0.5
-        df['MPI_Slow'] = 0.5
-        df['MPI_Acceleration'] = 0.0
-        df['MPI_Consistency'] = 0.0
-        df['MPI_State'] = 'Calculation Error'
-        df['Signal_Breakout'] = 0
-        df['Signal_Pullback'] = 0
-        df['Signal_Short'] = 0
+        df['MPI'] = 0.5
+        df['MPI_Velocity'] = 0.0
+        df['MPI_Trend'] = 'Calculation Error'
+        df['Signal_Expansion_Buy'] = 0
+        df['Signal_Strong_Buy'] = 0
+        df['Signal_Exit'] = 0
     
     # 17. CRT Signal calculations
     df['Wick_Below'] = 0
@@ -334,7 +334,7 @@ def add_enhanced_columns(df_daily: pd.DataFrame, ticker: str, rolling_window: in
     )
     
     # Debug print to verify column creation
-    print(f"DEBUG {ticker}: Created {len(df.columns)} columns with CLEAN MPI system")
+    print(f"DEBUG {ticker}: Created {len(df.columns)} columns with PURE MPI EXPANSION system")
     
     return df
 
@@ -382,7 +382,7 @@ def validate_data_quality(df: pd.DataFrame) -> dict:
         Dictionary with validation results
     """
     required_columns = ['Close', 'High', 'Low', 'Volume', 'IBS', 'Buy_Signal', 
-                       'MPI_Base', 'MPI_Fast', 'MPI_Slow']
+                       'MPI', 'MPI_Velocity', 'MPI_Trend']
     missing_columns = [col for col in required_columns if col not in df.columns]
     
     validation_results = {
@@ -391,15 +391,15 @@ def validate_data_quality(df: pd.DataFrame) -> dict:
         'row_count': len(df),
         'has_recent_data': len(df) > 0,
         'buy_signals_count': int(df['Buy_Signal'].sum()) if 'Buy_Signal' in df.columns else 0,
-        'expansion_signals_count': int(df['Rel_Range_Signal'].sum()) if 'Rel_Range_Signal' in df.columns else 0,
-        'mpi_data_available': 'MPI_Base' in df.columns,
-        'strong_bull_signals': int((df['MPI_Base'] >= 0.7).sum()) if 'MPI_Base' in df.columns else 0,
-        'bear_signals': int((df['MPI_Base'] < 0.3).sum()) if 'MPI_Base' in df.columns else 0
+        'expansion_signals_count': int(df['Signal_Expansion_Buy'].sum()) if 'Signal_Expansion_Buy' in df.columns else 0,
+        'mpi_data_available': 'MPI' in df.columns,
+        'strong_expansion_count': int((df['MPI_Trend'] == 'Strong Expansion').sum()) if 'MPI_Trend' in df.columns else 0,
+        'contraction_count': int(df['MPI_Trend'].isin(['Mild Contraction', 'Strong Contraction']).sum()) if 'MPI_Trend' in df.columns else 0
     }
     
     return validation_results
 
-# Utility functions for the scanner (simplified, no legacy baggage)
+# Utility functions for the scanner
 def get_buy_signals(df: pd.DataFrame) -> pd.DataFrame:
     """
     Get only the rows where buy signals are active
@@ -416,62 +416,58 @@ def calculate_technical_indicators(df: pd.DataFrame, ticker: str = 'Unknown') ->
     return add_enhanced_columns(df, ticker)
 
 # MPI-specific utility functions
-def get_mpi_summary(df: pd.DataFrame) -> dict:
+def get_mpi_expansion_summary(df: pd.DataFrame) -> dict:
     """
-    Get a summary of MPI signals in the DataFrame
+    Get a summary of MPI expansion signals in the DataFrame
     """
-    if df.empty or 'MPI_Base' not in df.columns:
+    if df.empty or 'MPI' not in df.columns:
         return {
             'total_days': 0,
             'avg_mpi': 0.5,
-            'strong_bull_days': 0,
-            'bull_trend_days': 0,
-            'neutral_days': 0,
-            'bear_trend_days': 0
+            'avg_velocity': 0.0,
+            'strong_expansion_days': 0,
+            'expanding_days': 0,
+            'flat_days': 0,
+            'contracting_days': 0
         }
-    
-    mpi_base = df['MPI_Base']
     
     return {
         'total_days': len(df),
-        'avg_mpi': float(mpi_base.mean()),
-        'strong_bull_days': int((mpi_base >= 0.7).sum()),
-        'bull_trend_days': int(((mpi_base >= 0.5) & (mpi_base < 0.7)).sum()),
-        'neutral_days': int(((mpi_base >= 0.3) & (mpi_base < 0.5)).sum()),
-        'bear_trend_days': int((mpi_base < 0.3).sum()),
-        'breakout_signals': int(df['Signal_Breakout'].sum()) if 'Signal_Breakout' in df.columns else 0,
-        'pullback_signals': int(df['Signal_Pullback'].sum()) if 'Signal_Pullback' in df.columns else 0,
-        'short_signals': int(df['Signal_Short'].sum()) if 'Signal_Short' in df.columns else 0
+        'avg_mpi': float(df['MPI'].mean()),
+        'avg_velocity': float(df['MPI_Velocity'].mean()),
+        'strong_expansion_days': int((df['MPI_Trend'] == 'Strong Expansion').sum()) if 'MPI_Trend' in df.columns else 0,
+        'expanding_days': int((df['MPI_Trend'] == 'Expanding').sum()) if 'MPI_Trend' in df.columns else 0,
+        'flat_days': int((df['MPI_Trend'] == 'Flat').sum()) if 'MPI_Trend' in df.columns else 0,
+        'mild_contraction_days': int((df['MPI_Trend'] == 'Mild Contraction').sum()) if 'MPI_Trend' in df.columns else 0,
+        'strong_contraction_days': int((df['MPI_Trend'] == 'Strong Contraction').sum()) if 'MPI_Trend' in df.columns else 0,
+        'expansion_buy_signals': int(df['Signal_Expansion_Buy'].sum()) if 'Signal_Expansion_Buy' in df.columns else 0,
+        'strong_buy_signals': int(df['Signal_Strong_Buy'].sum()) if 'Signal_Strong_Buy' in df.columns else 0,
+        'exit_signals': int(df['Signal_Exit'].sum()) if 'Signal_Exit' in df.columns else 0
     }
 
-def get_mpi_zones_distribution(df: pd.DataFrame) -> pd.DataFrame:
+def get_mpi_trend_distribution(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Get distribution of stocks across MPI strategy zones
+    Get distribution of stocks across MPI expansion trends
     """
-    if df.empty or 'MPI_Base' not in df.columns:
+    if df.empty or 'MPI_Trend' not in df.columns:
         return pd.DataFrame()
     
-    zones = []
+    trends = []
     for _, row in df.iterrows():
-        mpi_base = row['MPI_Base']
-        zone_info = get_mpi_strategy_zone(mpi_base)
-        zones.append({
+        mpi_value = row['MPI']
+        mpi_velocity = row['MPI_Velocity']
+        trend = row['MPI_Trend']
+        trend_info = get_mpi_trend_info(trend, mpi_value)
+        
+        trends.append({
             'Ticker': row.get('Ticker', 'Unknown'),
-            'MPI_Base': mpi_base,
-            'Zone': zone_info['zone'],
-            'Zone_Emoji': zone_info['emoji'],
-            'Interpretation': zone_info['interpretation']
+            'MPI': mpi_value,
+            'Velocity': mpi_velocity,
+            'Trend': trend,
+            'Trend_Emoji': trend_info['emoji'],
+            'Action': trend_info['action']
         })
     
-    return pd.DataFrame(zones)
+    return pd.DataFrame(trends)
 
-# Remove ALL legacy functions - clean slate!
-# ❌ calculate_dual_rolling_momentum() - REMOVED
-# ❌ classify_advanced_trading_strategy() - REMOVED  
-# ❌ get_momentum_analysis() - REMOVED
-# ❌ get_trading_recommendation() - REMOVED
-# ❌ get_latest_signals() - REMOVED
-# ❌ get_signal_summary() - REMOVED
-# ❌ All complex momentum/autocorrelation functions - REMOVED
-
-print("✅ Technical Analysis Module loaded with CLEAN MPI system - no legacy code!")
+print("✅ Technical Analysis Module loaded with PURE MPI EXPANSION system - no baseline threshold!")
