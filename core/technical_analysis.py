@@ -1,18 +1,21 @@
+# File: core/technical_analysis.py
+# Part 1 of 2
 """
 Technical Analysis Module - PURE MPI EXPANSION SYSTEM
-Simple MPI with pure expansion/contraction detection
-No baseline threshold - expansion at any level is opportunity
+Optimized MPI with pure expansion/contraction detection
 MPI = Market Positivity Index (percentage of positive days)
 """
 
 import pandas as pd
 import numpy as np
+import logging
 from typing import Optional, Dict, Tuple
+
+logger = logging.getLogger(__name__)
 
 def calculate_mpi_expansion(df: pd.DataFrame) -> pd.DataFrame:
     """
     Calculate MPI with pure expansion/contraction focus
-    No baseline threshold - all expansion is opportunity
     
     Core Concept: Count positive days and track expansion velocity
     - MPI: 10-day percentage of positive days (0-1 scale)
@@ -25,7 +28,7 @@ def calculate_mpi_expansion(df: pd.DataFrame) -> pd.DataFrame:
     Returns:
         DataFrame with MPI columns added
     """
-    # Calculate daily returns
+    # Calculate daily returns and positive days
     returns = df['Close'].pct_change()
     positive_days = (returns > 0).astype(int)
     
@@ -55,17 +58,9 @@ def calculate_mpi_expansion(df: pd.DataFrame) -> pd.DataFrame:
     df['MPI_Trend'] = pd.Series(np.select(conditions, choices, default='Flat'), index=df.index)
     
     # Trading signals based on pure expansion
-    df['Signal_Expansion_Buy'] = (
-        df['MPI_Velocity'] > 0  # Any expansion is a buy signal
-    ).astype(int)
-    
-    df['Signal_Strong_Buy'] = (
-        df['MPI_Velocity'] >= 0.05  # Strong expansion
-    ).astype(int)
-    
-    df['Signal_Exit'] = (
-        df['MPI_Velocity'] < 0  # Any contraction is exit signal
-    ).astype(int)
+    df['Signal_Expansion_Buy'] = (df['MPI_Velocity'] > 0).astype(int)
+    df['Signal_Strong_Buy'] = (df['MPI_Velocity'] >= 0.05).astype(int)
+    df['Signal_Exit'] = (df['MPI_Velocity'] < 0).astype(int)
     
     # Fill NaN values
     df['MPI'] = df['MPI'].fillna(0.5)  # Neutral default
@@ -74,65 +69,48 @@ def calculate_mpi_expansion(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 def format_mpi_visual(mpi_value: float) -> str:
-    """
-    Convert MPI to visual blocks for intuitive display
-    
-    Args:
-        mpi_value: MPI value between 0 and 1
-    
-    Returns:
-        Visual representation using block characters
-    """
+    """Convert MPI to visual blocks for intuitive display"""
     if pd.isna(mpi_value):
         return "░░░░░░░░░░"
     
-    blocks = max(0, min(10, int(mpi_value * 10)))  # Ensure 0-10 range
+    blocks = max(0, min(10, int(mpi_value * 10)))
     return "█" * blocks + "░" * (10 - blocks)
 
 def get_mpi_trend_info(trend: str, mpi_value: float = None) -> Dict[str, str]:
-    """
-    Get trading guidance for MPI trend (pure expansion focus)
-    
-    Args:
-        trend: MPI trend classification
-        mpi_value: Optional MPI value for context
-    
-    Returns:
-        Dictionary with trend info and trading guidance
-    """
+    """Get trading guidance for MPI trend (pure expansion focus)"""
     trend_info = {
         'Strong Expansion': {
             'emoji': '🚀',
             'color': 'darkgreen',
-            'interpretation': 'Strong momentum building (≥5% MPI improvement)',
+            'description': 'Strong momentum building',
             'action': 'Strong buy signal - ride the momentum',
             'risk': 'Low - momentum strongly favors upside'
         },
         'Expanding': {
             'emoji': '📈',
             'color': 'green',
-            'interpretation': 'Positive momentum developing',
+            'description': 'Positive momentum developing',
             'action': 'Buy signal - enter or add to positions',
             'risk': 'Low to moderate - positive momentum'
         },
         'Flat': {
             'emoji': '➖',
             'color': 'gray',
-            'interpretation': 'No momentum change',
+            'description': 'No momentum change',
             'action': 'Hold - wait for directional signal',
             'risk': 'Moderate - no clear direction'
         },
         'Mild Contraction': {
             'emoji': '⚠️',
             'color': 'orange',
-            'interpretation': 'Momentum weakening slightly',
+            'description': 'Momentum weakening slightly',
             'action': 'Caution - consider reducing position',
             'risk': 'Moderate to high - momentum fading'
         },
         'Strong Contraction': {
             'emoji': '📉',
             'color': 'red',
-            'interpretation': 'Significant momentum loss (≥5% MPI decline)',
+            'description': 'Significant momentum loss',
             'action': 'Exit long positions - consider shorts',
             'risk': 'High - strong negative momentum'
         }
@@ -141,16 +119,182 @@ def get_mpi_trend_info(trend: str, mpi_value: float = None) -> Dict[str, str]:
     info = trend_info.get(trend, {
         'emoji': '❓',
         'color': 'gray',
-        'interpretation': 'Unknown trend',
+        'description': 'Unknown trend',
         'action': 'No action - invalid data',
         'risk': 'Unknown'
     })
     
-    # Add MPI context if provided
     if mpi_value is not None:
         info['mpi_level'] = f"{mpi_value:.0%}"
         
     return info
+
+def calculate_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
+    """Calculate core technical indicators efficiently"""
+    # Daily relative range
+    df['Daily_Rel_Range'] = (df['High'] - df['Low']) / df['Close']
+    
+    # Percentile rankings
+    df['Daily_Range_Percentile'] = df['Daily_Rel_Range'].rolling(
+        window=50, min_periods=20
+    ).rank(pct=True)
+    
+    # Volume normalization
+    df['Volume_Normalized'] = df['Volume'] / df['Volume'].rolling(
+        window=20, min_periods=10
+    ).mean()
+    
+    # Volume-weighted range
+    df['Volume_Weighted_Range'] = df['Daily_Rel_Range'] * df['Volume_Normalized']
+    
+    # Volume-weighted range percentile and velocity
+    df['VW_Range_Percentile'] = df['Volume_Weighted_Range'].rolling(
+        window=50, min_periods=20
+    ).rank(pct=True)
+    df['VW_Range_Velocity'] = df['VW_Range_Percentile'] - df['VW_Range_Percentile'].shift(1)
+    
+    # Range expansion signal
+    df['Rel_Range_Signal'] = (
+        df['VW_Range_Percentile'] > df['VW_Range_Percentile'].shift(1)
+    ).astype(int)
+    
+    # IBS calculation
+    df['IBS'] = np.where(
+        df['High'] != df['Low'],
+        (df['Close'] - df['Low']) / (df['High'] - df['Low']),
+        1.0
+    )
+    
+    # Higher H/L pattern
+    df['Higher_HL'] = (
+        (df['High'] > df['High'].shift(1)) & 
+        (df['Low'] > df['Low'].shift(1))
+    ).astype(int)
+    
+    return df
+
+def calculate_crt_levels(df: pd.DataFrame) -> pd.DataFrame:
+    """Calculate CRT (Candle Range Theory) levels and signals"""
+    # Trading day identification
+    df['Is_First_Trading_Day'] = (df.index.weekday == 0).astype(int)
+    
+    # Initialize CRT columns
+    crt_columns = ['Weekly_Open', 'CRT_High', 'CRT_Low', 'CRT_Close']
+    for col in crt_columns:
+        df[col] = np.nan
+    
+    # Set CRT values on Mondays
+    monday_mask = df['Is_First_Trading_Day'] == 1
+    df.loc[monday_mask, 'Weekly_Open'] = df.loc[monday_mask, 'Open']
+    df.loc[monday_mask, 'CRT_High'] = df.loc[monday_mask, 'High']
+    df.loc[monday_mask, 'CRT_Low'] = df.loc[monday_mask, 'Low']
+    df.loc[monday_mask, 'CRT_Close'] = df.loc[monday_mask, 'Close']
+    
+    # Forward fill CRT values
+    for col in crt_columns:
+        df[col] = df[col].ffill()
+    
+    # Valid CRT and qualifying velocity
+    df['Valid_CRT'] = np.where(
+        (df['Is_First_Trading_Day'] == 1) & (df['Rel_Range_Signal'] == 1), 1,
+        np.where(df['Is_First_Trading_Day'] == 1, 0, np.nan)
+    )
+    
+    df['CRT_Qualifying_Velocity'] = np.where(
+        (df['Is_First_Trading_Day'] == 1) & (df['Rel_Range_Signal'] == 1),
+        df['VW_Range_Velocity'],
+        np.nan
+    )
+    
+    # Forward fill
+    df['Valid_CRT'] = df['Valid_CRT'].ffill()
+    df['CRT_Qualifying_Velocity'] = df['CRT_Qualifying_Velocity'].ffill()
+    
+    return df
+
+# File: core/technical_analysis.py
+# Part 2 of 2
+"""
+Technical Analysis Module - Part 2
+CRT signal calculations and main enhancement function
+"""
+
+def calculate_crt_signals(df: pd.DataFrame) -> pd.DataFrame:
+    """Calculate CRT trading signals efficiently"""
+    # Initialize signal columns
+    df['Wick_Below'] = 0
+    df['Close_Above'] = 0
+    
+    # Create week grouping for efficient processing
+    df['week_start'] = df.index - pd.to_timedelta(df.index.weekday, unit='D')
+    df['week_start'] = df['week_start'].dt.normalize()
+    
+    # Process each week's signals
+    for week_start in df['week_start'].unique():
+        week_mask = df['week_start'] == week_start
+        week_data = df[week_mask].copy()
+        
+        if len(week_data) == 0:
+            continue
+        
+        # Get CRT levels for the week
+        crt_high = week_data['CRT_High'].iloc[0]
+        crt_low = week_data['CRT_Low'].iloc[0]
+        
+        if pd.isna(crt_high) or pd.isna(crt_low):
+            continue
+        
+        # Process signal days (Tuesday-Friday)
+        signal_days = week_data[week_data.index.weekday > 0]
+        if len(signal_days) == 0:
+            continue
+        
+        # WICK_BELOW signal logic
+        wick_below_triggered = _process_wick_below_signal(signal_days, crt_low)
+        if wick_below_triggered is not None:
+            subsequent_days = signal_days[signal_days.index >= wick_below_triggered].index
+            df.loc[subsequent_days, 'Wick_Below'] = 1
+        
+        # CLOSE_ABOVE signal logic  
+        close_above_triggered = _process_close_above_signal(signal_days, crt_high)
+        if close_above_triggered is not None:
+            subsequent_days = signal_days[signal_days.index >= close_above_triggered].index
+            df.loc[subsequent_days, 'Close_Above'] = 1
+    
+    # Clean up temporary column
+    df.drop(['week_start'], axis=1, inplace=True)
+    
+    # Calculate final buy signal
+    df['Buy_Signal'] = (
+        (df['Valid_CRT'] == 1) &
+        (df['IBS'] >= 0.5) &
+        ((df['Wick_Below'] == 1) | (df['Close_Above'] == 1))
+    ).astype(int)
+    
+    return df
+
+def _process_wick_below_signal(signal_days: pd.DataFrame, crt_low: float) -> Optional[pd.Timestamp]:
+    """Process wick below signal for a week"""
+    condition_1_triggered = False
+    
+    for day_date, day_row in signal_days.iterrows():
+        # Check if low breached CRT low
+        if day_row['Low'] < crt_low:
+            condition_1_triggered = True
+        
+        # Check if close recovered above CRT low after breach
+        if condition_1_triggered and day_row['Close'] >= crt_low:
+            return day_date
+    
+    return None
+
+def _process_close_above_signal(signal_days: pd.DataFrame, crt_high: float) -> Optional[pd.Timestamp]:
+    """Process close above signal for a week"""
+    for day_date, day_row in signal_days.iterrows():
+        if day_row['Close'] >= crt_high:
+            return day_date
+    
+    return None
 
 def add_enhanced_columns(df_daily: pd.DataFrame, ticker: str, rolling_window: int = 20) -> pd.DataFrame:
     """
@@ -171,99 +315,22 @@ def add_enhanced_columns(df_daily: pd.DataFrame, ticker: str, rolling_window: in
     if df.columns.nlevels > 1:
         df.columns = [col[0] if isinstance(col, tuple) else col for col in df.columns]
     
-    # 1. Calculate daily relative range
-    df['Daily_Rel_Range'] = (df['High'] - df['Low']) / df['Close']
-    
-    # 2. Add percentile rankings
-    df['Daily_Range_Percentile'] = df['Daily_Rel_Range'].rolling(window=50, min_periods=20).rank(pct=True)
-    
-    # 3. Add volume normalization
-    df['Volume_Normalized'] = df['Volume'] / df['Volume'].rolling(window=20, min_periods=10).mean()
-    
-    # 4. Create volume-weighted range
-    df['Volume_Weighted_Range'] = df['Daily_Rel_Range'] * df['Volume_Normalized']
-    
-    # 5. Calculate volume-weighted range percentile
-    df['VW_Range_Percentile'] = df['Volume_Weighted_Range'].rolling(window=50, min_periods=20).rank(pct=True)
-    
-    # 5a. Calculate velocity
-    df['VW_Range_Velocity'] = df['VW_Range_Percentile'] - df['VW_Range_Percentile'].shift(1)
-    
-    # 6. Range Expansion Signal
-    range_expanding = (df['VW_Range_Percentile'] > df['VW_Range_Percentile'].shift(1))
-    df['Rel_Range_Signal'] = np.where(range_expanding, 1, 0)
-    
-    # 7. Create Is_First_Trading_Day column
-    df['Is_First_Trading_Day'] = np.where(df.index.weekday == 0, 1, 0)
-    
-    # 8. Initialize CRT columns
-    df['Weekly_Open'] = np.nan
-    df['CRT_High'] = np.nan
-    df['CRT_Low'] = np.nan
-    df['CRT_Close'] = np.nan
-    
-    # 9. Set CRT values on Mondays only
-    monday_mask = df['Is_First_Trading_Day'] == 1
-    df.loc[monday_mask, 'Weekly_Open'] = df.loc[monday_mask, 'Open']
-    df.loc[monday_mask, 'CRT_High'] = df.loc[monday_mask, 'High']
-    df.loc[monday_mask, 'CRT_Low'] = df.loc[monday_mask, 'Low']
-    df.loc[monday_mask, 'CRT_Close'] = df.loc[monday_mask, 'Close']
-    
-    # 10. Forward fill CRT values
-    df['Weekly_Open'] = df['Weekly_Open'].ffill()
-    df['CRT_High'] = df['CRT_High'].ffill()
-    df['CRT_Low'] = df['CRT_Low'].ffill()
-    df['CRT_Close'] = df['CRT_Close'].ffill()
-    
-    # 11. Calculate IBS
-    df['IBS'] = np.where(
-        df['High'] != df['Low'],
-        (df['Close'] - df['Low']) / (df['High'] - df['Low']),
-        1.0
-    )
-    
-    # 12. Create Valid_CRT
-    df['Valid_CRT'] = np.where(
-        (df['Is_First_Trading_Day'] == 1) & (df['Rel_Range_Signal'] == 1), 1,
-        np.where(df['Is_First_Trading_Day'] == 1, 0, np.nan)
-    )
-    
-    # 13. Capture qualifying velocity
-    df['CRT_Qualifying_Velocity'] = np.where(
-        (df['Is_First_Trading_Day'] == 1) & (df['Rel_Range_Signal'] == 1),
-        df['VW_Range_Velocity'],
-        np.nan
-    )
-    
-    # 14. Higher_HL pattern
-    df['Higher_HL'] = np.where(
-        (df['High'] > df['High'].shift(1)) & (df['Low'] > df['Low'].shift(1)),
-        1, 
-        0
-    )
-
-    # 15. Forward fill Valid_CRT and CRT_Qualifying_Velocity
-    df['Valid_CRT'] = df['Valid_CRT'].ffill()
-    df['CRT_Qualifying_Velocity'] = df['CRT_Qualifying_Velocity'].ffill()
-    
-    # 16. ✨ PURE MPI EXPANSION SYSTEM
     try:
+        # Apply technical indicators in logical sequence
+        df = calculate_technical_indicators(df)
+        df = calculate_crt_levels(df)
         df = calculate_mpi_expansion(df)
+        df = calculate_crt_signals(df)
         
-        # Debug print for MPI system
-        print(f"DEBUG {ticker}: Pure MPI expansion calculated successfully")
-        print(f"DEBUG {ticker}: Latest MPI: {df['MPI'].iloc[-1]:.1%}")
-        print(f"DEBUG {ticker}: Latest MPI Velocity: {df['MPI_Velocity'].iloc[-1]:+.3f}")
-        print(f"DEBUG {ticker}: Latest MPI Trend: {df['MPI_Trend'].iloc[-1]}")
-        
-        # Create visual representation
-        latest_mpi = df['MPI'].iloc[-1]
-        visual = format_mpi_visual(latest_mpi)
-        print(f"DEBUG {ticker}: MPI Visual: {visual} ({latest_mpi:.1%})")
+        # Log successful calculation
+        logger.info(f"{ticker}: Enhanced analysis completed successfully")
+        logger.info(f"{ticker}: Latest MPI: {df['MPI'].iloc[-1]:.1%}, "
+                   f"Velocity: {df['MPI_Velocity'].iloc[-1]:+.3f}, "
+                   f"Trend: {df['MPI_Trend'].iloc[-1]}")
         
     except Exception as e:
-        print(f"WARNING {ticker}: MPI calculation failed: {e}")
-        # Fallback values
+        logger.error(f"{ticker}: Technical analysis failed: {e}")
+        # Add fallback MPI values
         df['MPI'] = 0.5
         df['MPI_Velocity'] = 0.0
         df['MPI_Trend'] = 'Calculation Error'
@@ -271,116 +338,25 @@ def add_enhanced_columns(df_daily: pd.DataFrame, ticker: str, rolling_window: in
         df['Signal_Strong_Buy'] = 0
         df['Signal_Exit'] = 0
     
-    # 17. CRT Signal calculations
-    df['Wick_Below'] = 0
-    df['Close_Above'] = 0
-    
-    # Calculate CRT signals using forward-filled levels
-    df['week_start'] = df.index - pd.to_timedelta(df.index.weekday, unit='D')
-    df['week_start'] = df['week_start'].dt.normalize()
-    
-    unique_weeks = df['week_start'].unique()
-    
-    for week_start in unique_weeks:
-        week_mask = df['week_start'] == week_start
-        week_data = df[week_mask].copy()
-        
-        if len(week_data) == 0:
-            continue
-        
-        crt_high = week_data['CRT_High'].iloc[0]
-        crt_low = week_data['CRT_Low'].iloc[0]
-        
-        if pd.isna(crt_high) or pd.isna(crt_low):
-            continue
-        
-        # WICK_BELOW and CLOSE_ABOVE logic
-        signal_days = week_data[week_data.index.weekday > 0]
-        
-        condition_1_triggered = False
-        wick_below_trigger_date = None
-        
-        for day_date, day_row in signal_days.iterrows():
-            if day_row['Low'] < crt_low:
-                condition_1_triggered = True
-            if condition_1_triggered and day_row['Close'] >= crt_low:
-                wick_below_trigger_date = day_date
-                break
-        
-        if wick_below_trigger_date is not None:
-            subsequent_days = signal_days[signal_days.index >= wick_below_trigger_date].index
-            df.loc[subsequent_days, 'Wick_Below'] = 1
-        
-        close_above_trigger_date = None
-        
-        for day_date, day_row in signal_days.iterrows():
-            if day_row['Close'] >= crt_high:
-                close_above_trigger_date = day_date
-                break
-        
-        if close_above_trigger_date is not None:
-            subsequent_days = signal_days[signal_days.index >= close_above_trigger_date].index
-            df.loc[subsequent_days, 'Close_Above'] = 1
-    
-    # Clean up temporary columns
-    df.drop(['week_start'], axis=1, inplace=True)
-    
-    # 18. Calculate Buy_Signal
-    df['Buy_Signal'] = np.where(
-        (df['Valid_CRT'] == 1) &
-        (df['IBS'] >= 0.5) &
-        ((df['Wick_Below'] == 1) | (df['Close_Above'] == 1)),
-        1, 0
-    )
-    
-    # Debug print to verify column creation
-    print(f"DEBUG {ticker}: Created {len(df.columns)} columns with PURE MPI EXPANSION system")
-    
     return df
 
+# Utility functions
 def calculate_ibs(high: float, low: float, close: float) -> float:
-    """
-    Calculate Internal Bar Strength (IBS)
-    
-    Args:
-        high: High price
-        low: Low price  
-        close: Close price
-    
-    Returns:
-        IBS value between 0 and 1
-    """
+    """Calculate Internal Bar Strength (IBS)"""
     if high == low:
         return 1.0
     return (close - low) / (high - low)
 
 def detect_range_expansion(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Detect range expansion signals
-    
-    Args:
-        df: DataFrame with VW_Range_Percentile column
-    
-    Returns:
-        DataFrame with expansion signals
-    """
+    """Detect range expansion signals"""
     expansion_mask = (
         (df['VW_Range_Percentile'] > df['VW_Range_Percentile'].shift(1)) & 
         (df['VW_Range_Percentile'].shift(1) <= 0.5)
     )
-    
     return df[expansion_mask]
 
 def validate_data_quality(df: pd.DataFrame) -> dict:
-    """
-    Validate the quality of the MPI-enhanced data
-    
-    Args:
-        df: Enhanced DataFrame
-    
-    Returns:
-        Dictionary with validation results
-    """
+    """Validate the quality of the MPI-enhanced data"""
     required_columns = ['Close', 'High', 'Low', 'Volume', 'IBS', 'Buy_Signal', 
                        'MPI', 'MPI_Velocity', 'MPI_Trend']
     missing_columns = [col for col in required_columns if col not in df.columns]
@@ -399,27 +375,18 @@ def validate_data_quality(df: pd.DataFrame) -> dict:
     
     return validation_results
 
-# Utility functions for the scanner
 def get_buy_signals(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Get only the rows where buy signals are active
-    """
+    """Get only the rows where buy signals are active"""
     if 'Buy_Signal' not in df.columns:
         return pd.DataFrame()
-    
     return df[df['Buy_Signal'] == 1].copy()
 
-def calculate_technical_indicators(df: pd.DataFrame, ticker: str = 'Unknown') -> pd.DataFrame:
-    """
-    Simple wrapper for add_enhanced_columns (for any external compatibility needs)
-    """
+def calculate_technical_indicators_wrapper(df: pd.DataFrame, ticker: str = 'Unknown') -> pd.DataFrame:
+    """Simple wrapper for add_enhanced_columns (backward compatibility)"""
     return add_enhanced_columns(df, ticker)
 
-# MPI-specific utility functions
 def get_mpi_expansion_summary(df: pd.DataFrame) -> dict:
-    """
-    Get a summary of MPI expansion signals in the DataFrame
-    """
+    """Get a summary of MPI expansion signals in the DataFrame"""
     if df.empty or 'MPI' not in df.columns:
         return {
             'total_days': 0,
@@ -446,9 +413,7 @@ def get_mpi_expansion_summary(df: pd.DataFrame) -> dict:
     }
 
 def get_mpi_trend_distribution(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Get distribution of stocks across MPI expansion trends
-    """
+    """Get distribution of stocks across MPI expansion trends"""
     if df.empty or 'MPI_Trend' not in df.columns:
         return pd.DataFrame()
     
@@ -470,4 +435,4 @@ def get_mpi_trend_distribution(df: pd.DataFrame) -> pd.DataFrame:
     
     return pd.DataFrame(trends)
 
-print("✅ Technical Analysis Module loaded with PURE MPI EXPANSION system - no baseline threshold!")
+logger.info("Technical Analysis Module loaded with optimized PURE MPI EXPANSION system")

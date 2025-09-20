@@ -1,10 +1,11 @@
+# File: app.py
 """
 Stock Scanner Web Application
 Main Streamlit application with navigation for Higher H/L scanner
 """
 
 import streamlit as st
-import os
+import sys
 
 # Page configuration
 st.set_page_config(
@@ -86,6 +87,21 @@ def show_home_page():
     with col4:
         st.metric("System Status", "Ready", delta="Fully operational")
 
+def show_sidebar_stats():
+    """Show quick stats in sidebar"""
+    st.sidebar.markdown("---")
+    st.sidebar.markdown("### 📈 Quick Stats")
+    
+    if 'scan_results' in st.session_state and not st.session_state.scan_results.empty:
+        results = st.session_state.scan_results
+        total_stocks = len(results)
+        valid_crt = len(results[results['Valid_CRT'] == 1])
+        higher_hl = len(results[results['Higher_HL'] == 1])
+        
+        st.sidebar.metric("Stocks Scanned", total_stocks)
+        st.sidebar.metric("Valid CRT", valid_crt)
+        st.sidebar.metric("Higher H/L", higher_hl)
+
 def main():
     """Main application logic with navigation"""
     
@@ -108,18 +124,8 @@ def main():
         index=0
     )
     
-    # Quick stats in sidebar
-    st.sidebar.markdown("---")
-    st.sidebar.markdown("### 📈 Quick Stats")
-    
-    if 'scan_results' in st.session_state:
-        total_stocks = len(st.session_state.scan_results)
-        valid_crt = len(st.session_state.scan_results[st.session_state.scan_results['Valid_CRT'] == 1])
-        higher_hl = len(st.session_state.scan_results[st.session_state.scan_results['Higher_HL'] == 1])
-        
-        st.sidebar.metric("Stocks Scanned", total_stocks)
-        st.sidebar.metric("Valid CRT", valid_crt)
-        st.sidebar.metric("Higher H/L", higher_hl)
+    # Show sidebar stats
+    show_sidebar_stats()
     
     # Page routing
     page_value = pages[selected_page]
@@ -131,8 +137,8 @@ def main():
         try:
             from pages import scanner_higher_hl
             scanner_higher_hl.show()
-        except ImportError:
-            st.error("CRT Higher H/L scanner module not found. Please ensure pages/scanner_higher_hl.py exists.")
+        except ImportError as e:
+            st.error(f"Scanner module not found: {e}")
             st.info("This scanner focuses on stocks with Higher High AND Higher Low patterns.")
     
     elif page_value == "historical":

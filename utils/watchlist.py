@@ -1,10 +1,10 @@
+# File: utils/watchlist.py
 """
 Watchlist Management
-Contains the Singapore stock symbols from your notebook
-Company names are now fetched from yfinance instead of manual mapping
+Contains the Singapore stock symbols with company name fetching from yfinance
 """
 
-# Singapore Exchange stocks from your notebook
+# Singapore Exchange stocks
 DEFAULT_WATCHLIST = [
     'A17U.SI', 'C38U.SI', 'M44U.SI', 'ME8U.SI', 'AJBU.SI', 
     'J69U.SI', 'N2IU.SI', 'BUOU.SI', 'K71U.SI', 'JYEU.SI',
@@ -25,15 +25,12 @@ def get_active_watchlist():
 def get_stock_name(symbol):
     """
     Get friendly name for a stock symbol
-    NOTE: This function is deprecated - use DataFetcher.get_company_name() instead
-    which fetches real company names from yfinance
+    Use DataFetcher.get_company_name() for real company names from yfinance
     """
-    # Import here to avoid circular imports
     try:
         from core.data_fetcher import get_company_name
         return get_company_name(symbol)
     except ImportError:
-        # Fallback if data fetcher not available
         return symbol.replace('.SI', '')
 
 def add_stock_to_watchlist(symbol):
