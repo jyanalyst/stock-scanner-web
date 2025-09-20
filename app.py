@@ -1,7 +1,7 @@
 # File: app.py
 """
 Stock Scanner Web Application
-Main Streamlit application with navigation for Higher H/L scanner
+Main Streamlit application with navigation for Higher H/L scanner and backtesting
 """
 
 import streamlit as st
@@ -47,13 +47,19 @@ def show_home_page():
     
     Your sophisticated stock scanning application with CRT (Candle Range Theory) analysis.
     
-    ### Available Scanner:
+    ### Available Features:
     
     #### 📈 **CRT Higher H/L Scanner**
     - Focuses on stocks showing Higher High AND Higher Low patterns
     - Identifies trending momentum with expanding range
     - Best for trend continuation plays
     - Flexible filtering for Valid CRT and/or Higher H/L patterns
+    
+    #### 🔬 **Historical Backtesting**
+    - Validate technical analysis effectiveness with historical data
+    - Analyze success rates of MPI trends, IBS levels, and pattern combinations
+    - Smart incremental processing with file upload/download workflow
+    - Comprehensive performance analytics and factor analysis
     
     ### Key Features:
     - 📊 **Real-time Analysis** - Live scanning of 46 Singapore Exchange stocks
@@ -62,11 +68,12 @@ def show_home_page():
     - 📋 **TradingView Export** - Direct export to TradingView watchlists
     - 📥 **CSV Downloads** - Export filtered results for further analysis
     - 🕒 **Historical Analysis** - Scan as of any past trading date
+    - 🔬 **Strategy Validation** - Quantitative backtesting of trading signals
     
     ---
     
     **Get Started:**
-    👈 Use the sidebar to navigate to the Higher H/L scanner!
+    👈 Use the sidebar to navigate to the scanner or backtesting tools!
     """)
     
     # Quick stats
@@ -101,6 +108,13 @@ def show_sidebar_stats():
         st.sidebar.metric("Stocks Scanned", total_stocks)
         st.sidebar.metric("Valid CRT", valid_crt)
         st.sidebar.metric("Higher H/L", higher_hl)
+    
+    # Show backtesting stats if available
+    if 'backtest_summary' in st.session_state:
+        st.sidebar.markdown("### 🔬 Backtest Stats")
+        summary = st.session_state.backtest_summary
+        st.sidebar.metric("Total Signals", summary.get('total_signals', 0))
+        st.sidebar.metric("Success Rate", f"{summary.get('success_rate', 0):.1f}%")
 
 def main():
     """Main application logic with navigation"""
@@ -112,6 +126,7 @@ def main():
     pages = {
         "🏠 Home": "home",
         "📈 CRT Higher H/L": "higher_hl",
+        "🔬 Historical Backtesting": "backtesting",
         "📊 Historical Analysis": "historical", 
         "📋 Watchlist Manager": "watchlist",
         "⚙️ Settings": "settings"
@@ -140,6 +155,14 @@ def main():
         except ImportError as e:
             st.error(f"Scanner module not found: {e}")
             st.info("This scanner focuses on stocks with Higher High AND Higher Low patterns.")
+    
+    elif page_value == "backtesting":
+        try:
+            from pages import backtesting
+            backtesting.show()
+        except ImportError as e:
+            st.error(f"Backtesting module not found: {e}")
+            st.info("This module provides historical validation of trading signals.")
     
     elif page_value == "historical":
         st.title("📊 Historical Analysis")
