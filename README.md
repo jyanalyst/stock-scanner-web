@@ -2,6 +2,6 @@
 Scanner for SG Stocks
 # In Codespaces - make your changes, then:
 git add .
-git commit -m "20 sep"
+git commit -m "21 sep MPI Cat"
 git push origin main
 # Your live app updates automatically!

@@ -38,25 +38,30 @@ def calculate_mpi_expansion(df: pd.DataFrame) -> pd.DataFrame:
     # Pure velocity calculation (expansion/contraction)
     df['MPI_Velocity'] = df['MPI'] - df['MPI'].shift(1)
     
-    # Velocity-based classification (NO BASELINE)
+    # FIXED: Velocity-based classification with correct logic
     conditions = [
-        df['MPI_Velocity'] >= 0.05,     # Strong expansion (5%+ improvement)
-        df['MPI_Velocity'] > 0,         # Any expansion
-        df['MPI_Velocity'] == 0,        # Flat/unchanged
-        df['MPI_Velocity'] > -0.05,     # Mild contraction
-        df['MPI_Velocity'] <= -0.05,    # Strong contraction
+        df['MPI_Velocity'] > 0,    # Expanding - any positive momentum
+        df['MPI_Velocity'] == 0,   # Flat - no change
+        df['MPI_Velocity'] < 0,    # Contracting - any negative momentum
     ]
-    
+
     choices = [
-        'Strong Expansion',      # 🚀 Best entry signal
-        'Expanding',            # 📈 Good entry signal
-        'Flat',                 # ➖ Hold/neutral
-        'Mild Contraction',     # ⚠️ Warning signal
-        'Strong Contraction'    # 📉 Exit/Short signal
+        'Expanding',     # 📈 Positive momentum
+        'Flat',          # ➖ No change  
+        'Contracting'    # 📉 Negative momentum
     ]
     
     df['MPI_Trend'] = pd.Series(np.select(conditions, choices, default='Flat'), index=df.index)
     
+    # TEMPORARY DEBUG: Check MPI trend distribution
+    if len(df) > 0:
+        trend_counts = df['MPI_Trend'].value_counts()
+        logger.info(f"DEBUG MPI Trends: {dict(trend_counts)}")
+        
+        # Sample some velocity values
+        sample_velocities = df['MPI_Velocity'].dropna().tail(10)
+        logger.info(f"DEBUG Sample velocities: {sample_velocities.tolist()}")
+
     # Trading signals based on pure expansion
     df['Signal_Expansion_Buy'] = (df['MPI_Velocity'] > 0).astype(int)
     df['Signal_Strong_Buy'] = (df['MPI_Velocity'] >= 0.05).astype(int)
@@ -79,18 +84,11 @@ def format_mpi_visual(mpi_value: float) -> str:
 def get_mpi_trend_info(trend: str, mpi_value: float = None) -> Dict[str, str]:
     """Get trading guidance for MPI trend (pure expansion focus)"""
     trend_info = {
-        'Strong Expansion': {
-            'emoji': '🚀',
-            'color': 'darkgreen',
-            'description': 'Strong momentum building',
-            'action': 'Strong buy signal - ride the momentum',
-            'risk': 'Low - momentum strongly favors upside'
-        },
         'Expanding': {
             'emoji': '📈',
             'color': 'green',
-            'description': 'Positive momentum developing',
-            'action': 'Buy signal - enter or add to positions',
+            'description': 'Positive momentum',
+            'action': 'Buy signal - enter positions',
             'risk': 'Low to moderate - positive momentum'
         },
         'Flat': {
@@ -100,19 +98,12 @@ def get_mpi_trend_info(trend: str, mpi_value: float = None) -> Dict[str, str]:
             'action': 'Hold - wait for directional signal',
             'risk': 'Moderate - no clear direction'
         },
-        'Mild Contraction': {
-            'emoji': '⚠️',
-            'color': 'orange',
-            'description': 'Momentum weakening slightly',
-            'action': 'Caution - consider reducing position',
-            'risk': 'Moderate to high - momentum fading'
-        },
-        'Strong Contraction': {
+        'Contracting': {
             'emoji': '📉',
             'color': 'red',
-            'description': 'Significant momentum loss',
-            'action': 'Exit long positions - consider shorts',
-            'risk': 'High - strong negative momentum'
+            'description': 'Negative momentum',
+            'action': 'Exit positions - consider shorts',
+            'risk': 'High - negative momentum'
         }
     }
     

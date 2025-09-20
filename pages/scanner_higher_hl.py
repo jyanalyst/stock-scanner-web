@@ -359,11 +359,9 @@ def apply_mpi_filter(filtered_stocks: pd.DataFrame) -> tuple:
     
     # MPI Expansion trend options
     trend_options = [
-        "🚀 Strong Expansion",
         "📈 Expanding",
         "➖ Flat",
-        "⚠️ Mild Contraction",
-        "📉 Strong Contraction"
+        "📉 Contracting"
     ]
     
     # Multi-select checkboxes for expansion trends
@@ -371,11 +369,9 @@ def apply_mpi_filter(filtered_stocks: pd.DataFrame) -> tuple:
     selected_trends = []
     
     trend_mapping = {
-        "🚀 Strong Expansion": "Strong Expansion",
-        "📈 Expanding": "Expanding", 
+        "📈 Expanding": "Expanding",
         "➖ Flat": "Flat",
-        "⚠️ Mild Contraction": "Mild Contraction",
-        "📉 Strong Contraction": "Strong Contraction"
+        "📉 Contracting": "Contracting"
     }
     
     for i, trend in enumerate(trend_options):
@@ -425,7 +421,7 @@ def show_filter_statistics(component_name: str, data: pd.Series, base_stocks: pd
             
         elif component_name == "MPI Trend" and base_stocks is not None and 'MPI_Trend' in base_stocks.columns:
             trend_counts = base_stocks['MPI_Trend'].value_counts()
-            trend_order = ['Strong Expansion', 'Expanding', 'Flat', 'Mild Contraction', 'Strong Contraction']
+            trend_order = ['Expanding', 'Flat', 'Contracting']
             
             trend_stats_data = []
             for trend in trend_order:
@@ -970,8 +966,8 @@ def display_filtered_results(filtered_stocks: pd.DataFrame, selected_base_filter
         'IBS': st.column_config.NumberColumn('IBS', format='%.3f'),
         'Higher_HL': st.column_config.NumberColumn('H/L', width='small'),
         'MPI_Trend_Emoji': st.column_config.TextColumn('📊', width='small', help='MPI Expansion Trend'),
-        'MPI': st.column_config.NumberColumn('MPI', format='%.1%', help='Market Positivity Index'),
-        'MPI_Velocity': st.column_config.NumberColumn('MPI Vel', format='%+.1%', help='MPI Expansion Rate'),
+        'MPI': st.column_config.NumberColumn('MPI', format='%.1f', help='Market Positivity Index'),
+        'MPI_Velocity': st.column_config.NumberColumn('MPI Vel', format='%.1f', help='MPI Expansion Rate'),
         'MPI_Visual': st.column_config.TextColumn('MPI Visual', width='medium', help='Visual MPI representation')
     }
     
