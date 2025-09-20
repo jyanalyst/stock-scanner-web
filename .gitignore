@@ -1,1 +1,43 @@
+# Streamlit secrets (your original line)
 .streamlit/secrets.toml
+
+# Python cache files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Virtual environments
+.env
+.venv
+env/
+venv/
+ENV/
+
+# OS specific files
+.DS_Store      # Mac
+Thumbs.db      # Windows
+.DS_Store?
+._*
+
+# IDE files
+.vscode/       # VS Code
+.idea/         # PyCharm
+*.swp          # Vim
+*.swo
+*~
+
+# Log files
+*.log
+logs/
+
+# Temporary files
+*.tmp
+*.temp
+temp/
+tmp/
+
+# Testing files
+.pytest_cache/
+.coverage
+htmlcov/
