@@ -816,68 +816,102 @@ def perform_factor_analysis(results_df: pd.DataFrame) -> Dict:
             
             analysis['mpi_trend'] = mpi_analysis.reset_index()
         
-        # IBS Level Analysis - which setup day IBS levels predict successful breakouts
+        # IBS Threshold Analysis - using cumulative thresholds instead of fixed buckets
         if 'setup_ibs' in results_df.columns:
-            results_df['ibs_bucket'] = pd.cut(
-                results_df['setup_ibs'], 
-                bins=[0, 0.3, 0.5, 0.7, 1.0], 
-                labels=['Low (0-0.3)', 'Medium (0.3-0.5)', 'High (0.5-0.7)', 'Very High (0.7-1.0)'],
+            ibs_thresholds = [
+                ('High (>= 0.7)', 0.7),
+                ('Med (>= 0.5)', 0.5),
+                ('Low (>= 0.3)', 0.3),
+                ('All (>= 0)', 0.0)
+            ]
+            
+            ibs_results = []
+            for threshold_name, threshold_value in ibs_thresholds:
+                threshold_data = results_df[results_df['setup_ibs'] >= threshold_value]
+                
+                if len(threshold_data) > 0:
+                    success_count = threshold_data['success_binary'].sum()
+                    total_count = len(threshold_data)
+                    success_rate = (success_count / total_count * 100) if total_count > 0 else 0
+                    avg_return = threshold_data['return_percentage'].mean() * 100
+                    return_std = threshold_data['return_percentage'].std() * 100
+                    
+                    ibs_results.append({
+                        'ibs_threshold': threshold_name,
+                        'threshold_value': threshold_value,
+                        'Breakout_Count': total_count,
+                        'Success_Count': success_count,
+                        'Success_Rate': round(success_rate, 1),
+                        'Avg_Return': round(avg_return, 2),
+                        'Return_Std': round(return_std, 2)
+                    })
+            
+            analysis['ibs_thresholds'] = pd.DataFrame(ibs_results)
+        
+        # Enhanced Pattern Combination Analysis - ALL possible combinations
+        if all(col in results_df.columns for col in ['setup_mpi_trend', 'setup_ibs', 'setup_higher_hl', 'setup_valid_crt']):
+            
+            # Create IBS threshold categories for combination analysis
+            results_df['ibs_category'] = pd.cut(
+                results_df['setup_ibs'],
+                bins=[0, 0.3, 0.5, 0.7, 1.0],
+                labels=['Low_IBS', 'Med_IBS', 'High_IBS', 'VHigh_IBS'],
                 include_lowest=True
             )
             
-            ibs_analysis = results_df.groupby('ibs_bucket').agg({
-                'success_binary': ['count', 'sum', 'mean'],
-                'return_percentage': ['mean', 'std']
-            }).round(4)
+            # Generate ALL possible combinations
+            combination_results = []
             
-            ibs_analysis.columns = ['Breakout_Count', 'Success_Count', 'Success_Rate', 'Avg_Return', 'Return_Std']
-            ibs_analysis['Success_Rate'] = ibs_analysis['Success_Rate'] * 100
-            ibs_analysis['Avg_Return'] = ibs_analysis['Avg_Return'] * 100
-            ibs_analysis['Return_Std'] = ibs_analysis['Return_Std'] * 100
+            # Get unique values for each factor
+            mpi_trends = results_df['setup_mpi_trend'].unique()
+            ibs_categories = results_df['ibs_category'].dropna().unique()
+            higher_hl_values = [0, 1]
+            valid_crt_values = [0, 1]
             
-            analysis['ibs_levels'] = ibs_analysis.reset_index()
-        
-        # Pattern Combination Analysis - which setup day patterns predict successful breakouts
-        if 'setup_higher_hl' in results_df.columns and 'setup_valid_crt' in results_df.columns:
-            results_df['pattern_combination'] = results_df.apply(lambda row: 
-                'Both Patterns' if row['setup_higher_hl'] == 1 and row['setup_valid_crt'] == 1
-                else 'Higher H/L Only' if row['setup_higher_hl'] == 1
-                else 'Valid CRT Only' if row['setup_valid_crt'] == 1
-                else 'No Patterns', axis=1
-            )
+            # Analyze each combination
+            for mpi_trend in mpi_trends:
+                for ibs_cat in ibs_categories:
+                    for higher_hl in higher_hl_values:
+                        for valid_crt in valid_crt_values:
+                            # Filter data for this specific combination
+                            combo_data = results_df[
+                                (results_df['setup_mpi_trend'] == mpi_trend) &
+                                (results_df['ibs_category'] == ibs_cat) &
+                                (results_df['setup_higher_hl'] == higher_hl) &
+                                (results_df['setup_valid_crt'] == valid_crt)
+                            ]
+                            
+                            if len(combo_data) >= 5:  # Minimum sample size for reliability
+                                success_count = combo_data['success_binary'].sum()
+                                total_count = len(combo_data)
+                                success_rate = (success_count / total_count * 100) if total_count > 0 else 0
+                                avg_return = combo_data['return_percentage'].mean() * 100
+                                
+                                # Create combination description
+                                hl_desc = "Higher_HL" if higher_hl == 1 else "No_HL"
+                                crt_desc = "Valid_CRT" if valid_crt == 1 else "No_CRT"
+                                combo_description = f"{mpi_trend}_{ibs_cat}_{hl_desc}_{crt_desc}"
+                                
+                                combination_results.append({
+                                    'combination': combo_description,
+                                    'mpi_trend': mpi_trend,
+                                    'ibs_category': str(ibs_cat),
+                                    'higher_hl': higher_hl,
+                                    'valid_crt': valid_crt,
+                                    'Breakout_Count': total_count,
+                                    'Success_Count': success_count,
+                                    'Success_Rate': round(success_rate, 1),
+                                    'Avg_Return': round(avg_return, 2)
+                                })
             
-            pattern_analysis = results_df.groupby('pattern_combination').agg({
-                'success_binary': ['count', 'sum', 'mean'],
-                'return_percentage': ['mean', 'std']
-            }).round(4)
-            
-            pattern_analysis.columns = ['Breakout_Count', 'Success_Count', 'Success_Rate', 'Avg_Return', 'Return_Std']
-            pattern_analysis['Success_Rate'] = pattern_analysis['Success_Rate'] * 100
-            pattern_analysis['Avg_Return'] = pattern_analysis['Avg_Return'] * 100
-            pattern_analysis['Return_Std'] = pattern_analysis['Return_Std'] * 100
-            
-            analysis['pattern_combinations'] = pattern_analysis.reset_index()
-        
-        # Breakout Gap Analysis - does the size of the breakout gap predict success?
-        if 'breakout_gap_percentage' in results_df.columns:
-            results_df['gap_bucket'] = pd.cut(
-                results_df['breakout_gap_percentage'] * 100,  # Convert to percentage
-                bins=[0, 0.5, 1.0, 2.0, 5.0, 100.0],
-                labels=['Tiny (0-0.5%)', 'Small (0.5-1%)', 'Medium (1-2%)', 'Large (2-5%)', 'Huge (5%+)'],
-                include_lowest=True
-            )
-            
-            gap_analysis = results_df.groupby('gap_bucket').agg({
-                'success_binary': ['count', 'sum', 'mean'],
-                'return_percentage': ['mean', 'std']
-            }).round(4)
-            
-            gap_analysis.columns = ['Breakout_Count', 'Success_Count', 'Success_Rate', 'Avg_Return', 'Return_Std']
-            gap_analysis['Success_Rate'] = gap_analysis['Success_Rate'] * 100
-            gap_analysis['Avg_Return'] = gap_analysis['Avg_Return'] * 100
-            gap_analysis['Return_Std'] = gap_analysis['Return_Std'] * 100
-            
-            analysis['breakout_gaps'] = gap_analysis.reset_index()
+            # Convert to DataFrame and sort by success rate (descending)
+            if combination_results:
+                combo_df = pd.DataFrame(combination_results)
+                combo_df = combo_df.sort_values('Success_Rate', ascending=False)
+                analysis['all_combinations'] = combo_df
+                
+                # Get top 10 best combinations
+                analysis['best_combinations'] = combo_df.head(10)
         
         # Time-based Analysis - are there seasonal patterns in breakout success?
         if 'setup_date' in results_df.columns:
@@ -895,27 +929,6 @@ def perform_factor_analysis(results_df: pd.DataFrame) -> Dict:
             
             analysis['monthly_performance'] = monthly_analysis.reset_index()
             analysis['monthly_performance']['year_month'] = analysis['monthly_performance']['year_month'].astype(str)
-        
-        # MPI Velocity Analysis - does setup day MPI velocity predict breakout success?
-        if 'setup_mpi_velocity' in results_df.columns:
-            results_df['mpi_velocity_bucket'] = pd.cut(
-                results_df['setup_mpi_velocity'],
-                bins=[-1.0, -0.05, 0, 0.05, 1.0],
-                labels=['Strong Decline', 'Mild Decline', 'Flat to Rising', 'Strong Rising'],
-                include_lowest=True
-            )
-            
-            velocity_analysis = results_df.groupby('mpi_velocity_bucket').agg({
-                'success_binary': ['count', 'sum', 'mean'],
-                'return_percentage': ['mean', 'std']
-            }).round(4)
-            
-            velocity_analysis.columns = ['Breakout_Count', 'Success_Count', 'Success_Rate', 'Avg_Return', 'Return_Std']
-            velocity_analysis['Success_Rate'] = velocity_analysis['Success_Rate'] * 100
-            velocity_analysis['Avg_Return'] = velocity_analysis['Avg_Return'] * 100
-            velocity_analysis['Return_Std'] = velocity_analysis['Return_Std'] * 100
-            
-            analysis['mpi_velocity'] = velocity_analysis.reset_index()
         
         return analysis
         
@@ -970,25 +983,25 @@ def create_factor_visualizations(results_df: pd.DataFrame, factor_analysis: Dict
             fig_mpi_return.update_layout(height=400)
             figures['mpi_returns'] = fig_mpi_return
         
-        # IBS Level Analysis Chart
-        if 'ibs_levels' in factor_analysis:
-            ibs_data = factor_analysis['ibs_levels']
+        # IBS Threshold Analysis Chart
+        if 'ibs_thresholds' in factor_analysis:
+            ibs_data = factor_analysis['ibs_thresholds']
             
             fig_ibs = make_subplots(
                 rows=1, cols=2,
-                subplot_titles=('Success Rate by Setup Day IBS Level', 'Average Return by Setup Day IBS Level'),
+                subplot_titles=('Success Rate by IBS Threshold', 'Average Return by IBS Threshold'),
                 specs=[[{'secondary_y': False}, {'secondary_y': False}]]
             )
             
             fig_ibs.add_trace(
-                go.Bar(x=ibs_data['ibs_bucket'], y=ibs_data['Success_Rate'], 
+                go.Bar(x=ibs_data['ibs_threshold'], y=ibs_data['Success_Rate'], 
                       name='Success Rate (%)', marker_color='lightblue',
                       text=ibs_data['Success_Rate'], texttemplate='%{text:.1f}%'),
                 row=1, col=1
             )
             
             fig_ibs.add_trace(
-                go.Bar(x=ibs_data['ibs_bucket'], y=ibs_data['Avg_Return'], 
+                go.Bar(x=ibs_data['ibs_threshold'], y=ibs_data['Avg_Return'], 
                       name='Average Return (%)', marker_color='lightgreen',
                       text=ibs_data['Avg_Return'], texttemplate='%{text:.2f}%'),
                 row=1, col=2
@@ -997,40 +1010,22 @@ def create_factor_visualizations(results_df: pd.DataFrame, factor_analysis: Dict
             fig_ibs.update_layout(height=400, showlegend=False)
             figures['ibs_analysis'] = fig_ibs
         
-        # Pattern Combination Analysis
-        if 'pattern_combinations' in factor_analysis:
-            pattern_data = factor_analysis['pattern_combinations']
+        # Best Combinations Analysis
+        if 'best_combinations' in factor_analysis:
+            combo_data = factor_analysis['best_combinations']
             
-            fig_patterns = px.scatter(
-                pattern_data,
+            fig_combos = px.scatter(
+                combo_data,
                 x='Success_Rate',
                 y='Avg_Return',
                 size='Breakout_Count',
-                color='pattern_combination',
-                title='Setup Day Pattern Performance: Success Rate vs Average Return',
+                color='combination',
+                title='Top 10 Best Factor Combinations: Success Rate vs Average Return',
                 labels={'Success_Rate': 'Success Rate (%)', 'Avg_Return': 'Average Return (%)'},
-                hover_data=['Breakout_Count']
+                hover_data=['Breakout_Count', 'mpi_trend', 'ibs_category']
             )
-            fig_patterns.update_layout(height=400)
-            figures['pattern_performance'] = fig_patterns
-        
-        # Breakout Gap Analysis
-        if 'breakout_gaps' in factor_analysis:
-            gap_data = factor_analysis['breakout_gaps']
-            
-            fig_gaps = px.bar(
-                gap_data,
-                x='gap_bucket',
-                y='Success_Rate',
-                title='Success Rate by Breakout Gap Size',
-                labels={'Success_Rate': 'Success Rate (%)', 'gap_bucket': 'Breakout Gap Size'},
-                color='Success_Rate',
-                color_continuous_scale='RdYlGn',
-                text='Success_Rate'
-            )
-            fig_gaps.update_traces(texttemplate='%{text:.1f}%', textposition='outside')
-            fig_gaps.update_layout(height=400)
-            figures['breakout_gaps'] = fig_gaps
+            fig_combos.update_layout(height=500, showlegend=False)
+            figures['best_combinations'] = fig_combos
         
         # Monthly Performance Trend
         if 'monthly_performance' in factor_analysis:
@@ -1078,24 +1073,6 @@ def create_factor_visualizations(results_df: pd.DataFrame, factor_analysis: Dict
             
             fig_dist.update_layout(height=400)
             figures['return_distribution'] = fig_dist
-        
-        # MPI Velocity Analysis
-        if 'mpi_velocity' in factor_analysis:
-            velocity_data = factor_analysis['mpi_velocity']
-            
-            fig_velocity = px.bar(
-                velocity_data,
-                x='mpi_velocity_bucket',
-                y='Success_Rate',
-                title='Success Rate by Setup Day MPI Velocity',
-                labels={'Success_Rate': 'Success Rate (%)', 'mpi_velocity_bucket': 'Setup Day MPI Velocity'},
-                color='Success_Rate',
-                color_continuous_scale='RdYlGn',
-                text='Success_Rate'
-            )
-            fig_velocity.update_traces(texttemplate='%{text:.1f}%', textposition='outside')
-            fig_velocity.update_layout(height=400)
-            figures['mpi_velocity'] = fig_velocity
         
         return figures
         
@@ -1164,8 +1141,8 @@ def display_factor_analysis(results_df: pd.DataFrame):
         st.error("Failed to perform factor analysis")
         return
     
-    # Create tabs for different analyses
-    tab1, tab2, tab3, tab4, tab5 = st.tabs(["📈 MPI Trends", "🎯 IBS Levels", "🔄 Pattern Combinations", "📏 Breakout Gaps", "📅 Time Analysis"])
+    # Create tabs for different analyses (removed Breakout Gap tab)
+    tab1, tab2, tab3 = st.tabs(["📈 MPI Trends", "🎯 IBS Thresholds", "🔄 Best Combinations"])
     
     with tab1:
         st.markdown("### Setup Day MPI Trend Effectiveness")
@@ -1198,8 +1175,8 @@ def display_factor_analysis(results_df: pd.DataFrame):
             st.error(f"**Worst Setup MPI Trend:** {worst_mpi['setup_mpi_trend']} - {worst_mpi['Success_Rate']:.1f}% success rate")
             
             # Validate MPI expansion hypothesis
-            expansion_trends = ['Strong Expansion', 'Expanding']
-            contraction_trends = ['Mild Contraction', 'Strong Contraction']
+            expansion_trends = ['Expanding']
+            contraction_trends = ['Contracting']
             
             expansion_success = mpi_data[mpi_data['setup_mpi_trend'].isin(expansion_trends)]['Success_Rate'].mean() if any(mpi_data['setup_mpi_trend'].isin(expansion_trends)) else 0
             contraction_success = mpi_data[mpi_data['setup_mpi_trend'].isin(contraction_trends)]['Success_Rate'].mean() if any(mpi_data['setup_mpi_trend'].isin(contraction_trends)) else 0
@@ -1212,13 +1189,13 @@ def display_factor_analysis(results_df: pd.DataFrame):
             st.warning("MPI trend data not available")
     
     with tab2:
-        st.markdown("### Setup Day IBS Level Effectiveness")
-        st.markdown("*Does high IBS on the setup day predict breakout success?*")
+        st.markdown("### Setup Day IBS Threshold Effectiveness")
+        st.markdown("*How do different IBS threshold levels predict breakout success?*")
         
-        if 'ibs_levels' in factor_analysis:
+        if 'ibs_thresholds' in factor_analysis:
             # Display data table
             st.dataframe(
-                factor_analysis['ibs_levels'],
+                factor_analysis['ibs_thresholds'],
                 use_container_width=True,
                 hide_index=True
             )
@@ -1228,127 +1205,99 @@ def display_factor_analysis(results_df: pd.DataFrame):
                 st.plotly_chart(figures['ibs_analysis'], use_container_width=True)
             
             # Key insights
-            ibs_data = factor_analysis['ibs_levels']
-            best_ibs = ibs_data.loc[ibs_data['Success_Rate'].idxmax()]
+            ibs_data = factor_analysis['ibs_thresholds']
             
             st.markdown("#### 🔍 Key Insights:")
-            st.success(f"**Best Setup IBS Level:** {best_ibs['ibs_bucket']} - {best_ibs['Success_Rate']:.1f}% success rate")
             
-            # Validate IBS hypothesis
-            high_ibs_success = ibs_data[ibs_data['ibs_bucket'].isin(['High (0.5-0.7)', 'Very High (0.7-1.0)'])]['Success_Rate'].mean()
-            low_ibs_success = ibs_data[ibs_data['ibs_bucket'].isin(['Low (0-0.3)', 'Medium (0.3-0.5)'])]['Success_Rate'].mean()
+            # Compare performance across thresholds
+            high_threshold = ibs_data[ibs_data['ibs_threshold'] == 'High (>= 0.7)']
+            all_threshold = ibs_data[ibs_data['ibs_threshold'] == 'All (>= 0)']
             
-            if high_ibs_success > low_ibs_success:
-                st.info(f"✅ **High IBS Hypothesis Confirmed:** Higher setup day IBS predicts better breakouts ({high_ibs_success:.1f}% vs {low_ibs_success:.1f}%)")
-            else:
-                st.warning(f"❌ **High IBS Hypothesis Challenged:** Lower setup day IBS actually performs better ({low_ibs_success:.1f}% vs {high_ibs_success:.1f}%)")
+            if len(high_threshold) > 0 and len(all_threshold) > 0:
+                high_success = high_threshold['Success_Rate'].iloc[0]
+                all_success = all_threshold['Success_Rate'].iloc[0]
+                
+                if high_success > all_success:
+                    st.success(f"**High IBS Filter Effective:** IBS >= 0.7 achieves {high_success:.1f}% vs {all_success:.1f}% for all breakouts")
+                else:
+                    st.warning(f"**High IBS Filter Not Effective:** IBS >= 0.7 only achieves {high_success:.1f}% vs {all_success:.1f}% for all breakouts")
+            
+            # Show threshold progression
+            st.markdown("**Threshold Progression Analysis:**")
+            for _, row in ibs_data.iterrows():
+                st.write(f"• **{row['ibs_threshold']}**: {row['Success_Rate']:.1f}% success rate ({row['Breakout_Count']} breakouts)")
         else:
-            st.warning("IBS level data not available")
+            st.warning("IBS threshold data not available")
     
     with tab3:
-        st.markdown("### Setup Day Pattern Combination Effectiveness")
-        st.markdown("*Do pattern combinations on the setup day predict breakout success?*")
+        st.markdown("### Best Factor Combinations")
+        st.markdown("*Which combinations of all factors predict the highest breakout success?*")
         
-        if 'pattern_combinations' in factor_analysis:
-            # Display data table
+        if 'best_combinations' in factor_analysis:
+            # Display top combinations table
+            st.markdown("#### 🏆 Top 10 Best Factor Combinations:")
             st.dataframe(
-                factor_analysis['pattern_combinations'],
+                factor_analysis['best_combinations'][['combination', 'Breakout_Count', 'Success_Rate', 'Avg_Return']],
                 use_container_width=True,
                 hide_index=True
             )
             
-            # Display chart
-            if 'pattern_performance' in figures:
-                st.plotly_chart(figures['pattern_performance'], use_container_width=True)
+            # Display scatter plot
+            if 'best_combinations' in figures:
+                st.plotly_chart(figures['best_combinations'], use_container_width=True)
             
             # Key insights
-            pattern_data = factor_analysis['pattern_combinations']
-            best_pattern = pattern_data.loc[pattern_data['Success_Rate'].idxmax()]
+            combo_data = factor_analysis['best_combinations']
+            best_combo = combo_data.iloc[0]
             
             st.markdown("#### 🔍 Key Insights:")
-            st.success(f"**Best Setup Pattern:** {best_pattern['pattern_combination']} - {best_pattern['Success_Rate']:.1f}% success rate")
+            st.success(f"**Best Combination:** {best_combo['combination']} - {best_combo['Success_Rate']:.1f}% success rate ({best_combo['Breakout_Count']} breakouts)")
             
-            # Validate pattern confluence hypothesis
-            both_patterns = pattern_data[pattern_data['pattern_combination'] == 'Both Patterns']
-            if len(both_patterns) > 0:
-                both_success = both_patterns['Success_Rate'].iloc[0]
-                other_avg = pattern_data[pattern_data['pattern_combination'] != 'Both Patterns']['Success_Rate'].mean()
-                
-                if both_success > other_avg:
-                    st.info(f"✅ **Pattern Confluence Confirmed:** Both patterns on setup day predict better breakouts ({both_success:.1f}% vs {other_avg:.1f}%)")
-                else:
-                    st.warning(f"❌ **Pattern Confluence Challenged:** Individual patterns may be better predictors ({other_avg:.1f}% vs {both_success:.1f}%)")
+            # Analyze top combinations
+            st.markdown("**Top 3 Combinations Analysis:**")
+            for i, (_, combo) in enumerate(combo_data.head(3).iterrows(), 1):
+                st.write(f"**#{i}:** {combo['combination']} - {combo['Success_Rate']:.1f}% success ({combo['Breakout_Count']} samples)")
+                st.write(f"   • MPI: {combo['mpi_trend']}, IBS: {combo['ibs_category']}, Higher H/L: {combo['higher_hl']}, Valid CRT: {combo['valid_crt']}")
+            
+            # Show total combinations analyzed
+            if 'all_combinations' in factor_analysis:
+                total_combos = len(factor_analysis['all_combinations'])
+                st.info(f"📊 **Total Combinations Analyzed:** {total_combos} (minimum 5 breakouts per combination)")
         else:
-            st.warning("Pattern combination data not available")
-    
-    with tab4:
-        st.markdown("### Breakout Gap Size Analysis")
-        st.markdown("*Does the size of the breakout gap predict success?*")
-        
-        if 'breakout_gaps' in factor_analysis:
-            # Display data table
-            st.dataframe(
-                factor_analysis['breakout_gaps'],
-                use_container_width=True,
-                hide_index=True
-            )
-            
-            # Display chart
-            if 'breakout_gaps' in figures:
-                st.plotly_chart(figures['breakout_gaps'], use_container_width=True)
-            
-            # Key insights
-            gap_data = factor_analysis['breakout_gaps']
-            best_gap = gap_data.loc[gap_data['Success_Rate'].idxmax()]
-            
-            st.markdown("#### 🔍 Key Insights:")
-            st.success(f"**Best Gap Size:** {best_gap['gap_bucket']} - {best_gap['Success_Rate']:.1f}% success rate")
-            
-            # Analyze gap size vs success correlation
-            large_gaps = gap_data[gap_data['gap_bucket'].isin(['Large (2-5%)', 'Huge (5%+)'])]['Success_Rate'].mean()
-            small_gaps = gap_data[gap_data['gap_bucket'].isin(['Tiny (0-0.5%)', 'Small (0.5-1%)'])]['Success_Rate'].mean()
-            
-            if large_gaps > small_gaps:
-                st.info(f"✅ **Large Gap Advantage:** Larger breakout gaps are more successful ({large_gaps:.1f}% vs {small_gaps:.1f}%)")
-            else:
-                st.warning(f"⚠️ **Small Gap Advantage:** Smaller breakout gaps actually perform better ({small_gaps:.1f}% vs {large_gaps:.1f}%)")
-        else:
-            st.warning("Breakout gap data not available")
-    
-    with tab5:
+            st.warning("Combination analysis data not available")
+
+    # Show monthly performance trends
+    if 'monthly_performance' in factor_analysis:
         st.markdown("### Time-Based Performance Analysis")
         st.markdown("*Are there seasonal patterns in breakout success?*")
         
-        if 'monthly_performance' in factor_analysis:
-            # Display monthly trends chart
-            if 'monthly_trends' in figures:
-                st.plotly_chart(figures['monthly_trends'], use_container_width=True)
-            
-            # Display data table
-            with st.expander("📊 Monthly Performance Details", expanded=False):
-                st.dataframe(
-                    factor_analysis['monthly_performance'],
-                    use_container_width=True,
-                    hide_index=True
-                )
-            
-            # Key insights
-            monthly_data = factor_analysis['monthly_performance']
-            best_month = monthly_data.loc[monthly_data['Success_Rate'].idxmax()]
-            worst_month = monthly_data.loc[monthly_data['Success_Rate'].idxmin()]
-            
-            st.markdown("#### 🔍 Key Insights:")
-            st.success(f"**Best Month:** {best_month['year_month']} - {best_month['Success_Rate']:.1f}% success rate")
-            st.error(f"**Worst Month:** {worst_month['year_month']} - {worst_month['Success_Rate']:.1f}% success rate")
-            
-            # Performance consistency
-            success_rate_std = monthly_data['Success_Rate'].std()
-            if success_rate_std < 10:
-                st.info(f"✅ **Consistent Performance:** Low monthly variance ({success_rate_std:.1f}% std dev)")
-            else:
-                st.warning(f"⚠️ **Variable Performance:** High monthly variance ({success_rate_std:.1f}% std dev)")
+        # Display monthly trends chart
+        if 'monthly_trends' in figures:
+            st.plotly_chart(figures['monthly_trends'], use_container_width=True)
+        
+        # Display data table
+        with st.expander("📊 Monthly Performance Details", expanded=False):
+            st.dataframe(
+                factor_analysis['monthly_performance'],
+                use_container_width=True,
+                hide_index=True
+            )
+        
+        # Key insights
+        monthly_data = factor_analysis['monthly_performance']
+        best_month = monthly_data.loc[monthly_data['Success_Rate'].idxmax()]
+        worst_month = monthly_data.loc[monthly_data['Success_Rate'].idxmin()]
+        
+        st.markdown("#### 🔍 Key Insights:")
+        st.success(f"**Best Month:** {best_month['year_month']} - {best_month['Success_Rate']:.1f}% success rate")
+        st.error(f"**Worst Month:** {worst_month['year_month']} - {worst_month['Success_Rate']:.1f}% success rate")
+        
+        # Performance consistency
+        success_rate_std = monthly_data['Success_Rate'].std()
+        if success_rate_std < 10:
+            st.info(f"✅ **Consistent Performance:** Low monthly variance ({success_rate_std:.1f}% std dev)")
         else:
-            st.warning("Monthly performance data not available")
+            st.warning(f"⚠️ **Variable Performance:** High monthly variance ({success_rate_std:.1f}% std dev)")
 
 def display_interactive_data_explorer(results_df: pd.DataFrame):
     """CORRECTED: Display interactive data exploration interface for breakout analysis"""
@@ -1689,17 +1638,16 @@ def show_usage_instructions():
         #### What We're Studying:
         This is **NOT** a trading strategy - it's a **factor analysis study** to determine:
         - Which setup day indicators predict successful breakout continuation
-        - Do stocks with "Strong MPI Expansion" setups have better breakout success?
+        - Do stocks with "Expanding" MPI setups have better breakout success?
         - Does high IBS on the setup day improve breakout probability?
-        - Are pattern combinations (Higher H/L + Valid CRT) predictive?
+        - Which factor combinations provide the highest success rates?
         
         ### 🔬 Factor Analysis Results
         
         #### Key Questions Answered:
         - **MPI Trends:** Do expanding momentum setups predict better breakouts?
-        - **IBS Levels:** Does "buying strength" on setup day help breakout success?
-        - **Pattern Combinations:** Do confluence patterns improve prediction accuracy?
-        - **Breakout Gaps:** Do larger gaps indicate stronger breakouts?
+        - **IBS Thresholds:** What IBS threshold levels optimize breakout success?
+        - **Best Combinations:** Which combinations of all factors achieve highest success rates?
         - **Seasonal Patterns:** Are there monthly/seasonal success variations?
         
         #### Success Metrics:
@@ -1709,15 +1657,27 @@ def show_usage_instructions():
         
         ### 🎯 Interpreting Results
         
+        #### IBS Threshold Analysis:
+        - **High (>= 0.7):** Only stocks with very high buying strength
+        - **Med (>= 0.5):** Stocks closing in upper half of daily range
+        - **Low (>= 0.3):** Stocks closing above lower third of range
+        - **All (>= 0):** All breakouts regardless of IBS level
+        
+        #### Best Combinations Analysis:
+        - Analyzes ALL possible combinations of MPI trends, IBS levels, Higher H/L, and Valid CRT
+        - Requires minimum 5 breakouts per combination for statistical reliability
+        - Shows top 10 best performing combinations ranked by success rate
+        - Enables discovery of optimal factor confluence for entry criteria
+        
         #### Strong Predictive Factors:
         - Success rate significantly above 50% (better than random)
         - Consistent performance across different time periods
         - Large sample size for statistical significance
         
         #### Validation Examples:
-        - ✅ "Strong MPI Expansion setups have 65% breakout success vs 45% for contracting"
-        - ❌ "High IBS setups actually underperform vs low IBS (48% vs 52%)"
-        - ✅ "Pattern confluence adds value: Both patterns = 58% vs singles = 51%"
+        - ✅ "Expanding MPI setups have 65% breakout success vs 45% for contracting"
+        - ✅ "IBS >= 0.7 achieves 58% success vs 52% for all breakouts"
+        - ✅ "Best combination: Expanding_High_IBS_Higher_HL_Valid_CRT = 72% success rate"
         
         ### ⚠️ Important Limitations
         
@@ -1727,9 +1687,12 @@ def show_usage_instructions():
         - **No transaction costs:** Real trading would have fees/spreads
         - **Singapore market specific:** Results may not apply to other markets
         - **Historical analysis:** Past performance doesn't guarantee future results
+        - **Fixed 10-day MPI lookback:** With this constraint, velocity changes are typically small
+        - **Gap analysis removed:** If breakout gaps above previous high, entry at previous high is impossible
         
         #### Statistical Considerations:
         - Minimum 30 breakouts per factor category for reliability
+        - Minimum 5 breakouts per combination for inclusion in best combinations
         - Look for consistent patterns across different time periods
         - Consider both success rate AND average return (not just win rate)
         
@@ -1748,9 +1711,18 @@ def show_usage_instructions():
         
         #### Using Results for Trading:
         1. **Filter Setup Conditions:** Focus on factors with highest success rates
-        2. **Risk Management:** Consider average return and return distribution
-        3. **Timing:** Use seasonal patterns for better entry timing
-        4. **Confirmation:** Combine multiple positive factors for higher probability setups
+        2. **Use IBS Thresholds:** Apply minimum IBS levels that show improved performance
+        3. **Combine Best Factors:** Use top-performing factor combinations for entry criteria
+        4. **Risk Management:** Consider average return and return distribution
+        5. **Timing:** Use seasonal patterns for better entry timing
+        
+        #### Example Trading Rule Development:
+        - If best combination is "Expanding_High_IBS_Higher_HL_Valid_CRT" with 72% success rate
+        - Only enter breakouts when:
+          - Setup day has Expanding MPI trend
+          - Setup day IBS >= 0.7
+          - Setup day shows Higher H/L pattern
+          - Setup day has Valid CRT
         
         Remember: This analysis identifies **which conditions predict breakout success**, not trading signals themselves.
         """)
@@ -1885,7 +1857,7 @@ def show():
                     'breakout_date': ['2024-01-02', '2024-01-03', '2024-01-04'],
                     'ticker': ['A17U.SI', 'C38U.SI', 'M44U.SI'],
                     'company_name': ['Ascendas REIT', 'CapitaLand Investment', 'Mapletree REIT'],
-                    'setup_mpi_trend': ['Strong Expansion', 'Expanding', 'Flat'],
+                    'setup_mpi_trend': ['Expanding', 'Expanding', 'Flat'],
                     'setup_ibs': [0.82, 0.65, 0.71],
                     'entry_price': [2.80, 3.45, 1.23],
                     'exit_price': [2.87, 3.40, 1.27],
@@ -1898,16 +1870,19 @@ def show():
                 
                 st.markdown("""
                 **Analysis Results Include:**
-                - Success rate by setup day MPI trend
-                - Breakout performance by setup day IBS levels
-                - Pattern combination effectiveness analysis
-                - Breakout gap size vs success correlation
+                - Success rate by setup day MPI trend (Expanding, Flat, Contracting)
+                - Breakout performance by IBS threshold levels (>= 0.7, >= 0.5, >= 0.3, >= 0)
+                - Best factor combinations analysis (all possible combinations of MPI trends, IBS levels, patterns)
                 - Monthly/seasonal breakout success patterns
                 - Interactive filtering and detailed exploration
                 - Complete CSV export for further research
+                
+                **Key Improvements:**
+                - ❌ Removed unrealistic breakout gap analysis (can't fill at prev high if gap exists)
+                - ✅ Enhanced IBS analysis with cumulative thresholds (>= approach)
+                - ✅ Comprehensive best combinations analysis (all factor permutations)
+                - ✅ Top 10 best performing factor combinations ranked by success rate
                 """)
 
 if __name__ == "__main__":
     show()
-
-    
