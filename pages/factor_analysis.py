@@ -1,7 +1,7 @@
-# File: pages/backtesting.py
-# Part 1 of 4 - CORRECTED VERSION WITH REALISTIC ENTRY LOGIC
+# File: pages/factor_analysis.py
+# Part 1 of 4
 """
-Historical Backtesting Module - CORRECTED
+Historical Backtesting Module - CORRECTED VERSION WITH REALISTIC ENTRY LOGIC
 Factor analysis study: Which indicators predict successful breakout continuation
 Entry: Previous day's high when today's high > yesterday's high AND today's open <= yesterday's high
 Exit: Same day's close
@@ -337,8 +337,8 @@ def detect_breakouts_and_analyze_factors(df_enhanced: pd.DataFrame,
         logger.error(f"Error detecting breakouts for {ticker}: {e}")
         return []
     
-# File: pages/backtesting.py
-# Part 2 of 4 - CORRECTED VERSION WITH REALISTIC ENTRY LOGIC
+# File: pages/factor_analysis.py
+# Part 2 of 4
 """
 Historical Backtesting Module - Part 2 CORRECTED
 Core backtesting execution and data processing functions
@@ -789,18 +789,19 @@ def show_backtest_configuration():
     
     return start_date, end_date, existing_data
 
-# File: pages/backtesting.py
-# Part 3 of 4 - CORRECTED VERSION WITH REALISTIC ENTRY LOGIC
+# File: pages/factor_analysis.py
+# Part 3 of 4
 """
 Historical Backtesting Module - Part 3 CORRECTED
 Analysis and visualization functions for breakout factor analysis
-*** THIS PART CONTAINS THE CRITICAL IBS THRESHOLD FIX ***
+*** THIS PART CONTAINS THE CRITICAL IBS THRESHOLD FIX AND NEW MULTI-TREND MPI LOGIC ***
 """
 
 def perform_factor_analysis(results_df: pd.DataFrame) -> Dict:
     """
     CORRECTED: Perform comprehensive factor effectiveness analysis for breakout prediction
     *** FIXED IBS CATEGORIZATION WITH INCLUSIVE THRESHOLDS ***
+    *** NEW: MULTI-TREND MPI COMBINATIONS ***
     
     Args:
         results_df: Complete breakout analysis results DataFrame
@@ -863,7 +864,7 @@ def perform_factor_analysis(results_df: pd.DataFrame) -> Dict:
             
             analysis['ibs_thresholds'] = pd.DataFrame(ibs_results)
         
-        # *** CRITICAL FIX: INCLUSIVE IBS THRESHOLD CATEGORIZATION ***
+        # *** ENHANCED: MULTI-TREND MPI COMBINATIONS ***
         if all(col in results_df.columns for col in ['setup_mpi_trend', 'setup_ibs', 'setup_higher_hl', 'setup_valid_crt']):
             
             # FIXED: Create IBS threshold categories with INCLUSIVE thresholds
@@ -891,24 +892,63 @@ def perform_factor_analysis(results_df: pd.DataFrame) -> Dict:
                     return row_ibs >= 0.0   # Includes all values
                 return False
             
-            # Generate ALL possible combinations with FIXED filtering
+            # NEW: Define MPI trend combinations (single + multi-trend)
+            def create_mpi_trend_combinations(available_trends):
+                """Create both single and multi-trend combinations"""
+                combinations = []
+                
+                # Single trends (existing logic)
+                for trend in available_trends:
+                    combinations.append({
+                        'name': trend,
+                        'trends': [trend],
+                        'description': trend
+                    })
+                
+                # Two-trend combinations
+                if len(available_trends) >= 2:
+                    from itertools import combinations as iter_combinations
+                    for trend_pair in iter_combinations(available_trends, 2):
+                        combinations.append({
+                            'name': '+'.join(sorted(trend_pair)),
+                            'trends': list(trend_pair),
+                            'description': f"{'+'.join(sorted(trend_pair))}"
+                        })
+                
+                # All-trend combination (if we have 3+ trends)
+                if len(available_trends) >= 3:
+                    combinations.append({
+                        'name': 'All_MPI',
+                        'trends': list(available_trends),
+                        'description': 'All_MPI'
+                    })
+                
+                return combinations
+            
+            # NEW: Function to check if stock matches MPI trend combination
+            def matches_mpi_combination(row_mpi_trend, mpi_combination):
+                """Check if stock's MPI trend matches the combination (OR logic for multi-trend)"""
+                return row_mpi_trend in mpi_combination['trends']
+            
+            # Generate ALL possible combinations with ENHANCED MPI LOGIC
             combination_results = []
             
             # Get unique values for each factor
-            mpi_trends = results_df['setup_mpi_trend'].unique()
-            ibs_categories = ['High_IBS', 'Med_IBS', 'Low_IBS', 'All_IBS']  # Use fixed categories
+            available_mpi_trends = results_df['setup_mpi_trend'].unique()
+            mpi_combinations = create_mpi_trend_combinations(available_mpi_trends)
+            ibs_categories = ['High_IBS', 'Med_IBS', 'Low_IBS', 'All_IBS']
             higher_hl_values = [0, 1]
             valid_crt_values = [0, 1]
             
-            # Analyze each combination with FIXED INCLUSIVE FILTERING
-            for mpi_trend in mpi_trends:
+            # Analyze each combination with ENHANCED MPI LOGIC
+            for mpi_combo in mpi_combinations:
                 for ibs_cat in ibs_categories:
                     for higher_hl in higher_hl_values:
                         for valid_crt in valid_crt_values:
-                            # FIXED: Filter data for this specific combination using inclusive thresholds
+                            # ENHANCED: Filter data for this specific combination using multi-trend MPI logic
                             combo_data = results_df[
-                                (results_df['setup_mpi_trend'] == mpi_trend) &
-                                (results_df['setup_ibs'].apply(lambda x: passes_ibs_threshold(x, ibs_cat))) &  # FIXED: Inclusive filtering
+                                (results_df['setup_mpi_trend'].apply(lambda x: matches_mpi_combination(x, mpi_combo))) &
+                                (results_df['setup_ibs'].apply(lambda x: passes_ibs_threshold(x, ibs_cat))) &
                                 (results_df['setup_higher_hl'] == higher_hl) &
                                 (results_df['setup_valid_crt'] == valid_crt)
                             ]
@@ -922,11 +962,12 @@ def perform_factor_analysis(results_df: pd.DataFrame) -> Dict:
                                 # Create combination description
                                 hl_desc = "Higher_HL" if higher_hl == 1 else "No_HL"
                                 crt_desc = "Valid_CRT" if valid_crt == 1 else "No_CRT"
-                                combo_description = f"{mpi_trend}_{ibs_cat}_{hl_desc}_{crt_desc}"
+                                combo_description = f"{mpi_combo['description']}_{ibs_cat}_{hl_desc}_{crt_desc}"
                                 
                                 combination_results.append({
                                     'combination': combo_description,
-                                    'mpi_trend': mpi_trend,
+                                    'mpi_combination': mpi_combo['description'],
+                                    'mpi_trends_included': '+'.join(sorted(mpi_combo['trends'])),
                                     'ibs_category': str(ibs_cat),
                                     'higher_hl': higher_hl,
                                     'valid_crt': valid_crt,
@@ -944,6 +985,15 @@ def perform_factor_analysis(results_df: pd.DataFrame) -> Dict:
                 
                 # Get top 10 best combinations
                 analysis['best_combinations'] = combo_df.head(10)
+                
+                # NEW: Separate single-trend and multi-trend results for analysis
+                single_trend_combos = combo_df[~combo_df['mpi_trends_included'].str.contains('\+')]
+                multi_trend_combos = combo_df[combo_df['mpi_trends_included'].str.contains('\+')]
+                
+                if len(single_trend_combos) > 0:
+                    analysis['best_single_trend_combinations'] = single_trend_combos.head(5)
+                if len(multi_trend_combos) > 0:
+                    analysis['best_multi_trend_combinations'] = multi_trend_combos.head(5)
         
         # Time-based Analysis - are there seasonal patterns in breakout success?
         if 'setup_date' in results_df.columns:
@@ -1051,13 +1101,38 @@ def create_factor_visualizations(results_df: pd.DataFrame, factor_analysis: Dict
                 x='Success_Rate',
                 y='Avg_Return',
                 size='Breakout_Count',
-                color='combination',
+                color='mpi_combination',
                 title='Top 10 Best Factor Combinations: Success Rate vs Average Return (Realistic Breakouts)',
                 labels={'Success_Rate': 'Success Rate (%)', 'Avg_Return': 'Average Return (%)'},
-                hover_data=['Breakout_Count', 'mpi_trend', 'ibs_category']
+                hover_data=['Breakout_Count', 'mpi_combination', 'ibs_category']
             )
             fig_combos.update_layout(height=500, showlegend=False)
             figures['best_combinations'] = fig_combos
+        
+        # NEW: Multi-trend vs Single-trend comparison
+        if 'best_single_trend_combinations' in factor_analysis and 'best_multi_trend_combinations' in factor_analysis:
+            single_trend_data = factor_analysis['best_single_trend_combinations']
+            multi_trend_data = factor_analysis['best_multi_trend_combinations']
+            
+            # Compare best single vs best multi
+            if len(single_trend_data) > 0 and len(multi_trend_data) > 0:
+                comparison_data = pd.concat([
+                    single_trend_data.head(3).assign(Type='Single Trend'),
+                    multi_trend_data.head(3).assign(Type='Multi Trend')
+                ])
+                
+                fig_comparison = px.bar(
+                    comparison_data,
+                    x='combination',
+                    y='Success_Rate',
+                    color='Type',
+                    title='Single-Trend vs Multi-Trend MPI Combinations Performance',
+                    labels={'Success_Rate': 'Success Rate (%)', 'combination': 'Factor Combination'},
+                    text='Success_Rate'
+                )
+                fig_comparison.update_traces(texttemplate='%{text:.1f}%', textposition='outside')
+                fig_comparison.update_layout(height=500, xaxis_tickangle=45)
+                figures['trend_comparison'] = fig_comparison
         
         # Monthly Performance Trend
         if 'monthly_performance' in factor_analysis:
@@ -1155,11 +1230,12 @@ def display_backtest_summary(results_df: pd.DataFrame):
     with col_c:
         st.info(f"📊 **Breakouts/Month:** {summary['breakouts_per_month']:.1f}")
 
-# File: pages/backtesting.py
-# Part 4 of 4 - CORRECTED VERSION WITH REALISTIC ENTRY LOGIC
+# File: pages/factor_analysis.py
+# Part 4 of 4
 """
 Historical Backtesting Module - Part 4 CORRECTED
 Display functions and main show function for breakout factor analysis
+*** ENHANCED WITH MULTI-TREND MPI ANALYSIS ***
 """
 
 def display_factor_analysis(results_df: pd.DataFrame):
@@ -1181,7 +1257,7 @@ def display_factor_analysis(results_df: pd.DataFrame):
         return
     
     # Create tabs for different analyses
-    tab1, tab2, tab3 = st.tabs(["📈 MPI Trends", "🎯 IBS Thresholds", "🔄 Best Combinations"])
+    tab1, tab2, tab3, tab4 = st.tabs(["📈 MPI Trends", "🎯 IBS Thresholds", "🔄 Best Combinations", "🚀 Multi-Trend Analysis"])
     
     with tab1:
         st.markdown("### Setup Day MPI Trend Effectiveness")
@@ -1276,7 +1352,7 @@ def display_factor_analysis(results_df: pd.DataFrame):
             # Display top combinations table
             st.markdown("#### 🏆 Top 10 Best Factor Combinations:")
             st.dataframe(
-                factor_analysis['best_combinations'][['combination', 'Breakout_Count', 'Success_Rate', 'Avg_Return']],
+                factor_analysis['best_combinations'][['combination', 'mpi_trends_included', 'Breakout_Count', 'Success_Rate', 'Avg_Return']],
                 use_container_width=True,
                 hide_index=True
             )
@@ -1291,19 +1367,20 @@ def display_factor_analysis(results_df: pd.DataFrame):
             
             st.markdown("#### 🔍 Key Insights:")
             st.success(f"**Best Combination:** {best_combo['combination']} - {best_combo['Success_Rate']:.1f}% success rate ({best_combo['Breakout_Count']} realistic breakouts)")
+            st.info(f"**MPI Trends Included:** {best_combo['mpi_trends_included']}")
             
             # Analyze top combinations
             st.markdown("**Top 3 Combinations Analysis:**")
             for i, (_, combo) in enumerate(combo_data.head(3).iterrows(), 1):
                 st.write(f"**#{i}:** {combo['combination']} - {combo['Success_Rate']:.1f}% success ({combo['Breakout_Count']} samples)")
-                st.write(f"   • MPI: {combo['mpi_trend']}, IBS: {combo['ibs_category']}, Higher H/L: {combo['higher_hl']}, Valid CRT: {combo['valid_crt']}")
+                st.write(f"   • MPI: {combo['mpi_trends_included']}, IBS: {combo['ibs_category']}, Higher H/L: {combo['higher_hl']}, Valid CRT: {combo['valid_crt']}")
             
             # Show total combinations analyzed
             if 'all_combinations' in factor_analysis:
                 total_combos = len(factor_analysis['all_combinations'])
                 st.info(f"📊 **Total Combinations Analyzed:** {total_combos} (minimum 5 realistic breakouts per combination)")
                 
-                # FIXED: Show the corrected combination that should now have the right samples
+                # Show the corrected combination that should now have the right samples
                 target_combo = factor_analysis['all_combinations'][
                     factor_analysis['all_combinations']['combination'] == 'Expanding_Med_IBS_Higher_HL_Valid_CRT'
                 ]
@@ -1313,6 +1390,102 @@ def display_factor_analysis(results_df: pd.DataFrame):
                     st.info("✅ This combination now correctly uses IBS >= 0.5 (inclusive of all higher IBS values)")
         else:
             st.warning("Combination analysis data not available")
+
+    with tab4:
+        st.markdown("### Multi-Trend MPI Analysis")
+        st.markdown("*How do combinations of multiple MPI trends perform compared to single trends?*")
+        
+        # Show single vs multi-trend comparison
+        if 'best_single_trend_combinations' in factor_analysis and 'best_multi_trend_combinations' in factor_analysis:
+            
+            # Display comparison chart
+            if 'trend_comparison' in figures:
+                st.plotly_chart(figures['trend_comparison'], use_container_width=True)
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.markdown("#### 🎯 Best Single-Trend Combinations:")
+                single_trend_data = factor_analysis['best_single_trend_combinations']
+                st.dataframe(
+                    single_trend_data[['combination', 'mpi_trends_included', 'Success_Rate', 'Breakout_Count']].head(5),
+                    use_container_width=True,
+                    hide_index=True
+                )
+                
+                if len(single_trend_data) > 0:
+                    best_single = single_trend_data.iloc[0]
+                    st.success(f"**Best Single-Trend:** {best_single['mpi_trends_included']} - {best_single['Success_Rate']:.1f}% success")
+            
+            with col2:
+                st.markdown("#### 🔄 Best Multi-Trend Combinations:")
+                multi_trend_data = factor_analysis['best_multi_trend_combinations']
+                st.dataframe(
+                    multi_trend_data[['combination', 'mpi_trends_included', 'Success_Rate', 'Breakout_Count']].head(5),
+                    use_container_width=True,
+                    hide_index=True
+                )
+                
+                if len(multi_trend_data) > 0:
+                    best_multi = multi_trend_data.iloc[0]
+                    st.success(f"**Best Multi-Trend:** {best_multi['mpi_trends_included']} - {best_multi['Success_Rate']:.1f}% success")
+            
+            # Analysis insights
+            st.markdown("#### 🔍 Multi-Trend Analysis Insights:")
+            
+            if len(single_trend_data) > 0 and len(multi_trend_data) > 0:
+                best_single_rate = single_trend_data.iloc[0]['Success_Rate']
+                best_multi_rate = multi_trend_data.iloc[0]['Success_Rate']
+                
+                if best_multi_rate > best_single_rate:
+                    improvement = best_multi_rate - best_single_rate
+                    st.success(f"✅ **Multi-Trend Advantage:** Combining MPI trends improves performance by {improvement:.1f} percentage points ({best_multi_rate:.1f}% vs {best_single_rate:.1f}%)")
+                elif best_single_rate > best_multi_rate:
+                    decline = best_single_rate - best_multi_rate
+                    st.warning(f"⚠️ **Single-Trend Superior:** Single trends outperform multi-trends by {decline:.1f} percentage points ({best_single_rate:.1f}% vs {best_multi_rate:.1f}%)")
+                else:
+                    st.info("🔄 **Similar Performance:** Single and multi-trend approaches show comparable results")
+                
+                # Sample size comparison
+                avg_single_samples = single_trend_data['Breakout_Count'].mean()
+                avg_multi_samples = multi_trend_data['Breakout_Count'].mean()
+                
+                st.info(f"📊 **Sample Sizes:** Single-trend avg: {avg_single_samples:.0f} breakouts, Multi-trend avg: {avg_multi_samples:.0f} breakouts")
+                
+                # Show specific multi-trend insights
+                if len(multi_trend_data) > 0:
+                    st.markdown("**Notable Multi-Trend Combinations:**")
+                    for i, (_, combo) in enumerate(multi_trend_data.head(3).iterrows(), 1):
+                        trends = combo['mpi_trends_included']
+                        success_rate = combo['Success_Rate']
+                        sample_size = combo['Breakout_Count']
+                        st.write(f"{i}. **{trends}**: {success_rate:.1f}% success rate ({sample_size} samples)")
+        
+        elif 'all_combinations' in factor_analysis:
+            # Fallback: show analysis from all combinations
+            all_combos = factor_analysis['all_combinations']
+            
+            # Separate single and multi-trend combinations
+            single_trend_mask = ~all_combos['mpi_trends_included'].str.contains('\+')
+            multi_trend_mask = all_combos['mpi_trends_included'].str.contains('\+')
+            
+            single_trend_combos = all_combos[single_trend_mask]
+            multi_trend_combos = all_combos[multi_trend_mask]
+            
+            st.markdown(f"**Analysis Summary:**")
+            st.write(f"• **Single-Trend Combinations:** {len(single_trend_combos)} analyzed")
+            st.write(f"• **Multi-Trend Combinations:** {len(multi_trend_combos)} analyzed")
+            
+            if len(single_trend_combos) > 0:
+                best_single_rate = single_trend_combos['Success_Rate'].max()
+                st.write(f"• **Best Single-Trend Success Rate:** {best_single_rate:.1f}%")
+            
+            if len(multi_trend_combos) > 0:
+                best_multi_rate = multi_trend_combos['Success_Rate'].max()
+                st.write(f"• **Best Multi-Trend Success Rate:** {best_multi_rate:.1f}%")
+        
+        else:
+            st.warning("Multi-trend analysis data not available")
 
     # Show monthly performance trends
     if 'monthly_performance' in factor_analysis:
@@ -1683,6 +1856,7 @@ def show_usage_instructions():
         - Do stocks with "Expanding" MPI setups have better realistic breakout success?
         - Does high IBS on the setup day improve realistic breakout probability?
         - Which factor combinations provide the highest realistic breakout success rates?
+        - **NEW:** Do multi-trend MPI combinations outperform single trends?
         
         ### 🔬 Factor Analysis Results
         
@@ -1690,6 +1864,7 @@ def show_usage_instructions():
         - **MPI Trends:** Do expanding momentum setups predict better realistic breakouts?
         - **IBS Thresholds:** What IBS threshold levels optimize realistic breakout success?
         - **Best Combinations:** Which combinations of all factors achieve highest realistic breakout success rates?
+        - **Multi-Trend Analysis:** Do combinations like "Expanding+Flat" outperform single trends?
         - **Seasonal Patterns:** Are there monthly/seasonal success variations in realistic breakouts?
         
         #### Success Metrics:
@@ -1705,17 +1880,24 @@ def show_usage_instructions():
         - **Low_IBS:** All stocks with IBS >= 0.3 (includes Med_IBS and High_IBS values)
         - **All_IBS:** All realistic breakouts regardless of IBS level
         
+        #### NEW: Multi-Trend MPI Analysis:
+        - **Single Trends:** Expanding, Flat, or Contracting only
+        - **Two-Trend Combos:** Expanding+Flat, Expanding+Contracting, Flat+Contracting
+        - **All-Trend Combo:** All_MPI (includes all MPI trend types)
+        - **Benefit:** Discover if combining trend types improves predictive power
+        
         #### Best Combinations Analysis:
-        - Analyzes ALL possible combinations of MPI trends, IBS levels, Higher H/L, and Valid CRT
+        - Analyzes ALL possible combinations including new multi-trend MPI combinations
         - Uses INCLUSIVE thresholds (Med_IBS includes all IBS >= 0.5)
         - Requires minimum 5 realistic breakouts per combination for statistical reliability
         - Shows top 10 best performing combinations ranked by success rate
-        - Enables discovery of optimal factor confluence for entry criteria
+        - **NEW:** Separate analysis of single-trend vs multi-trend performance
         
         #### Strong Predictive Factors:
         - Success rate significantly above 50% (better than random)
         - Consistent performance across different time periods
         - Large sample size for statistical significance
+        - **NEW:** Multi-trend combinations that significantly outperform single trends
         
         #### Key Difference - Realistic Entry Logic:
         - ✅ **NEW:** Only analyzes breakouts where today's open <= yesterday's high
@@ -1725,13 +1907,13 @@ def show_usage_instructions():
         
         ### ⚠️ Important Updates
         
-        #### UPDATED Breakout Detection:
-        - **Previous Logic:** Today's high > Yesterday's high (any breakout)
-        - **New Logic:** Today's open <= Yesterday's high AND Today's high > Yesterday's high
-        - **Impact:** More realistic and actionable breakout analysis
-        - **Result:** Fewer but higher-quality breakout signals for analysis
+        #### ENHANCED Multi-Trend MPI Analysis:
+        - **Previous Logic:** Only single MPI trends analyzed (Expanding, Flat, Contracting)
+        - **New Logic:** Also analyzes multi-trend combinations (Expanding+Flat, All_MPI, etc.)
+        - **Impact:** Discovers if combining MPI trend types improves breakout prediction
+        - **Result:** More sophisticated factor analysis with broader combination coverage
         
-        Remember: This analysis identifies **which conditions predict realistic breakout success**, not trading signals themselves.
+        Remember: This analysis identifies **which conditions predict realistic breakout success**, including whether combining multiple MPI trends improves predictive power.
         """)
 
 def show():
@@ -1749,6 +1931,7 @@ def show():
         
         🎯 **Key Update:** Only analyzes breakouts where entry at yesterday's high is actually possible (excludes gap-ups)
         🎯 **FIXED:** IBS threshold categorization now uses INCLUSIVE thresholds (Med_IBS = IBS >= 0.5, includes all higher values)
+        🚀 **NEW:** Multi-trend MPI analysis - discover if combining MPI trends (e.g., Expanding+Flat) improves predictive power
         """)
     
     # Initialize session state
@@ -1818,10 +2001,12 @@ def show():
                 """)
             
             with col2:
-                st.markdown("**Success Definition:**")
+                st.markdown("**NEW: Multi-Trend Analysis:**")
                 st.info("""
-                Success = Breakout day close > Setup day high
-                (Same-day momentum continuation after realistic breakout)
+                Enhanced MPI analysis now includes:
+                • Single trends: Expanding, Flat, Contracting
+                • Multi-trends: Expanding+Flat, All_MPI, etc.
+                • Discover if combining trends improves prediction
                 """)
         
         # Execute analysis button
@@ -1834,6 +2019,7 @@ def show():
         st.info(f"""
         **Analysis Scope:** {days_to_process} days across 46 Singapore stocks
         **Estimated Realistic Breakouts:** ~{estimated_breakouts:.0f} breakout events to analyze
+        **NEW: Multi-Trend Combinations:** Enhanced factor analysis with MPI trend combinations
         **Processing Time:** ~{days_to_process/10:.0f} minutes (depends on data complexity)
         """)
         
@@ -1865,3 +2051,5 @@ def show():
 
 if __name__ == "__main__":
     show()
+
+    
