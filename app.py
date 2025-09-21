@@ -1,7 +1,7 @@
 # File: app.py
 """
 Stock Scanner Web Application
-Main Streamlit application with navigation for Higher H/L scanner and backtesting
+Main Streamlit application with navigation for Higher H/L scanner and factor analysis
 """
 
 import streamlit as st
@@ -55,7 +55,7 @@ def show_home_page():
     - Best for trend continuation plays
     - Flexible filtering for Valid CRT and/or Higher H/L patterns
     
-    #### 🔬 **Historical Backtesting**
+    #### 🔬 **Factor Analysis**
     - Validate technical analysis effectiveness with historical data
     - Analyze success rates of MPI trends, IBS levels, and pattern combinations
     - Smart incremental processing with file upload/download workflow
@@ -68,12 +68,12 @@ def show_home_page():
     - 📋 **TradingView Export** - Direct export to TradingView watchlists
     - 📥 **CSV Downloads** - Export filtered results for further analysis
     - 🕒 **Historical Analysis** - Scan as of any past trading date
-    - 🔬 **Strategy Validation** - Quantitative backtesting of trading signals
+    - 🔬 **Strategy Validation** - Quantitative factor analysis of trading signals
     
     ---
     
     **Get Started:**
-    👈 Use the sidebar to navigate to the scanner or backtesting tools!
+    👈 Use the sidebar to navigate to the scanner or factor analysis tools!
     """)
     
     # Quick stats
@@ -109,10 +109,10 @@ def show_sidebar_stats():
         st.sidebar.metric("Valid CRT", valid_crt)
         st.sidebar.metric("Higher H/L", higher_hl)
     
-    # Show backtesting stats if available
-    if 'backtest_summary' in st.session_state:
-        st.sidebar.markdown("### 🔬 Backtest Stats")
-        summary = st.session_state.backtest_summary
+    # Show factor analysis stats if available
+    if 'factor_analysis_summary' in st.session_state:
+        st.sidebar.markdown("### 🔬 Factor Analysis Stats")
+        summary = st.session_state.factor_analysis_summary
         st.sidebar.metric("Total Signals", summary.get('total_signals', 0))
         st.sidebar.metric("Success Rate", f"{summary.get('success_rate', 0):.1f}%")
 
@@ -126,7 +126,7 @@ def main():
     pages = {
         "🏠 Home": "home",
         "📈 CRT Higher H/L": "higher_hl",
-        "🔬 Historical Backtesting": "backtesting",
+        "🔬 Factor Analysis": "factor_analysis",
         "📊 Historical Analysis": "historical", 
         "📋 Watchlist Manager": "watchlist",
         "⚙️ Settings": "settings"
@@ -156,13 +156,13 @@ def main():
             st.error(f"Scanner module not found: {e}")
             st.info("This scanner focuses on stocks with Higher High AND Higher Low patterns.")
     
-    elif page_value == "backtesting":
+    elif page_value == "factor_analysis":
         try:
-            from pages import backtesting
-            backtesting.show()
+            from pages import factor_analysis
+            factor_analysis.show()
         except ImportError as e:
-            st.error(f"Backtesting module not found: {e}")
-            st.info("This module provides historical validation of trading signals.")
+            st.error(f"Factor analysis module not found: {e}")
+            st.info("This module provides historical validation of trading signals and factor effectiveness analysis.")
     
     elif page_value == "historical":
         st.title("📊 Historical Analysis")
