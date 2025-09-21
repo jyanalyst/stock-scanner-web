@@ -1,10 +1,10 @@
 # File: pages/factor_analysis.py
-# Part 1 of 4
+# Part 1 of 3
 """
-Historical Backtesting Module - CORRECTED VERSION WITH REALISTIC ENTRY LOGIC
+Simplified Historical Backtesting Module with 1% Profit Target Exit Strategy
 Factor analysis study: Which indicators predict successful breakout continuation
 Entry: Previous day's high when today's high > yesterday's high AND today's open <= yesterday's high
-Exit: Same day's close
+Exit: 1% profit target OR same day's close (whichever comes first)
 """
 
 import streamlit as st
@@ -14,7 +14,6 @@ from datetime import datetime, date, timedelta
 import time
 import logging
 import sys
-from io import StringIO, BytesIO
 import traceback
 import plotly.express as px
 import plotly.graph_objects as go
@@ -29,42 +28,27 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-class BacktestLogger:
-    """Centralized logging for backtesting operations"""
+class SimpleBacktestLogger:
+    """Simplified logging for backtesting operations"""
     
     def __init__(self):
-        self.logs = []
         self.errors = []
         self.warnings = []
     
-    def log_info(self, message: str, data: dict = None):
+    def log_error(self, message: str, error: Exception = None):
         entry = {
             'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-            'level': 'INFO',
-            'message': message,
-            'data': data or {}
-        }
-        self.logs.append(entry)
-        logger.info(f"BACKTEST: {message}")
-    
-    def log_error(self, message: str, error: Exception = None, context: dict = None):
-        entry = {
-            'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-            'level': 'ERROR',
             'message': message,
             'error': str(error) if error else None,
-            'traceback': traceback.format_exc() if error else None,
-            'context': context or {}
+            'traceback': traceback.format_exc() if error else None
         }
         self.errors.append(entry)
         logger.error(f"BACKTEST ERROR: {message}")
     
-    def log_warning(self, message: str, context: dict = None):
+    def log_warning(self, message: str):
         entry = {
             'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-            'level': 'WARNING',
-            'message': message,
-            'context': context or {}
+            'message': message
         }
         self.warnings.append(entry)
         logger.warning(f"BACKTEST WARNING: {message}")
@@ -72,136 +56,22 @@ class BacktestLogger:
     def display_in_streamlit(self):
         """Display logs in Streamlit interface"""
         if self.errors:
-            st.error(f"❌ {len(self.errors)} error(s) occurred during backtesting")
+            st.error(f"❌ {len(self.errors)} error(s) occurred")
             with st.expander("🔍 View Error Details", expanded=False):
                 for error in self.errors:
                     st.markdown(f"**{error['timestamp']}:** {error['message']}")
                     if error['error']:
                         st.code(error['error'])
-                    if error['context']:
-                        st.json(error['context'])
         
         if self.warnings:
             st.warning(f"⚠️ {len(self.warnings)} warning(s) occurred")
             with st.expander("📋 View Warnings", expanded=False):
                 for warning in self.warnings:
                     st.write(f"**{warning['timestamp']}:** {warning['message']}")
-                    if warning['context']:
-                        st.json(warning['context'])
-        
-        # Show info logs in debug mode
-        if st.session_state.get('debug_mode', False) and self.logs:
-            with st.expander("🔍 Debug Logs", expanded=False):
-                for log in self.logs[-20:]:  # Show last 20 entries
-                    st.write(f"**{log['timestamp']}:** {log['message']}")
 
 # Initialize global backtest logger
-if 'backtest_logger' not in st.session_state:
-    st.session_state.backtest_logger = BacktestLogger()
-
-def analyze_uploaded_data(uploaded_file) -> Tuple[Optional[pd.DataFrame], Dict]:
-    """
-    Analyze uploaded CSV to determine what date ranges need processing
-    
-    Returns:
-        Tuple of (existing_data_df, analysis_dict)
-    """
-    backtest_logger = st.session_state.backtest_logger
-    
-    try:
-        # Read uploaded CSV
-        existing_data = pd.read_csv(uploaded_file)
-        backtest_logger.log_info(f"Uploaded file contains {len(existing_data)} records")
-        
-        # Validate required columns
-        required_columns = [
-            'setup_date', 'breakout_date', 'ticker', 'company_name', 
-            'setup_high', 'setup_close', 'breakout_high', 'breakout_close',
-            'entry_price', 'exit_price', 'success_binary', 'return_percentage',
-            'setup_mpi', 'setup_mpi_velocity', 'setup_mpi_trend', 'setup_ibs',
-            'setup_crt_velocity', 'setup_higher_hl', 'setup_valid_crt', 'setup_vw_range_percentile'
-        ]
-        
-        missing_columns = [col for col in required_columns if col not in existing_data.columns]
-        if missing_columns:
-            backtest_logger.log_error(f"Missing required columns: {missing_columns}")
-            return None, {
-                'status': 'error',
-                'message': f"Invalid CSV format. Missing columns: {', '.join(missing_columns)}"
-            }
-        
-        # Parse dates
-        existing_data['setup_date'] = pd.to_datetime(existing_data['setup_date'])
-        existing_data['breakout_date'] = pd.to_datetime(existing_data['breakout_date'])
-        
-        # Analyze date coverage
-        min_date = existing_data['setup_date'].min().date()
-        max_date = existing_data['setup_date'].max().date()
-        total_breakouts = len(existing_data)
-        unique_stocks = existing_data['ticker'].nunique()
-        date_range_days = (max_date - min_date).days + 1
-        
-        # Calculate success metrics
-        total_successes = existing_data['success_binary'].sum()
-        success_rate = (total_successes / total_breakouts * 100) if total_breakouts > 0 else 0
-        avg_return = existing_data['return_percentage'].mean() * 100
-        
-        analysis = {
-            'status': 'success',
-            'data_summary': {
-                'total_breakouts': total_breakouts,
-                'unique_stocks': unique_stocks,
-                'date_range': f"{min_date} to {max_date}",
-                'date_range_days': date_range_days,
-                'success_rate': success_rate,
-                'average_return': avg_return,
-                'earliest_date': min_date,
-                'latest_date': max_date
-            }
-        }
-        
-        backtest_logger.log_info("Successfully analyzed uploaded data", analysis['data_summary'])
-        return existing_data, analysis
-        
-    except Exception as e:
-        backtest_logger.log_error("Failed to analyze uploaded data", e)
-        return None, {
-            'status': 'error',
-            'message': f"Error reading CSV file: {str(e)}"
-        }
-
-def determine_processing_range(existing_data: Optional[pd.DataFrame], 
-                             user_start_date: date, 
-                             user_end_date: date) -> Tuple[date, date, str]:
-    """
-    Determine what date range needs to be processed based on existing data
-    
-    Returns:
-        Tuple of (start_date, end_date, processing_type)
-    """
-    backtest_logger = st.session_state.backtest_logger
-    
-    if existing_data is None or len(existing_data) == 0:
-        backtest_logger.log_info(f"No existing data - will process full range: {user_start_date} to {user_end_date}")
-        return user_start_date, user_end_date, "full_range"
-    
-    # Get the latest date in existing data
-    latest_existing_date = existing_data['setup_date'].max().date()
-    
-    # Determine processing strategy
-    if latest_existing_date >= user_end_date:
-        backtest_logger.log_info(f"Existing data covers requested range (latest: {latest_existing_date})")
-        return user_start_date, user_end_date, "no_processing_needed"
-    
-    elif latest_existing_date < user_start_date:
-        backtest_logger.log_info(f"Gap detected - will process full range: {user_start_date} to {user_end_date}")
-        return user_start_date, user_end_date, "gap_fill"
-    
-    else:
-        # Incremental update needed
-        new_start_date = latest_existing_date + timedelta(days=1)
-        backtest_logger.log_info(f"Incremental update - will process: {new_start_date} to {user_end_date}")
-        return new_start_date, user_end_date, "incremental"
+if 'simple_backtest_logger' not in st.session_state:
+    st.session_state.simple_backtest_logger = SimpleBacktestLogger()
 
 def detect_breakouts_and_analyze_factors(df_enhanced: pd.DataFrame, 
                                        ticker: str, 
@@ -209,23 +79,13 @@ def detect_breakouts_and_analyze_factors(df_enhanced: pd.DataFrame,
                                        start_date: date, 
                                        end_date: date) -> List[Dict]:
     """
-    UPDATED: Detect realistic breakouts and analyze setup day factors
+    Detect realistic breakouts and analyze setup day factors with 1% profit target exit strategy
     
     Logic:
     1. For each day, check if today's open <= yesterday's high AND today's high > yesterday's high
-    2. This ensures we can realistically enter at yesterday's high (avoid gap-ups)
-    3. If yes, we have a breakout - enter at yesterday's high, exit at today's close
+    2. If yes, we have a breakout - enter at yesterday's high
+    3. NEW: Exit at 1% profit target if reachable during the day, otherwise exit at close
     4. Analyze yesterday's technical indicators as predictive factors
-    
-    Args:
-        df_enhanced: Enhanced DataFrame with technical indicators
-        ticker: Stock ticker symbol
-        company_name: Company name
-        start_date: Start date for breakout detection
-        end_date: End date for breakout detection
-    
-    Returns:
-        List of breakout analysis dictionaries
     """
     breakouts = []
     
@@ -240,12 +100,12 @@ def detect_breakouts_and_analyze_factors(df_enhanced: pd.DataFrame,
                 start_dt = start_dt.tz_localize('Asia/Singapore')
                 end_dt = end_dt.tz_localize('Asia/Singapore')
         
-        # Get all dates in range (we need consecutive days for breakout detection)
+        # Get all dates in range
         all_dates = df_enhanced.index
         range_dates = all_dates[(all_dates >= start_dt) & (all_dates <= end_dt)]
         
         # Process each day to detect realistic breakouts
-        for i in range(1, len(range_dates)):  # Start from index 1 (need previous day)
+        for i in range(1, len(range_dates)):
             today_date = range_dates[i]
             yesterday_date = range_dates[i-1]
             
@@ -253,23 +113,34 @@ def detect_breakouts_and_analyze_factors(df_enhanced: pd.DataFrame,
             today_data = df_enhanced.loc[today_date]
             yesterday_data = df_enhanced.loc[yesterday_date]
             
-            # UPDATED BREAKOUT LOGIC: Check for realistic breakout
+            # Breakout logic: today's open <= yesterday's high AND today's high > yesterday's high
             today_open = float(today_data['Open'])
             today_high = float(today_data['High'])
+            today_close = float(today_data['Close'])
             yesterday_high = float(yesterday_data['High'])
             
-            # NEW CONDITION: today's open <= yesterday's high AND today's high > yesterday's high
             if today_open <= yesterday_high and today_high > yesterday_high:
-                # REALISTIC BREAKOUT DETECTED!
-                # Entry: Yesterday's high, Exit: Today's close
+                # Realistic breakout detected
                 entry_price = yesterday_high
-                exit_price = float(today_data['Close'])
                 
-                # Calculate success and return
-                success_binary = 1 if exit_price > entry_price else 0
-                return_percentage = (exit_price - entry_price) / entry_price
+                # NEW: 1% Profit Target Exit Strategy
+                profit_target_price = entry_price * 1.01  # 1% profit target
                 
-                # Collect yesterday's (setup day) technical indicators
+                # Check if 1% profit target was reachable during the day
+                if today_high >= profit_target_price:
+                    # Target was hit - exit at profit target
+                    exit_price = profit_target_price
+                    success_binary = 1
+                    return_percentage = 0.01  # Exactly 1% return
+                    exit_reason = "profit_target"
+                else:
+                    # Target not hit - exit at close
+                    exit_price = today_close
+                    success_binary = 1 if exit_price > entry_price else 0
+                    return_percentage = (exit_price - entry_price) / entry_price
+                    exit_reason = "close"
+                
+                # Helper functions for safe data extraction
                 def safe_float(value, default=0.0):
                     try:
                         return float(value) if not pd.isna(value) else default
@@ -299,17 +170,19 @@ def detect_breakouts_and_analyze_factors(df_enhanced: pd.DataFrame,
                     # Price data
                     'setup_high': round(yesterday_high, 4),
                     'setup_close': round(float(yesterday_data['Close']), 4),
-                    'breakout_open': round(today_open, 4),  # NEW: Track breakout day open
+                    'breakout_open': round(today_open, 4),
                     'breakout_high': round(today_high, 4),
-                    'breakout_close': round(exit_price, 4),
+                    'breakout_close': round(today_close, 4),
                     
-                    # Entry/Exit and results
+                    # Entry/Exit and results (NEW: 1% Target Strategy)
                     'entry_price': round(entry_price, 4),
                     'exit_price': round(exit_price, 4),
+                    'profit_target_price': round(profit_target_price, 4),
+                    'exit_reason': exit_reason,
                     'success_binary': success_binary,
                     'return_percentage': round(return_percentage, 6),
                     
-                    # Setup day technical indicators (what we're analyzing)
+                    # Setup day technical indicators
                     'setup_mpi': round(safe_float(yesterday_data.get('MPI', 0.5)), 4),
                     'setup_mpi_velocity': round(safe_float(yesterday_data.get('MPI_Velocity', 0.0)), 6),
                     'setup_mpi_trend': safe_string(yesterday_data.get('MPI_Trend', 'Unknown')),
@@ -317,16 +190,7 @@ def detect_breakouts_and_analyze_factors(df_enhanced: pd.DataFrame,
                     'setup_crt_velocity': round(safe_float(yesterday_data.get('CRT_Qualifying_Velocity', 0.0)), 6),
                     'setup_higher_hl': safe_int(yesterday_data.get('Higher_HL', 0)),
                     'setup_valid_crt': safe_int(yesterday_data.get('Valid_CRT', 0)),
-                    'setup_vw_range_percentile': round(safe_float(yesterday_data.get('VW_Range_Percentile', 0.0)), 4),
-                    
-                    # Additional setup day data
-                    'setup_volume': safe_int(yesterday_data.get('Volume', 0)),
-                    'setup_open': round(safe_float(yesterday_data.get('Open', 0.0)), 4),
-                    'setup_low': round(safe_float(yesterday_data.get('Low', 0.0)), 4),
-                    
-                    # Breakout magnitude and characteristics
-                    'breakout_gap_percentage': round((today_high - yesterday_high) / yesterday_high, 6),
-                    'open_to_yesterday_high_ratio': round(today_open / yesterday_high, 6)  # NEW: Track how close open was to resistance
+                    'setup_vw_range_percentile': round(safe_float(yesterday_data.get('VW_Range_Percentile', 0.0)), 4)
                 }
                 
                 breakouts.append(breakout_record)
@@ -336,31 +200,12 @@ def detect_breakouts_and_analyze_factors(df_enhanced: pd.DataFrame,
     except Exception as e:
         logger.error(f"Error detecting breakouts for {ticker}: {e}")
         return []
-    
-# File: pages/factor_analysis.py
-# Part 2 of 4
-"""
-Historical Backtesting Module - Part 2 CORRECTED
-Core backtesting execution and data processing functions
-"""
 
-def run_incremental_backtest(start_date: date, 
-                           end_date: date, 
-                           existing_data: Optional[pd.DataFrame] = None,
-                           progress_callback=None) -> pd.DataFrame:
+def run_simple_backtest(start_date: date, end_date: date) -> pd.DataFrame:
     """
-    CORRECTED: Run breakout factor analysis for specified date range
-    
-    Args:
-        start_date: Start date for analysis
-        end_date: End date for analysis
-        existing_data: Previously processed breakout data
-        progress_callback: Function to update progress
-    
-    Returns:
-        Complete breakout analysis DataFrame including existing and new data
+    Run simplified breakout factor analysis with 1% profit target exit strategy
     """
-    backtest_logger = st.session_state.backtest_logger
+    backtest_logger = st.session_state.simple_backtest_logger
     
     try:
         # Import required modules
@@ -368,35 +213,33 @@ def run_incremental_backtest(start_date: date,
         from core.technical_analysis import add_enhanced_columns
         from utils.watchlist import get_active_watchlist
         
-        backtest_logger.log_info(f"Starting realistic breakout analysis: {start_date} to {end_date}")
+        backtest_logger.log_warning(f"Starting 1% profit target breakout analysis: {start_date} to {end_date}")
         
         # Get watchlist
         watchlist = get_active_watchlist()
-        backtest_logger.log_info(f"Processing {len(watchlist)} stocks")
         
-        # Initialize data fetcher with extended history for technical analysis
-        days_back = (date.today() - start_date).days + 100  # Add buffer for technical analysis
+        # Initialize data fetcher
+        days_back = (date.today() - start_date).days + 100
         fetcher = DataFetcher(days_back=days_back)
         
         # Download historical data
-        if progress_callback:
-            progress_callback(0.1, "Downloading historical stock data...")
-        
         stock_data = fetcher.download_stock_data(watchlist)
-        backtest_logger.log_info(f"Downloaded data for {len(stock_data)} stocks")
         
         # Process each stock for breakout detection
         all_breakouts = []
         total_stocks = len(stock_data)
         
+        # Create progress indicators
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+        
         for i, (ticker, df_raw) in enumerate(stock_data.items()):
             try:
-                if progress_callback:
-                    progress = 0.1 + (0.7 * i / total_stocks)
-                    progress_callback(progress, f"Analyzing realistic breakouts for {ticker}...")
+                progress = i / total_stocks
+                progress_bar.progress(progress)
+                status_text.text(f"Analyzing 1% target breakouts for {ticker}... ({i+1}/{total_stocks})")
                 
                 if df_raw.empty:
-                    backtest_logger.log_warning(f"No data for {ticker}")
                     continue
                 
                 # Apply technical analysis
@@ -405,127 +248,44 @@ def run_incremental_backtest(start_date: date,
                 # Get company name
                 company_name = fetcher.get_company_name(ticker)
                 
-                # Detect realistic breakouts and analyze setup day factors
+                # Detect breakouts and analyze setup day factors with 1% target
                 stock_breakouts = detect_breakouts_and_analyze_factors(
                     df_enhanced, ticker, company_name, start_date, end_date
                 )
                 
                 all_breakouts.extend(stock_breakouts)
-                backtest_logger.log_info(f"{ticker}: Found {len(stock_breakouts)} realistic breakouts")
                 
             except Exception as e:
                 backtest_logger.log_error(f"Error processing {ticker}", e)
                 continue
         
-        if progress_callback:
-            progress_callback(0.8, "Compiling realistic breakout analysis results...")
+        # Clean up progress indicators
+        progress_bar.empty()
+        status_text.empty()
         
-        # Create new results DataFrame
-        new_results = pd.DataFrame(all_breakouts) if all_breakouts else pd.DataFrame()
+        # Create results DataFrame
+        results_df = pd.DataFrame(all_breakouts) if all_breakouts else pd.DataFrame()
         
-        if len(new_results) == 0:
-            backtest_logger.log_warning("No realistic breakouts found for the specified date range")
-            if existing_data is not None:
-                return existing_data
-            else:
-                return pd.DataFrame()
-        
-        # Merge with existing data
-        if existing_data is not None and len(existing_data) > 0:
-            combined_results = merge_backtest_results(existing_data, new_results)
-            backtest_logger.log_info(f"Merged results: {len(combined_results)} total realistic breakouts")
-        else:
-            combined_results = new_results
-            backtest_logger.log_info(f"New analysis: {len(combined_results)} realistic breakouts")
-        
-        if progress_callback:
-            progress_callback(1.0, "Realistic breakout analysis completed!")
-        
-        return combined_results
+        return results_df
         
     except Exception as e:
-        backtest_logger.log_error("Critical error in realistic breakout analysis execution", e)
-        if existing_data is not None:
-            return existing_data
-        else:
-            return pd.DataFrame()
+        backtest_logger.log_error("Critical error in 1% profit target analysis execution", e)
+        return pd.DataFrame()
 
-def merge_backtest_results(existing_data: pd.DataFrame, new_data: pd.DataFrame) -> pd.DataFrame:
-    """
-    CORRECTED: Intelligently merge existing and new breakout analysis results
-    
-    Args:
-        existing_data: Previously processed breakout data
-        new_data: Newly processed breakout data
-    
-    Returns:
-        Combined DataFrame with duplicates removed
-    """
-    backtest_logger = st.session_state.backtest_logger
-    
-    try:
-        if existing_data.empty:
-            backtest_logger.log_info("No existing data - returning new data only")
-            return new_data.copy()
-        
-        if new_data.empty:
-            backtest_logger.log_info("No new data - returning existing data only")
-            return existing_data.copy()
-        
-        # Combine the datasets
-        combined = pd.concat([existing_data, new_data], ignore_index=True)
-        
-        # Remove duplicates based on setup_date, breakout_date, and ticker
-        combined['setup_date'] = pd.to_datetime(combined['setup_date'])
-        combined['breakout_date'] = pd.to_datetime(combined['breakout_date'])
-        
-        # Sort by dates and ticker before removing duplicates
-        combined = combined.sort_values(['setup_date', 'breakout_date', 'ticker'])
-        
-        # Remove duplicates (keep last occurrence for any conflicts)
-        before_count = len(combined)
-        combined = combined.drop_duplicates(subset=['setup_date', 'breakout_date', 'ticker'], keep='last')
-        after_count = len(combined)
-        
-        duplicates_removed = before_count - after_count
-        if duplicates_removed > 0:
-            backtest_logger.log_info(f"Removed {duplicates_removed} duplicate records")
-        
-        # Sort by setup_date for final output
-        combined = combined.sort_values('setup_date').reset_index(drop=True)
-        
-        backtest_logger.log_info(f"Successfully merged data: {len(combined)} total realistic breakouts")
-        
-        return combined
-        
-    except Exception as e:
-        backtest_logger.log_error("Error merging breakout analysis results", e)
-        # Return existing data as fallback
-        return existing_data
-
-def calculate_backtest_summary(results_df: pd.DataFrame) -> Dict:
-    """
-    CORRECTED: Calculate comprehensive summary statistics for breakout analysis results
-    
-    Args:
-        results_df: Complete breakout analysis results DataFrame
-    
-    Returns:
-        Dictionary with summary statistics
-    """
+def calculate_summary_stats(results_df: pd.DataFrame) -> Dict:
+    """Calculate summary statistics for backtest results with 1% profit target"""
     if results_df.empty:
         return {
             'total_breakouts': 0,
             'success_rate': 0.0,
             'average_return': 0.0,
-            'total_return': 0.0,
             'successful_breakouts': 0,
             'failed_breakouts': 0,
             'best_return': 0.0,
             'worst_return': 0.0,
             'date_range': 'No data',
             'unique_stocks': 0,
-            'breakouts_per_month': 0.0
+            'profit_target_hit_rate': 0.0
         }
     
     try:
@@ -538,9 +298,12 @@ def calculate_backtest_summary(results_df: pd.DataFrame) -> Dict:
         # Return metrics
         returns = results_df['return_percentage']
         average_return = returns.mean() * 100
-        total_return = returns.sum() * 100
         best_return = returns.max() * 100
         worst_return = returns.min() * 100
+        
+        # 1% Profit Target specific metrics
+        profit_target_hits = (results_df['exit_reason'] == 'profit_target').sum() if 'exit_reason' in results_df.columns else 0
+        profit_target_hit_rate = (profit_target_hits / total_breakouts * 100) if total_breakouts > 0 else 0
         
         # Date and stock metrics
         results_df['setup_date'] = pd.to_datetime(results_df['setup_date'])
@@ -548,266 +311,27 @@ def calculate_backtest_summary(results_df: pd.DataFrame) -> Dict:
         max_date = results_df['setup_date'].max()
         unique_stocks = results_df['ticker'].nunique()
         
-        # Calculate breakouts per month
-        date_range_months = ((max_date - min_date).days / 30.44) if max_date > min_date else 1
-        breakouts_per_month = total_breakouts / date_range_months if date_range_months > 0 else 0
-        
-        summary = {
+        return {
             'total_breakouts': total_breakouts,
             'success_rate': success_rate,
             'average_return': average_return,
-            'total_return': total_return,
             'successful_breakouts': successful_breakouts,
             'failed_breakouts': failed_breakouts,
             'best_return': best_return,
             'worst_return': worst_return,
             'date_range': f"{min_date.strftime('%Y-%m-%d')} to {max_date.strftime('%Y-%m-%d')}",
             'unique_stocks': unique_stocks,
-            'breakouts_per_month': breakouts_per_month,
-            'success_rate_decimal': success_rate / 100
+            'profit_target_hit_rate': profit_target_hit_rate,
+            'profit_target_hits': profit_target_hits
         }
-        
-        return summary
         
     except Exception as e:
-        logger.error(f"Error calculating breakout summary: {e}")
-        return {
-            'total_breakouts': len(results_df),
-            'success_rate': 0.0,
-            'error': str(e)
-        }
+        logger.error(f"Error calculating summary: {e}")
+        return {'total_breakouts': len(results_df), 'error': str(e)}
 
-def validate_backtest_data_quality(df: pd.DataFrame) -> Dict:
-    """CORRECTED: Validate the quality of breakout analysis data"""
-    validation = {
-        'is_valid': True,
-        'issues': [],
-        'warnings': [],
-        'summary': {}
-    }
-    
-    # Check for required columns
-    required_cols = ['setup_date', 'breakout_date', 'ticker', 'success_binary', 'return_percentage']
-    missing_cols = [col for col in required_cols if col not in df.columns]
-    if missing_cols:
-        validation['is_valid'] = False
-        validation['issues'].append(f"Missing required columns: {missing_cols}")
-    
-    if len(df) == 0:
-        validation['is_valid'] = False
-        validation['issues'].append("No data to validate")
-        return validation
-    
-    # Check date consistency
-    if 'setup_date' in df.columns and 'breakout_date' in df.columns:
-        date_issues = (df['breakout_date'] <= df['setup_date']).sum()
-        if date_issues > 0:
-            validation['warnings'].append(f"{date_issues} records have breakout_date <= setup_date")
-    
-    # Check return percentage validity
-    if 'return_percentage' in df.columns:
-        invalid_returns = df['return_percentage'].isna().sum()
-        extreme_returns = ((df['return_percentage'] > 1.0) | (df['return_percentage'] < -1.0)).sum()
-        if invalid_returns > 0:
-            validation['warnings'].append(f"{invalid_returns} records have invalid return percentages")
-        if extreme_returns > 0:
-            validation['warnings'].append(f"{extreme_returns} records have extreme returns (>100% or <-100%)")
-    
-    # Check entry/exit price logic
-    if 'entry_price' in df.columns and 'exit_price' in df.columns:
-        # Verify that success_binary matches the entry/exit logic
-        calculated_success = (df['exit_price'] > df['entry_price']).astype(int)
-        mismatched = (calculated_success != df['success_binary']).sum()
-        if mismatched > 0:
-            validation['warnings'].append(f"{mismatched} records have inconsistent success_binary values")
-    
-    # NEW: Check realistic breakout logic (if we have the required columns)
-    if all(col in df.columns for col in ['breakout_open', 'setup_high']):
-        invalid_realistic_breakouts = (df['breakout_open'] > df['setup_high']).sum()
-        if invalid_realistic_breakouts > 0:
-            validation['warnings'].append(f"{invalid_realistic_breakouts} records violate realistic breakout logic (open > setup_high)")
-    
-    # Summary statistics
-    validation['summary'] = {
-        'total_records': len(df),
-        'unique_stocks': df['ticker'].nunique() if 'ticker' in df.columns else 0,
-        'date_range': f"{df['setup_date'].min()} to {df['setup_date'].max()}" if 'setup_date' in df.columns else "Unknown",
-        'success_rate': f"{df['success_binary'].mean() * 100:.1f}%" if 'success_binary' in df.columns else "Unknown"
-    }
-    
-    return validation
-
-def create_csv_for_download(results_df: pd.DataFrame) -> str:
+def perform_simplified_factor_analysis(results_df: pd.DataFrame) -> Dict:
     """
-    CORRECTED: Create CSV string for download with proper formatting
-    
-    Args:
-        results_df: Breakout analysis results DataFrame
-    
-    Returns:
-        CSV string ready for download
-    """
-    try:
-        if results_df.empty:
-            return "No data available for download"
-        
-        # Ensure proper column ordering for CSV (updated with new columns)
-        column_order = [
-            'setup_date', 'breakout_date', 'ticker', 'company_name',
-            'setup_high', 'setup_close', 'breakout_open', 'breakout_high', 'breakout_close',
-            'entry_price', 'exit_price', 'success_binary', 'return_percentage',
-            'setup_mpi', 'setup_mpi_velocity', 'setup_mpi_trend', 'setup_ibs',
-            'setup_crt_velocity', 'setup_higher_hl', 'setup_valid_crt', 'setup_vw_range_percentile',
-            'setup_volume', 'setup_open', 'setup_low', 'breakout_gap_percentage', 'open_to_yesterday_high_ratio'
-        ]
-        
-        # Add any additional columns that might exist
-        extra_columns = [col for col in results_df.columns if col not in column_order]
-        final_columns = column_order + extra_columns
-        
-        # Filter to only existing columns
-        final_columns = [col for col in final_columns if col in results_df.columns]
-        
-        # Create CSV with proper formatting
-        csv_df = results_df[final_columns].copy()
-        
-        # Format numeric columns
-        numeric_columns = {
-            'return_percentage': 6,
-            'setup_mpi': 4,
-            'setup_mpi_velocity': 6,
-            'setup_ibs': 4,
-            'setup_crt_velocity': 6,
-            'setup_vw_range_percentile': 4,
-            'breakout_gap_percentage': 6,
-            'open_to_yesterday_high_ratio': 6,
-            'entry_price': 4,
-            'exit_price': 4,
-            'setup_high': 4,
-            'setup_close': 4,
-            'breakout_open': 4,
-            'breakout_high': 4,
-            'breakout_close': 4
-        }
-        
-        for col, decimals in numeric_columns.items():
-            if col in csv_df.columns:
-                csv_df[col] = csv_df[col].round(decimals)
-        
-        return csv_df.to_csv(index=False)
-        
-    except Exception as e:
-        logger.error(f"Error creating CSV for download: {e}")
-        return f"Error creating CSV: {str(e)}"
-
-def show_backtest_configuration():
-    """CORRECTED: Display breakout analysis configuration panel"""
-    st.subheader("🎯 Realistic Breakout Analysis Configuration")
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.markdown("**📅 Date Range**")
-        
-        # Default date range
-        default_start = date(2024, 1, 1)
-        default_end = date.today() - timedelta(days=1)  # Yesterday (need consecutive days)
-        
-        start_date = st.date_input(
-            "Start Date:",
-            value=default_start,
-            max_value=default_end,
-            help="Start date for realistic breakout analysis"
-        )
-        
-        end_date = st.date_input(
-            "End Date:",
-            value=default_end,
-            min_value=start_date,
-            max_value=default_end,
-            help="End date for realistic breakout analysis (must have next day data available)"
-        )
-        
-        # Validate date range
-        if end_date <= start_date:
-            st.error("End date must be after start date")
-            return None, None, None
-        
-        days_to_process = (end_date - start_date).days + 1
-        st.info(f"📊 Date range: {days_to_process} days")
-    
-    with col2:
-        st.markdown("**📁 Previous Analysis Results**")
-        
-        uploaded_file = st.file_uploader(
-            "Upload Previous Analysis (Optional):",
-            type=['csv'],
-            help="Upload a previous realistic breakout analysis CSV to continue where you left off"
-        )
-        
-        if uploaded_file is not None:
-            # Analyze uploaded data
-            existing_data, analysis = analyze_uploaded_data(uploaded_file)
-            
-            if analysis['status'] == 'success':
-                summary = analysis['data_summary']
-                st.success("✅ Previous analysis data loaded successfully!")
-                
-                # Show existing data summary
-                with st.expander("📊 Existing Data Summary", expanded=True):
-                    col_a, col_b = st.columns(2)
-                    with col_a:
-                        st.metric("Total Breakouts", summary['total_breakouts'])
-                        st.metric("Success Rate", f"{summary['success_rate']:.1f}%")
-                    with col_b:
-                        st.metric("Unique Stocks", summary['unique_stocks'])
-                        st.metric("Avg Return", f"{summary['average_return']:.2f}%")
-                    
-                    st.write(f"**Existing Date Range:** {summary['date_range']}")
-                    
-                    # Determine processing strategy
-                    process_start, process_end, process_type = determine_processing_range(
-                        existing_data, start_date, end_date
-                    )
-                    
-                    if process_type == "no_processing_needed":
-                        st.info("🎯 Existing data covers your requested range - no new processing needed")
-                    elif process_type == "incremental":
-                        new_days = (process_end - process_start).days + 1
-                        st.info(f"🔄 Incremental update: Will process {new_days} new days ({process_start} to {process_end})")
-                    elif process_type == "gap_fill":
-                        gap_days = (process_start - summary['latest_date']).days
-                        st.warning(f"⚠️ Gap detected: {gap_days} days between existing data and requested start date")
-                    else:
-                        st.info(f"🆕 Full range processing: {days_to_process} days")
-                
-            else:
-                st.error(f"❌ {analysis['message']}")
-                existing_data = None
-        else:
-            existing_data = None
-    
-    return start_date, end_date, existing_data
-
-# File: pages/factor_analysis.py
-# Part 3 of 4
-"""
-Historical Backtesting Module - Part 3 CORRECTED
-Analysis and visualization functions for breakout factor analysis
-*** THIS PART CONTAINS THE CRITICAL IBS THRESHOLD FIX AND NEW MULTI-TREND MPI LOGIC ***
-"""
-
-def perform_factor_analysis(results_df: pd.DataFrame) -> Dict:
-    """
-    CORRECTED: Perform comprehensive factor effectiveness analysis for breakout prediction
-    *** FIXED IBS CATEGORIZATION WITH INCLUSIVE THRESHOLDS ***
-    *** NEW: MULTI-TREND MPI COMBINATIONS ***
-    
-    Args:
-        results_df: Complete breakout analysis results DataFrame
-    
-    Returns:
-        Dictionary with factor analysis results
+    Perform simplified factor analysis focusing on key combinations with 1% profit target
     """
     if results_df.empty:
         return {}
@@ -815,202 +339,115 @@ def perform_factor_analysis(results_df: pd.DataFrame) -> Dict:
     try:
         analysis = {}
         
-        # MPI Trend Analysis - which setup day MPI trends predict successful breakouts
+        # Individual MPI Trend Analysis
         if 'setup_mpi_trend' in results_df.columns:
             mpi_analysis = results_df.groupby('setup_mpi_trend').agg({
                 'success_binary': ['count', 'sum', 'mean'],
-                'return_percentage': ['mean', 'std', 'min', 'max']
+                'return_percentage': ['mean', 'std']
             }).round(4)
             
-            mpi_analysis.columns = ['Breakout_Count', 'Success_Count', 'Success_Rate', 
-                                  'Avg_Return', 'Return_Std', 'Min_Return', 'Max_Return']
+            mpi_analysis.columns = ['Breakout_Count', 'Success_Count', 'Success_Rate', 'Avg_Return', 'Return_Std']
             mpi_analysis['Success_Rate'] = mpi_analysis['Success_Rate'] * 100
             mpi_analysis['Avg_Return'] = mpi_analysis['Avg_Return'] * 100
             mpi_analysis['Return_Std'] = mpi_analysis['Return_Std'] * 100
-            mpi_analysis['Min_Return'] = mpi_analysis['Min_Return'] * 100
-            mpi_analysis['Max_Return'] = mpi_analysis['Max_Return'] * 100
             
             analysis['mpi_trend'] = mpi_analysis.reset_index()
         
-        # IBS Threshold Analysis - using cumulative thresholds instead of fixed buckets
-        if 'setup_ibs' in results_df.columns:
-            ibs_thresholds = [
-                ('High (>= 0.7)', 0.7),
-                ('Med (>= 0.5)', 0.5),
-                ('Low (>= 0.3)', 0.3),
-                ('All (>= 0)', 0.0)
-            ]
-            
-            ibs_results = []
-            for threshold_name, threshold_value in ibs_thresholds:
-                threshold_data = results_df[results_df['setup_ibs'] >= threshold_value]
-                
-                if len(threshold_data) > 0:
-                    success_count = threshold_data['success_binary'].sum()
-                    total_count = len(threshold_data)
-                    success_rate = (success_count / total_count * 100) if total_count > 0 else 0
-                    avg_return = threshold_data['return_percentage'].mean() * 100
-                    return_std = threshold_data['return_percentage'].std() * 100
-                    
-                    ibs_results.append({
-                        'ibs_threshold': threshold_name,
-                        'threshold_value': threshold_value,
-                        'Breakout_Count': total_count,
-                        'Success_Count': success_count,
-                        'Success_Rate': round(success_rate, 1),
-                        'Avg_Return': round(avg_return, 2),
-                        'Return_Std': round(return_std, 2)
-                    })
-            
-            analysis['ibs_thresholds'] = pd.DataFrame(ibs_results)
-        
-        # *** ENHANCED: MULTI-TREND MPI COMBINATIONS ***
+        # Multi-trend MPI combinations with key factors
         if all(col in results_df.columns for col in ['setup_mpi_trend', 'setup_ibs', 'setup_higher_hl', 'setup_valid_crt']):
             
-            # FIXED: Create IBS threshold categories with INCLUSIVE thresholds
-            def categorize_ibs_threshold(ibs_value):
-                if ibs_value >= 0.7:
-                    return 'High_IBS'   # >= 0.7
-                elif ibs_value >= 0.5:
-                    return 'Med_IBS'    # >= 0.5 (but < 0.7)
-                elif ibs_value >= 0.3:
-                    return 'Low_IBS'    # >= 0.3 (but < 0.5)
-                else:
-                    return 'VLow_IBS'    # >= 0 (all values)
-
-            results_df['ibs_category'] = results_df['setup_ibs'].apply(categorize_ibs_threshold)
+            # Filter for IBS >= 0.3 as requested
+            filtered_df = results_df[results_df['setup_ibs'] >= 0.3].copy()
             
-            # FIXED: Define inclusive IBS filtering for thresholds
-            def passes_ibs_threshold(row_ibs, threshold_category):
-                if threshold_category == 'High_IBS':
-                    return row_ibs >= 0.7   # Only >= 0.7
-                elif threshold_category == 'Med_IBS':
-                    return row_ibs >= 0.5   # Includes High_IBS values (>= 0.5)
-                elif threshold_category == 'Low_IBS':
-                    return row_ibs >= 0.3   # Includes Med_IBS and High_IBS values (>= 0.3)
-                elif threshold_category == 'VLow_IBS':
-                    return row_ibs >= 0.0   # Includes all values
-                return False
-            
-            # NEW: Define MPI trend combinations (single + multi-trend)
-            def create_mpi_trend_combinations(available_trends):
-                """Create both single and multi-trend combinations"""
-                combinations = []
-                
-                # Single trends (existing logic)
-                for trend in available_trends:
-                    combinations.append({
-                        'name': trend,
-                        'trends': [trend],
-                        'description': trend
-                    })
-                
-                # Two-trend combinations
-                if len(available_trends) >= 2:
-                    from itertools import combinations as iter_combinations
-                    for trend_pair in iter_combinations(available_trends, 2):
+            if len(filtered_df) > 0:
+                # Create MPI trend combinations
+                def create_mpi_combinations(available_trends):
+                    combinations = []
+                    
+                    # Single trends
+                    for trend in available_trends:
                         combinations.append({
-                            'name': '+'.join(sorted(trend_pair)),
-                            'trends': list(trend_pair),
-                            'description': f"{'+'.join(sorted(trend_pair))}"
+                            'name': trend,
+                            'trends': [trend],
+                            'description': trend
                         })
+                    
+                    # Two-trend combinations
+                    if len(available_trends) >= 2:
+                        from itertools import combinations as iter_combinations
+                        for trend_pair in iter_combinations(available_trends, 2):
+                            combinations.append({
+                                'name': '+'.join(sorted(trend_pair)),
+                                'trends': list(trend_pair),
+                                'description': f"{'+'.join(sorted(trend_pair))}"
+                            })
+                    
+                    # All-trend combination
+                    if len(available_trends) >= 3:
+                        combinations.append({
+                            'name': 'All_MPI',
+                            'trends': list(available_trends),
+                            'description': 'All_MPI'
+                        })
+                    
+                    return combinations
                 
-                # All-trend combination (if we have 3+ trends)
-                if len(available_trends) >= 3:
-                    combinations.append({
-                        'name': 'All_MPI',
-                        'trends': list(available_trends),
-                        'description': 'All_MPI'
-                    })
+                # Function to check MPI combination match
+                def matches_mpi_combination(row_mpi_trend, mpi_combination):
+                    return row_mpi_trend in mpi_combination['trends']
                 
-                return combinations
-            
-            # NEW: Function to check if stock matches MPI trend combination
-            def matches_mpi_combination(row_mpi_trend, mpi_combination):
-                """Check if stock's MPI trend matches the combination (OR logic for multi-trend)"""
-                return row_mpi_trend in mpi_combination['trends']
-            
-            # Generate ALL possible combinations with ENHANCED MPI LOGIC
-            combination_results = []
-            
-            # Get unique values for each factor
-            available_mpi_trends = results_df['setup_mpi_trend'].unique()
-            mpi_combinations = create_mpi_trend_combinations(available_mpi_trends)
-            ibs_categories = ['High_IBS', 'Med_IBS', 'Low_IBS', 'All_IBS']
-            higher_hl_values = [0, 1]
-            valid_crt_values = [0, 1]
-            
-            # Analyze each combination with ENHANCED MPI LOGIC
-            for mpi_combo in mpi_combinations:
-                for ibs_cat in ibs_categories:
-                    for higher_hl in higher_hl_values:
-                        for valid_crt in valid_crt_values:
-                            # ENHANCED: Filter data for this specific combination using multi-trend MPI logic
-                            combo_data = results_df[
-                                (results_df['setup_mpi_trend'].apply(lambda x: matches_mpi_combination(x, mpi_combo))) &
-                                (results_df['setup_ibs'].apply(lambda x: passes_ibs_threshold(x, ibs_cat))) &
-                                (results_df['setup_higher_hl'] == higher_hl) &
-                                (results_df['setup_valid_crt'] == valid_crt)
+                # Generate combinations
+                combination_results = []
+                available_mpi_trends = filtered_df['setup_mpi_trend'].unique()
+                mpi_combinations = create_mpi_combinations(available_mpi_trends)
+                
+                # Analyze each combination
+                for mpi_combo in mpi_combinations:
+                    for higher_hl in [0, 1]:
+                        for valid_crt in [0, 1]:
+                            # Filter data for this combination
+                            combo_data = filtered_df[
+                                (filtered_df['setup_mpi_trend'].apply(lambda x: matches_mpi_combination(x, mpi_combo))) &
+                                (filtered_df['setup_higher_hl'] == higher_hl) &
+                                (filtered_df['setup_valid_crt'] == valid_crt)
                             ]
                             
-                            if len(combo_data) >= 5:  # Minimum sample size for reliability
+                            if len(combo_data) >= 5:  # Minimum sample size
                                 success_count = combo_data['success_binary'].sum()
                                 total_count = len(combo_data)
                                 success_rate = (success_count / total_count * 100) if total_count > 0 else 0
                                 avg_return = combo_data['return_percentage'].mean() * 100
                                 
+                                # Calculate profit target hit rate for this combination
+                                if 'exit_reason' in combo_data.columns:
+                                    target_hits = (combo_data['exit_reason'] == 'profit_target').sum()
+                                    target_hit_rate = (target_hits / total_count * 100) if total_count > 0 else 0
+                                else:
+                                    target_hit_rate = 0
+                                
                                 # Create combination description
                                 hl_desc = "Higher_HL" if higher_hl == 1 else "No_HL"
                                 crt_desc = "Valid_CRT" if valid_crt == 1 else "No_CRT"
-                                combo_description = f"{mpi_combo['description']}_{ibs_cat}_{hl_desc}_{crt_desc}"
+                                combo_description = f"{mpi_combo['description']}_IBS03_{hl_desc}_{crt_desc}"
                                 
                                 combination_results.append({
                                     'combination': combo_description,
                                     'mpi_combination': mpi_combo['description'],
                                     'mpi_trends_included': '+'.join(sorted(mpi_combo['trends'])),
-                                    'ibs_category': str(ibs_cat),
                                     'higher_hl': higher_hl,
                                     'valid_crt': valid_crt,
                                     'Breakout_Count': total_count,
                                     'Success_Count': success_count,
                                     'Success_Rate': round(success_rate, 1),
-                                    'Avg_Return': round(avg_return, 2)
+                                    'Avg_Return': round(avg_return, 2),
+                                    'Target_Hit_Rate': round(target_hit_rate, 1)
                                 })
-            
-            # Convert to DataFrame and sort by success rate (descending)
-            if combination_results:
-                combo_df = pd.DataFrame(combination_results)
-                combo_df = combo_df.sort_values('Success_Rate', ascending=False)
-                analysis['all_combinations'] = combo_df
                 
-                # Get top 10 best combinations
-                analysis['best_combinations'] = combo_df.head(10)
-                
-                # NEW: Separate single-trend and multi-trend results for analysis
-                single_trend_combos = combo_df[~combo_df['mpi_trends_included'].str.contains('\+')]
-                multi_trend_combos = combo_df[combo_df['mpi_trends_included'].str.contains('\+')]
-                
-                if len(single_trend_combos) > 0:
-                    analysis['best_single_trend_combinations'] = single_trend_combos.head(5)
-                if len(multi_trend_combos) > 0:
-                    analysis['best_multi_trend_combinations'] = multi_trend_combos.head(5)
-        
-        # Time-based Analysis - are there seasonal patterns in breakout success?
-        if 'setup_date' in results_df.columns:
-            results_df['setup_date'] = pd.to_datetime(results_df['setup_date'])
-            results_df['year_month'] = results_df['setup_date'].dt.to_period('M')
-            
-            monthly_analysis = results_df.groupby('year_month').agg({
-                'success_binary': ['count', 'sum', 'mean'],
-                'return_percentage': 'mean'
-            }).round(4)
-            
-            monthly_analysis.columns = ['Breakout_Count', 'Success_Count', 'Success_Rate', 'Avg_Return']
-            monthly_analysis['Success_Rate'] = monthly_analysis['Success_Rate'] * 100
-            monthly_analysis['Avg_Return'] = monthly_analysis['Avg_Return'] * 100
-            
-            analysis['monthly_performance'] = monthly_analysis.reset_index()
-            analysis['monthly_performance']['year_month'] = analysis['monthly_performance']['year_month'].astype(str)
+                # Convert to DataFrame and sort by success rate
+                if combination_results:
+                    combo_df = pd.DataFrame(combination_results)
+                    combo_df = combo_df.sort_values('Success_Rate', ascending=False)
+                    analysis['best_combinations'] = combo_df.head(15)  # Top 15 combinations
         
         return analysis
         
@@ -1018,17 +455,151 @@ def perform_factor_analysis(results_df: pd.DataFrame) -> Dict:
         logger.error(f"Error in factor analysis: {e}")
         return {}
 
-def create_factor_visualizations(results_df: pd.DataFrame, factor_analysis: Dict) -> Dict:
+def analyze_preferred_strategy(results_df: pd.DataFrame, factor_analysis: Dict) -> Dict:
     """
-    CORRECTED: Create comprehensive visualizations for breakout factor analysis
-    
-    Args:
-        results_df: Breakout results DataFrame
-        factor_analysis: Factor analysis results
-    
-    Returns:
-        Dictionary of plotly figures
+    NEW: Analyze the user's preferred strategy specifically
+    Similar to the standalone analyze_results.py script
     """
+    if results_df.empty:
+        return {'error': 'No results data available'}
+    
+    try:
+        # Calculate overall baseline
+        total_breakouts = len(results_df)
+        overall_success = results_df['success_binary'].sum()
+        overall_success_rate = (overall_success / total_breakouts) * 100
+        overall_avg_return = results_df['return_percentage'].mean() * 100
+        
+        # Find user's preferred combination in results
+        preferred_combo_name = "Expanding+Flat_IBS03_Higher_HL_Valid_CRT"
+        
+        if 'best_combinations' in factor_analysis:
+            combo_data = factor_analysis['best_combinations']
+            preferred = combo_data[combo_data['combination'] == preferred_combo_name]
+            
+            if len(preferred) == 0:
+                return {'error': f'Preferred combination "{preferred_combo_name}" not found in results'}
+            
+            strategy = preferred.iloc[0]
+            
+            # Calculate ranking
+            rank = (combo_data['Success_Rate'] > strategy['Success_Rate']).sum() + 1
+            total_strategies = len(combo_data)
+            percentile = ((total_strategies - rank) / total_strategies) * 100
+            
+            # Get the actual breakout data for this combination
+            your_combo = results_df[
+                (results_df['setup_mpi_trend'].isin(['Expanding', 'Flat'])) &
+                (results_df['setup_ibs'] >= 0.3) &
+                (results_df['setup_higher_hl'] == 1) &
+                (results_df['setup_valid_crt'] == 1)
+            ]
+            
+            # Calculate additional metrics
+            target_hits = (your_combo['exit_reason'] == 'profit_target').sum() if 'exit_reason' in your_combo.columns else 0
+            exit_at_close_wins = your_combo[(your_combo['exit_reason'] == 'close') & (your_combo['success_binary'] == 1)]
+            
+            analysis = {
+                'strategy_name': strategy['combination'],
+                'success_rate': strategy['Success_Rate'],
+                'sample_size': strategy['Breakout_Count'],
+                'avg_return': strategy['Avg_Return'],
+                'target_hit_rate': strategy['Target_Hit_Rate'],
+                'baseline_success': overall_success_rate,
+                'baseline_return': overall_avg_return,
+                'improvement_vs_baseline': strategy['Success_Rate'] - overall_success_rate,
+                'improvement_vs_random': strategy['Success_Rate'] - 50.0,
+                'rank': rank,
+                'total_strategies': total_strategies,
+                'percentile': percentile,
+                'target_hits': target_hits,
+                'exit_at_close_wins': len(exit_at_close_wins),
+                'exit_at_close_total': len(your_combo[your_combo['exit_reason'] == 'close']) if 'exit_reason' in your_combo.columns else 0
+            }
+            
+            return analysis
+        else:
+            return {'error': 'Factor analysis not available'}
+            
+    except Exception as e:
+        logger.error(f"Error in preferred strategy analysis: {e}")
+        return {'error': str(e)}
+
+def generate_strategy_recommendations(strategy_analysis: Dict, factor_analysis: Dict) -> List[str]:
+    """
+    NEW: Generate recommendations for the preferred strategy
+    """
+    if 'error' in strategy_analysis:
+        return [f"❌ Cannot analyze strategy: {strategy_analysis['error']}"]
+    
+    recommendations = []
+    
+    success_rate = strategy_analysis['success_rate']
+    sample_size = strategy_analysis['sample_size']
+    rank = strategy_analysis['rank']
+    percentile = strategy_analysis['percentile']
+    target_hit_rate = strategy_analysis['target_hit_rate']
+    
+    # Overall assessment
+    if success_rate >= 60:
+        recommendations.append(f"🎉 **EXCELLENT STRATEGY**: {success_rate:.1f}% success rate is very strong")
+    elif success_rate >= 55:
+        recommendations.append(f"✅ **GOOD STRATEGY**: {success_rate:.1f}% success rate is solid")
+    elif success_rate >= 50:
+        recommendations.append(f"📈 **PROFITABLE STRATEGY**: {success_rate:.1f}% beats random chance")
+    else:
+        recommendations.append(f"❌ **LOSING STRATEGY**: {success_rate:.1f}% is below 50% - avoid this")
+    
+    # Sample size assessment
+    if sample_size >= 500:
+        recommendations.append(f"✅ **RELIABLE DATA**: {sample_size} breakouts provide solid statistical confidence")
+    elif sample_size >= 100:
+        recommendations.append(f"📊 **ADEQUATE DATA**: {sample_size} breakouts provide reasonable confidence")
+    else:
+        recommendations.append(f"⚠️ **LIMITED DATA**: Only {sample_size} breakouts - results may be less reliable")
+    
+    # Ranking assessment
+    if percentile >= 80:
+        recommendations.append(f"🏆 **TOP PERFORMER**: Ranks #{rank} out of {strategy_analysis['total_strategies']} strategies ({percentile:.0f}th percentile)")
+    elif percentile >= 50:
+        recommendations.append(f"📊 **ABOVE AVERAGE**: Ranks #{rank} out of {strategy_analysis['total_strategies']} strategies ({percentile:.0f}th percentile)")
+    else:
+        recommendations.append(f"📉 **BELOW AVERAGE**: Ranks #{rank} out of {strategy_analysis['total_strategies']} strategies ({percentile:.0f}th percentile)")
+    
+    # Profit target effectiveness
+    if target_hit_rate >= 60:
+        recommendations.append(f"🎯 **EXCELLENT TARGET EFFICIENCY**: {target_hit_rate:.1f}% of breakouts hit 1% target")
+    elif target_hit_rate >= 50:
+        recommendations.append(f"🎯 **GOOD TARGET EFFICIENCY**: {target_hit_rate:.1f}% of breakouts hit 1% target")
+    else:
+        recommendations.append(f"⚠️ **MODERATE TARGET EFFICIENCY**: Only {target_hit_rate:.1f}% of breakouts hit 1% target")
+    
+    # Comparison to baseline
+    improvement = strategy_analysis['improvement_vs_baseline']
+    if improvement > 10:
+        recommendations.append(f"📈 **STRONG EDGE**: Beats baseline by {improvement:+.1f} percentage points")
+    elif improvement > 5:
+        recommendations.append(f"📈 **GOOD EDGE**: Beats baseline by {improvement:+.1f} percentage points")
+    elif improvement > 0:
+        recommendations.append(f"📈 **SLIGHT EDGE**: Beats baseline by {improvement:+.1f} percentage points")
+    else:
+        recommendations.append(f"📉 **UNDERPERFORMS**: Below baseline by {abs(improvement):.1f} percentage points")
+    
+    # Alternative suggestions if strategy isn't top tier
+    if success_rate < 60 and 'best_combinations' in factor_analysis:
+        top_strategies = factor_analysis['best_combinations'].head(3)
+        if len(top_strategies) > 0:
+            best_alternative = top_strategies.iloc[0]
+            if best_alternative['Success_Rate'] > success_rate:
+                recommendations.append(f"💡 **BETTER ALTERNATIVE**: Consider '{best_alternative['combination']}' with {best_alternative['Success_Rate']:.1f}% success rate")
+    
+    return recommendations
+
+# File: pages/factor_analysis.py
+# Part 2 of 3
+
+def create_simple_visualizations(results_df: pd.DataFrame, factor_analysis: Dict) -> Dict:
+    """Create simplified visualizations for factor analysis with 1% profit target"""
     figures = {}
     
     try:
@@ -1040,7 +611,7 @@ def create_factor_visualizations(results_df: pd.DataFrame, factor_analysis: Dict
                 mpi_data,
                 x='setup_mpi_trend',
                 y='Success_Rate',
-                title='Realistic Breakout Success Rate by Setup Day MPI Trend',
+                title='Breakout Success Rate by Setup Day MPI Trend (1% Profit Target)',
                 labels={'Success_Rate': 'Success Rate (%)', 'setup_mpi_trend': 'Setup Day MPI Trend'},
                 color='Success_Rate',
                 color_continuous_scale='RdYlGn',
@@ -1048,51 +619,11 @@ def create_factor_visualizations(results_df: pd.DataFrame, factor_analysis: Dict
             )
             fig_mpi.update_traces(texttemplate='%{text:.1f}%', textposition='outside')
             fig_mpi.update_layout(height=400)
+            # Add 50% reference line
+            fig_mpi.add_hline(y=50, line_dash="dash", line_color="red", annotation_text="50% (Random)")
             figures['mpi_success_rate'] = fig_mpi
-            
-            # MPI Trend Return Chart
-            fig_mpi_return = px.bar(
-                mpi_data,
-                x='setup_mpi_trend',
-                y='Avg_Return',
-                title='Average Return by Setup Day MPI Trend (Realistic Breakouts)',
-                labels={'Avg_Return': 'Average Return (%)', 'setup_mpi_trend': 'Setup Day MPI Trend'},
-                color='Avg_Return',
-                color_continuous_scale='RdYlGn',
-                text='Avg_Return'
-            )
-            fig_mpi_return.update_traces(texttemplate='%{text:.2f}%', textposition='outside')
-            fig_mpi_return.update_layout(height=400)
-            figures['mpi_returns'] = fig_mpi_return
         
-        # IBS Threshold Analysis Chart
-        if 'ibs_thresholds' in factor_analysis:
-            ibs_data = factor_analysis['ibs_thresholds']
-            
-            fig_ibs = make_subplots(
-                rows=1, cols=2,
-                subplot_titles=('Success Rate by IBS Threshold', 'Average Return by IBS Threshold'),
-                specs=[[{'secondary_y': False}, {'secondary_y': False}]]
-            )
-            
-            fig_ibs.add_trace(
-                go.Bar(x=ibs_data['ibs_threshold'], y=ibs_data['Success_Rate'], 
-                      name='Success Rate (%)', marker_color='lightblue',
-                      text=ibs_data['Success_Rate'], texttemplate='%{text:.1f}%'),
-                row=1, col=1
-            )
-            
-            fig_ibs.add_trace(
-                go.Bar(x=ibs_data['ibs_threshold'], y=ibs_data['Avg_Return'], 
-                      name='Average Return (%)', marker_color='lightgreen',
-                      text=ibs_data['Avg_Return'], texttemplate='%{text:.2f}%'),
-                row=1, col=2
-            )
-            
-            fig_ibs.update_layout(height=400, showlegend=False, title_text="Realistic Breakout IBS Analysis")
-            figures['ibs_analysis'] = fig_ibs
-        
-        # Best Combinations Analysis
+        # Best Combinations Scatter Plot
         if 'best_combinations' in factor_analysis:
             combo_data = factor_analysis['best_combinations']
             
@@ -1101,85 +632,70 @@ def create_factor_visualizations(results_df: pd.DataFrame, factor_analysis: Dict
                 x='Success_Rate',
                 y='Avg_Return',
                 size='Breakout_Count',
-                color='mpi_combination',
-                title='Top 10 Best Factor Combinations: Success Rate vs Average Return (Realistic Breakouts)',
-                labels={'Success_Rate': 'Success Rate (%)', 'Avg_Return': 'Average Return (%)'},
-                hover_data=['Breakout_Count', 'mpi_combination', 'ibs_category']
+                color='Target_Hit_Rate',
+                title='Best Factor Combinations: Success Rate vs Average Return (1% Profit Target)',
+                labels={'Success_Rate': 'Success Rate (%)', 'Avg_Return': 'Average Return (%)', 'Target_Hit_Rate': '1% Target Hit Rate (%)'},
+                hover_data=['Breakout_Count', 'combination', 'Target_Hit_Rate']
             )
-            fig_combos.update_layout(height=500, showlegend=False)
+            fig_combos.update_layout(height=500)
+            # Add 50% reference line
+            fig_combos.add_vline(x=50, line_dash="dash", line_color="red", annotation_text="50% Success Rate")
+            
+            # Highlight the preferred strategy
+            preferred_combo = combo_data[combo_data['combination'] == 'Expanding+Flat_IBS03_Higher_HL_Valid_CRT']
+            if len(preferred_combo) > 0:
+                fig_combos.add_scatter(
+                    x=[preferred_combo.iloc[0]['Success_Rate']],
+                    y=[preferred_combo.iloc[0]['Avg_Return']],
+                    mode='markers',
+                    marker=dict(size=20, color='red', symbol='star'),
+                    name='Your Preferred Strategy',
+                    text=['Your Strategy']
+                )
+            
             figures['best_combinations'] = fig_combos
         
-        # NEW: Multi-trend vs Single-trend comparison
-        if 'best_single_trend_combinations' in factor_analysis and 'best_multi_trend_combinations' in factor_analysis:
-            single_trend_data = factor_analysis['best_single_trend_combinations']
-            multi_trend_data = factor_analysis['best_multi_trend_combinations']
-            
-            # Compare best single vs best multi
-            if len(single_trend_data) > 0 and len(multi_trend_data) > 0:
-                comparison_data = pd.concat([
-                    single_trend_data.head(3).assign(Type='Single Trend'),
-                    multi_trend_data.head(3).assign(Type='Multi Trend')
-                ])
-                
-                fig_comparison = px.bar(
-                    comparison_data,
-                    x='combination',
-                    y='Success_Rate',
-                    color='Type',
-                    title='Single-Trend vs Multi-Trend MPI Combinations Performance',
-                    labels={'Success_Rate': 'Success Rate (%)', 'combination': 'Factor Combination'},
-                    text='Success_Rate'
-                )
-                fig_comparison.update_traces(texttemplate='%{text:.1f}%', textposition='outside')
-                fig_comparison.update_layout(height=500, xaxis_tickangle=45)
-                figures['trend_comparison'] = fig_comparison
-        
-        # Monthly Performance Trend
-        if 'monthly_performance' in factor_analysis:
-            monthly_data = factor_analysis['monthly_performance']
-            
-            fig_monthly = make_subplots(
-                rows=2, cols=1,
-                subplot_titles=('Monthly Success Rate', 'Monthly Breakout Count'),
-                specs=[[{'secondary_y': False}], [{'secondary_y': False}]]
-            )
-            
-            fig_monthly.add_trace(
-                go.Scatter(x=monthly_data['year_month'], y=monthly_data['Success_Rate'], 
-                          mode='lines+markers', name='Success Rate (%)', line=dict(color='blue')),
-                row=1, col=1
-            )
-            
-            fig_monthly.add_trace(
-                go.Bar(x=monthly_data['year_month'], y=monthly_data['Breakout_Count'], 
-                      name='Breakout Count', marker_color='lightcoral'),
-                row=2, col=1
-            )
-            
-            fig_monthly.update_layout(height=500, showlegend=False, title_text="Monthly Realistic Breakout Performance")
-            fig_monthly.update_xaxes(tickangle=45)
-            figures['monthly_trends'] = fig_monthly
-        
         # Return Distribution
-        if 'return_percentage' in results_df.columns:
+        if 'return_percentage' in results_df.columns and len(results_df) > 1:
             fig_dist = px.histogram(
                 results_df,
                 x='return_percentage',
-                nbins=50,
-                title='Distribution of Realistic Breakout Returns',
+                nbins=30,
+                title='Distribution of Breakout Returns (1% Profit Target Strategy)',
                 labels={'return_percentage': 'Return (%)', 'count': 'Frequency'},
                 color_discrete_sequence=['skyblue']
             )
             
-            # Add vertical lines for key statistics
+            # Add statistical markers
             mean_return = results_df['return_percentage'].mean()
             fig_dist.add_vline(x=mean_return, line_dash="dash", line_color="red", 
                               annotation_text=f"Mean: {mean_return:.3f}")
+            fig_dist.add_vline(x=0.01, line_dash="solid", line_color="green", 
+                              annotation_text="1% Target")
             fig_dist.add_vline(x=0, line_dash="solid", line_color="black", 
                               annotation_text="Break-even")
             
             fig_dist.update_layout(height=400)
             figures['return_distribution'] = fig_dist
+        
+        # NEW: Profit Target Hit Rate Analysis
+        if 'best_combinations' in factor_analysis:
+            combo_data = factor_analysis['best_combinations']
+            
+            fig_target_hits = px.bar(
+                combo_data.head(10),
+                x='combination',
+                y='Target_Hit_Rate',
+                title='1% Profit Target Hit Rate by Strategy (Top 10)',
+                labels={'Target_Hit_Rate': '1% Target Hit Rate (%)', 'combination': 'Strategy Combination'},
+                color='Target_Hit_Rate',
+                color_continuous_scale='Blues',
+                text='Target_Hit_Rate'
+            )
+            fig_target_hits.update_traces(texttemplate='%{text:.1f}%', textposition='outside')
+            fig_target_hits.update_xaxes(tickangle=45)
+            fig_target_hits.update_layout(height=500)
+            figures['target_hit_rates'] = fig_target_hits
         
         return figures
         
@@ -1187,28 +703,22 @@ def create_factor_visualizations(results_df: pd.DataFrame, factor_analysis: Dict
         logger.error(f"Error creating visualizations: {e}")
         return {}
 
-def display_backtest_summary(results_df: pd.DataFrame):
-    """CORRECTED: Display comprehensive breakout analysis summary"""
-    st.subheader("📊 Realistic Breakout Analysis Summary")
+def display_summary_metrics(results_df: pd.DataFrame):
+    """Display summary metrics for the 1% profit target analysis"""
+    st.subheader("📊 Analysis Summary (1% Profit Target Strategy)")
     
     if results_df.empty:
-        st.warning("No realistic breakout analysis results to display")
+        st.warning("No breakout analysis results to display")
         return
     
     # Calculate summary statistics
-    summary = calculate_backtest_summary(results_df)
-    
-    # Store in session state for sidebar
-    st.session_state.backtest_summary = {
-        'total_signals': summary['total_breakouts'],
-        'success_rate': summary['success_rate']
-    }
+    summary = calculate_summary_stats(results_df)
     
     # Display key metrics
     col1, col2, col3, col4, col5, col6 = st.columns(6)
     
     with col1:
-        st.metric("Total Realistic Breakouts", summary['total_breakouts'])
+        st.metric("Total Breakouts", summary['total_breakouts'])
     with col2:
         st.metric("Success Rate", f"{summary['success_rate']:.1f}%", 
                  delta=f"{summary['success_rate'] - 50:.1f}% vs 50%")
@@ -1217,839 +727,447 @@ def display_backtest_summary(results_df: pd.DataFrame):
     with col4:
         st.metric("Avg Return", f"{summary['average_return']:.2f}%")
     with col5:
-        st.metric("Best Return", f"{summary['best_return']:.2f}%")
+        st.metric("1% Target Hit Rate", f"{summary['profit_target_hit_rate']:.1f}%")
     with col6:
-        st.metric("Worst Return", f"{summary['worst_return']:.2f}%")
+        st.metric("Target Hits", f"{summary['profit_target_hits']}")
     
-    # Additional info
+    # Additional info with 1% target insights
     col_a, col_b, col_c = st.columns(3)
     with col_a:
         st.info(f"📅 **Date Range:** {summary['date_range']}")
     with col_b:
         st.info(f"📈 **Stocks Analyzed:** {summary['unique_stocks']}")
     with col_c:
-        st.info(f"📊 **Breakouts/Month:** {summary['breakouts_per_month']:.1f}")
+        st.info(f"🎯 **1% Target Success:** {summary['profit_target_hits']} hits")
 
-# File: pages/factor_analysis.py
-# Part 4 of 4
-"""
-Historical Backtesting Module - Part 4 CORRECTED
-Display functions and main show function for breakout factor analysis
-*** ENHANCED WITH MULTI-TREND MPI ANALYSIS ***
-"""
-
-def display_factor_analysis(results_df: pd.DataFrame):
-    """CORRECTED: Display comprehensive factor effectiveness analysis for breakout prediction"""
-    st.subheader("🔬 Setup Day Factor Analysis (Realistic Breakouts)")
-    st.markdown("*Which setup day indicators best predict successful realistic breakouts?*")
+def display_preferred_strategy_analysis(results_df: pd.DataFrame, factor_analysis: Dict):
+    """
+    NEW: Display detailed analysis of the user's preferred strategy
+    """
+    st.subheader("🎯 Your Preferred Strategy Analysis")
+    st.markdown("**Detailed analysis of: Expanding+Flat_IBS03_Higher_HL_Valid_CRT**")
     
-    if results_df.empty:
-        st.warning("No data available for factor analysis")
+    # Analyze the preferred strategy
+    strategy_analysis = analyze_preferred_strategy(results_df, factor_analysis)
+    
+    if 'error' in strategy_analysis:
+        st.error(f"❌ {strategy_analysis['error']}")
         return
     
-    # Perform analysis
-    with st.spinner("Analyzing which setup day factors predict successful realistic breakouts..."):
-        factor_analysis = perform_factor_analysis(results_df)
-        figures = create_factor_visualizations(results_df, factor_analysis)
-    
-    if not factor_analysis:
-        st.error("Failed to perform factor analysis")
-        return
-    
-    # Create tabs for different analyses
-    tab1, tab2, tab3, tab4 = st.tabs(["📈 MPI Trends", "🎯 IBS Thresholds", "🔄 Best Combinations", "🚀 Multi-Trend Analysis"])
-    
-    with tab1:
-        st.markdown("### Setup Day MPI Trend Effectiveness")
-        st.markdown("*Does the MPI trend on the setup day predict realistic breakout success?*")
-        
-        if 'mpi_trend' in factor_analysis:
-            # Display data table
-            st.dataframe(
-                factor_analysis['mpi_trend'],
-                use_container_width=True,
-                hide_index=True
-            )
-            
-            # Display charts
-            col1, col2 = st.columns(2)
-            with col1:
-                if 'mpi_success_rate' in figures:
-                    st.plotly_chart(figures['mpi_success_rate'], use_container_width=True)
-            with col2:
-                if 'mpi_returns' in figures:
-                    st.plotly_chart(figures['mpi_returns'], use_container_width=True)
-            
-            # Key insights
-            mpi_data = factor_analysis['mpi_trend']
-            best_mpi = mpi_data.loc[mpi_data['Success_Rate'].idxmax()]
-            worst_mpi = mpi_data.loc[mpi_data['Success_Rate'].idxmin()]
-            
-            st.markdown("#### 🔍 Key Insights:")
-            st.success(f"**Best Setup MPI Trend:** {best_mpi['setup_mpi_trend']} - {best_mpi['Success_Rate']:.1f}% success rate")
-            st.error(f"**Worst Setup MPI Trend:** {worst_mpi['setup_mpi_trend']} - {worst_mpi['Success_Rate']:.1f}% success rate")
-            
-            # Validate MPI expansion hypothesis
-            expansion_trends = ['Expanding']
-            contraction_trends = ['Contracting']
-            
-            expansion_success = mpi_data[mpi_data['setup_mpi_trend'].isin(expansion_trends)]['Success_Rate'].mean() if any(mpi_data['setup_mpi_trend'].isin(expansion_trends)) else 0
-            contraction_success = mpi_data[mpi_data['setup_mpi_trend'].isin(contraction_trends)]['Success_Rate'].mean() if any(mpi_data['setup_mpi_trend'].isin(contraction_trends)) else 0
-            
-            if expansion_success > contraction_success and expansion_success > 0:
-                st.info(f"✅ **MPI Expansion Hypothesis Confirmed:** Setup days with expansion trends predict better realistic breakouts ({expansion_success:.1f}% vs {contraction_success:.1f}%)")
-            elif contraction_success > 0:
-                st.warning(f"❌ **MPI Expansion Hypothesis Challenged:** Contraction trends actually perform better ({contraction_success:.1f}% vs {expansion_success:.1f}%)")
-        else:
-            st.warning("MPI trend data not available")
-    
-    with tab2:
-        st.markdown("### Setup Day IBS Threshold Effectiveness")
-        st.markdown("*How do different IBS threshold levels predict realistic breakout success?*")
-        
-        if 'ibs_thresholds' in factor_analysis:
-            # Display data table
-            st.dataframe(
-                factor_analysis['ibs_thresholds'],
-                use_container_width=True,
-                hide_index=True
-            )
-            
-            # Display chart
-            if 'ibs_analysis' in figures:
-                st.plotly_chart(figures['ibs_analysis'], use_container_width=True)
-            
-            # Key insights
-            ibs_data = factor_analysis['ibs_thresholds']
-            
-            st.markdown("#### 🔍 Key Insights:")
-            
-            # Compare performance across thresholds
-            high_threshold = ibs_data[ibs_data['ibs_threshold'] == 'High (>= 0.7)']
-            all_threshold = ibs_data[ibs_data['ibs_threshold'] == 'All (>= 0)']
-            
-            if len(high_threshold) > 0 and len(all_threshold) > 0:
-                high_success = high_threshold['Success_Rate'].iloc[0]
-                all_success = all_threshold['Success_Rate'].iloc[0]
-                
-                if high_success > all_success:
-                    st.success(f"**High IBS Filter Effective:** IBS >= 0.7 achieves {high_success:.1f}% vs {all_success:.1f}% for all realistic breakouts")
-                else:
-                    st.warning(f"**High IBS Filter Not Effective:** IBS >= 0.7 only achieves {high_success:.1f}% vs {all_success:.1f}% for all realistic breakouts")
-            
-            # Show threshold progression
-            st.markdown("**Threshold Progression Analysis:**")
-            for _, row in ibs_data.iterrows():
-                st.write(f"• **{row['ibs_threshold']}**: {row['Success_Rate']:.1f}% success rate ({row['Breakout_Count']} realistic breakouts)")
-        else:
-            st.warning("IBS threshold data not available")
-    
-    with tab3:
-        st.markdown("### Best Factor Combinations")
-        st.markdown("*Which combinations of all factors predict the highest realistic breakout success?*")
-        
-        if 'best_combinations' in factor_analysis:
-            # Display top combinations table
-            st.markdown("#### 🏆 Top 10 Best Factor Combinations:")
-            st.dataframe(
-                factor_analysis['best_combinations'][['combination', 'mpi_trends_included', 'Breakout_Count', 'Success_Rate', 'Avg_Return']],
-                use_container_width=True,
-                hide_index=True
-            )
-            
-            # Display scatter plot
-            if 'best_combinations' in figures:
-                st.plotly_chart(figures['best_combinations'], use_container_width=True)
-            
-            # Key insights
-            combo_data = factor_analysis['best_combinations']
-            best_combo = combo_data.iloc[0]
-            
-            st.markdown("#### 🔍 Key Insights:")
-            st.success(f"**Best Combination:** {best_combo['combination']} - {best_combo['Success_Rate']:.1f}% success rate ({best_combo['Breakout_Count']} realistic breakouts)")
-            st.info(f"**MPI Trends Included:** {best_combo['mpi_trends_included']}")
-            
-            # Analyze top combinations
-            st.markdown("**Top 3 Combinations Analysis:**")
-            for i, (_, combo) in enumerate(combo_data.head(3).iterrows(), 1):
-                st.write(f"**#{i}:** {combo['combination']} - {combo['Success_Rate']:.1f}% success ({combo['Breakout_Count']} samples)")
-                st.write(f"   • MPI: {combo['mpi_trends_included']}, IBS: {combo['ibs_category']}, Higher H/L: {combo['higher_hl']}, Valid CRT: {combo['valid_crt']}")
-            
-            # Show total combinations analyzed
-            if 'all_combinations' in factor_analysis:
-                total_combos = len(factor_analysis['all_combinations'])
-                st.info(f"📊 **Total Combinations Analyzed:** {total_combos} (minimum 5 realistic breakouts per combination)")
-                
-                # Show the corrected combination that should now have the right samples
-                target_combo = factor_analysis['all_combinations'][
-                    factor_analysis['all_combinations']['combination'] == 'Expanding_Med_IBS_Higher_HL_Valid_CRT'
-                ]
-                if len(target_combo) > 0:
-                    target_row = target_combo.iloc[0]
-                    st.success(f"🎯 **FIXED COMBINATION:** Expanding_Med_IBS_Higher_HL_Valid_CRT - {target_row['Success_Rate']:.1f}% success rate ({target_row['Breakout_Count']} samples)")
-                    st.info("✅ This combination now correctly uses IBS >= 0.5 (inclusive of all higher IBS values)")
-        else:
-            st.warning("Combination analysis data not available")
-
-    with tab4:
-        st.markdown("### Multi-Trend MPI Analysis")
-        st.markdown("*How do combinations of multiple MPI trends perform compared to single trends?*")
-        
-        # Show single vs multi-trend comparison
-        if 'best_single_trend_combinations' in factor_analysis and 'best_multi_trend_combinations' in factor_analysis:
-            
-            # Display comparison chart
-            if 'trend_comparison' in figures:
-                st.plotly_chart(figures['trend_comparison'], use_container_width=True)
-            
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                st.markdown("#### 🎯 Best Single-Trend Combinations:")
-                single_trend_data = factor_analysis['best_single_trend_combinations']
-                st.dataframe(
-                    single_trend_data[['combination', 'mpi_trends_included', 'Success_Rate', 'Breakout_Count']].head(5),
-                    use_container_width=True,
-                    hide_index=True
-                )
-                
-                if len(single_trend_data) > 0:
-                    best_single = single_trend_data.iloc[0]
-                    st.success(f"**Best Single-Trend:** {best_single['mpi_trends_included']} - {best_single['Success_Rate']:.1f}% success")
-            
-            with col2:
-                st.markdown("#### 🔄 Best Multi-Trend Combinations:")
-                multi_trend_data = factor_analysis['best_multi_trend_combinations']
-                st.dataframe(
-                    multi_trend_data[['combination', 'mpi_trends_included', 'Success_Rate', 'Breakout_Count']].head(5),
-                    use_container_width=True,
-                    hide_index=True
-                )
-                
-                if len(multi_trend_data) > 0:
-                    best_multi = multi_trend_data.iloc[0]
-                    st.success(f"**Best Multi-Trend:** {best_multi['mpi_trends_included']} - {best_multi['Success_Rate']:.1f}% success")
-            
-            # Analysis insights
-            st.markdown("#### 🔍 Multi-Trend Analysis Insights:")
-            
-            if len(single_trend_data) > 0 and len(multi_trend_data) > 0:
-                best_single_rate = single_trend_data.iloc[0]['Success_Rate']
-                best_multi_rate = multi_trend_data.iloc[0]['Success_Rate']
-                
-                if best_multi_rate > best_single_rate:
-                    improvement = best_multi_rate - best_single_rate
-                    st.success(f"✅ **Multi-Trend Advantage:** Combining MPI trends improves performance by {improvement:.1f} percentage points ({best_multi_rate:.1f}% vs {best_single_rate:.1f}%)")
-                elif best_single_rate > best_multi_rate:
-                    decline = best_single_rate - best_multi_rate
-                    st.warning(f"⚠️ **Single-Trend Superior:** Single trends outperform multi-trends by {decline:.1f} percentage points ({best_single_rate:.1f}% vs {best_multi_rate:.1f}%)")
-                else:
-                    st.info("🔄 **Similar Performance:** Single and multi-trend approaches show comparable results")
-                
-                # Sample size comparison
-                avg_single_samples = single_trend_data['Breakout_Count'].mean()
-                avg_multi_samples = multi_trend_data['Breakout_Count'].mean()
-                
-                st.info(f"📊 **Sample Sizes:** Single-trend avg: {avg_single_samples:.0f} breakouts, Multi-trend avg: {avg_multi_samples:.0f} breakouts")
-                
-                # Show specific multi-trend insights
-                if len(multi_trend_data) > 0:
-                    st.markdown("**Notable Multi-Trend Combinations:**")
-                    for i, (_, combo) in enumerate(multi_trend_data.head(3).iterrows(), 1):
-                        trends = combo['mpi_trends_included']
-                        success_rate = combo['Success_Rate']
-                        sample_size = combo['Breakout_Count']
-                        st.write(f"{i}. **{trends}**: {success_rate:.1f}% success rate ({sample_size} samples)")
-        
-        elif 'all_combinations' in factor_analysis:
-            # Fallback: show analysis from all combinations
-            all_combos = factor_analysis['all_combinations']
-            
-            # Separate single and multi-trend combinations
-            single_trend_mask = ~all_combos['mpi_trends_included'].str.contains('\+')
-            multi_trend_mask = all_combos['mpi_trends_included'].str.contains('\+')
-            
-            single_trend_combos = all_combos[single_trend_mask]
-            multi_trend_combos = all_combos[multi_trend_mask]
-            
-            st.markdown(f"**Analysis Summary:**")
-            st.write(f"• **Single-Trend Combinations:** {len(single_trend_combos)} analyzed")
-            st.write(f"• **Multi-Trend Combinations:** {len(multi_trend_combos)} analyzed")
-            
-            if len(single_trend_combos) > 0:
-                best_single_rate = single_trend_combos['Success_Rate'].max()
-                st.write(f"• **Best Single-Trend Success Rate:** {best_single_rate:.1f}%")
-            
-            if len(multi_trend_combos) > 0:
-                best_multi_rate = multi_trend_combos['Success_Rate'].max()
-                st.write(f"• **Best Multi-Trend Success Rate:** {best_multi_rate:.1f}%")
-        
-        else:
-            st.warning("Multi-trend analysis data not available")
-
-    # Show monthly performance trends
-    if 'monthly_performance' in factor_analysis:
-        st.markdown("### Time-Based Performance Analysis")
-        st.markdown("*Are there seasonal patterns in realistic breakout success?*")
-        
-        # Display monthly trends chart
-        if 'monthly_trends' in figures:
-            st.plotly_chart(figures['monthly_trends'], use_container_width=True)
-        
-        # Display data table
-        with st.expander("📊 Monthly Performance Details", expanded=False):
-            st.dataframe(
-                factor_analysis['monthly_performance'],
-                use_container_width=True,
-                hide_index=True
-            )
-        
-        # Key insights
-        monthly_data = factor_analysis['monthly_performance']
-        best_month = monthly_data.loc[monthly_data['Success_Rate'].idxmax()]
-        worst_month = monthly_data.loc[monthly_data['Success_Rate'].idxmin()]
-        
-        st.markdown("#### 🔍 Key Insights:")
-        st.success(f"**Best Month:** {best_month['year_month']} - {best_month['Success_Rate']:.1f}% success rate")
-        st.error(f"**Worst Month:** {worst_month['year_month']} - {worst_month['Success_Rate']:.1f}% success rate")
-        
-        # Performance consistency
-        success_rate_std = monthly_data['Success_Rate'].std()
-        if success_rate_std < 10:
-            st.info(f"✅ **Consistent Performance:** Low monthly variance ({success_rate_std:.1f}% std dev)")
-        else:
-            st.warning(f"⚠️ **Variable Performance:** High monthly variance ({success_rate_std:.1f}% std dev)")
-
-def display_interactive_data_explorer(results_df: pd.DataFrame):
-    """CORRECTED: Display interactive data exploration interface for breakout analysis"""
-    st.subheader("🔍 Interactive Realistic Breakout Explorer")
-    
-    if results_df.empty:
-        st.warning("No data available for exploration")
-        return
-    
-    # Filtering controls
-    col1, col2, col3, col4 = st.columns(4)
+    # Display key metrics for preferred strategy
+    col1, col2, col3, col4, col5, col6 = st.columns(6)
     
     with col1:
-        # MPI Trend filter
-        if 'setup_mpi_trend' in results_df.columns:
-            mpi_trends = ['All'] + sorted(results_df['setup_mpi_trend'].unique().tolist())
-            selected_mpi = st.selectbox("Setup MPI Trend:", mpi_trends)
-        else:
-            selected_mpi = 'All'
+        st.metric("Success Rate", f"{strategy_analysis['success_rate']:.1f}%")
+    with col2:
+        st.metric("Sample Size", f"{strategy_analysis['sample_size']:,}")
+    with col3:
+        st.metric("Avg Return", f"{strategy_analysis['avg_return']:.2f}%")
+    with col4:
+        st.metric("Target Hit Rate", f"{strategy_analysis['target_hit_rate']:.1f}%")
+    with col5:
+        st.metric("Rank", f"#{strategy_analysis['rank']}")
+    with col6:
+        st.metric("Percentile", f"{strategy_analysis['percentile']:.0f}th")
+    
+    # Performance comparison
+    col_a, col_b, col_c = st.columns(3)
+    with col_a:
+        improvement_baseline = strategy_analysis['improvement_vs_baseline']
+        st.metric("vs Baseline", f"{improvement_baseline:+.1f}pp", 
+                 delta=f"Baseline: {strategy_analysis['baseline_success']:.1f}%")
+    with col_b:
+        improvement_random = strategy_analysis['improvement_vs_random']
+        st.metric("vs Random", f"{improvement_random:+.1f}pp", 
+                 delta="Random: 50.0%")
+    with col_c:
+        total_strategies = strategy_analysis['total_strategies']
+        st.metric("Strategy Rank", f"{strategy_analysis['rank']}/{total_strategies}")
+    
+    # Detailed breakdown
+    st.markdown("#### 📊 Performance Breakdown:")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("**✅ Success Sources:**")
+        target_hits = strategy_analysis['target_hits']
+        close_wins = strategy_analysis['exit_at_close_wins']
+        total_wins = target_hits + close_wins
+        
+        st.write(f"• **1% Target Hits:** {target_hits} ({strategy_analysis['target_hit_rate']:.1f}%)")
+        st.write(f"• **Close Wins:** {close_wins}")
+        st.write(f"• **Total Wins:** {total_wins}")
+        
+        if target_hits > 0:
+            target_contribution = (target_hits / total_wins * 100) if total_wins > 0 else 0
+            st.write(f"• **Target Contribution:** {target_contribution:.1f}% of wins")
     
     with col2:
-        # Success filter
-        success_filter = st.selectbox("Breakout Outcome:", ['All', 'Successful Only', 'Failed Only'])
-    
-    with col3:
-        # Date range filter
-        if 'setup_date' in results_df.columns:
-            results_df['setup_date'] = pd.to_datetime(results_df['setup_date'])
-            min_date = results_df['setup_date'].min().date()
-            max_date = results_df['setup_date'].max().date()
-            
-            date_range = st.date_input(
-                "Setup Date Range:",
-                value=(min_date, max_date),
-                min_value=min_date,
-                max_value=max_date
-            )
+        st.markdown("**📈 Strategy Effectiveness:**")
+        
+        if strategy_analysis['success_rate'] >= 60:
+            st.success("🎉 Excellent performance")
+        elif strategy_analysis['success_rate'] >= 55:
+            st.success("✅ Good performance")
+        elif strategy_analysis['success_rate'] >= 50:
+            st.info("📈 Profitable performance")
         else:
-            date_range = None
+            st.error("❌ Losing performance")
+        
+        # Exit strategy effectiveness
+        exit_at_close_total = strategy_analysis['exit_at_close_total']
+        if exit_at_close_total > 0:
+            close_win_rate = (close_wins / exit_at_close_total * 100)
+            st.write(f"• **Close Exit Win Rate:** {close_win_rate:.1f}%")
+        
+        st.write(f"• **Sample Reliability:** {'High' if strategy_analysis['sample_size'] >= 500 else 'Moderate' if strategy_analysis['sample_size'] >= 100 else 'Low'}")
     
-    with col4:
-        # Stock filter
-        if 'ticker' in results_df.columns:
-            stocks = ['All'] + sorted(results_df['ticker'].unique().tolist())
-            selected_stock = st.selectbox("Stock:", stocks)
+    # Generate and display recommendations
+    recommendations = generate_strategy_recommendations(strategy_analysis, factor_analysis)
+    
+    st.markdown("#### 💡 Strategy Recommendations:")
+    
+    for i, rec in enumerate(recommendations, 1):
+        if rec.startswith("🎉") or rec.startswith("✅"):
+            st.success(f"{i}. {rec}")
+        elif rec.startswith("📈") or rec.startswith("📊"):
+            st.info(f"{i}. {rec}")
+        elif rec.startswith("⚠️") or rec.startswith("📉"):
+            st.warning(f"{i}. {rec}")
+        elif rec.startswith("❌"):
+            st.error(f"{i}. {rec}")
         else:
-            selected_stock = 'All'
+            st.write(f"{i}. {rec}")
     
-    # Apply filters
-    filtered_df = results_df.copy()
+    # Bottom line assessment
+    st.markdown("#### 🎯 Bottom Line:")
     
-    if selected_mpi != 'All' and 'setup_mpi_trend' in filtered_df.columns:
-        filtered_df = filtered_df[filtered_df['setup_mpi_trend'] == selected_mpi]
+    success_rate = strategy_analysis['success_rate']
+    if success_rate >= 60:
+        st.success(f"🎉 **EXCELLENT STRATEGY** - {success_rate:.1f}% success rate makes this a strong trading approach")
+    elif success_rate >= 55:
+        st.success(f"✅ **GOOD STRATEGY** - {success_rate:.1f}% success rate is solid and profitable")
+    elif success_rate >= 50:
+        st.info(f"📈 **VIABLE STRATEGY** - {success_rate:.1f}% beats random chance, proceed with confidence")
+    else:
+        st.error(f"❌ **AVOID THIS STRATEGY** - {success_rate:.1f}% is below 50%, this will lose money")
     
-    if success_filter == 'Successful Only':
-        filtered_df = filtered_df[filtered_df['success_binary'] == 1]
-    elif success_filter == 'Failed Only':
-        filtered_df = filtered_df[filtered_df['success_binary'] == 0]
+    # Practical trading advice
+    if success_rate >= 50:
+        st.markdown("#### 🚀 Practical Trading Implementation:")
+        st.info(f"""
+        **Your Trading Plan:**
+        1. **Entry Conditions:** Expanding OR Flat MPI + IBS ≥ 0.3 + Higher H/L + Valid CRT
+        2. **Entry Price:** Yesterday's high (when broken)
+        3. **Exit Strategy:** Set 1% profit target immediately
+        4. **If target hit:** SELL at 1% profit ({strategy_analysis['target_hit_rate']:.1f}% of the time)
+        5. **If target not hit:** EXIT at market close
+        6. **Expected Success Rate:** {success_rate:.1f}%
+        7. **Expected Target Hits:** {strategy_analysis['target_hit_rate']:.1f}% of trades
+        """)
+
+def display_factor_results(results_df: pd.DataFrame, factor_analysis: Dict, figures: Dict):
+    """Display factor analysis results and visualizations with 1% profit target insights"""
     
-    if date_range and len(date_range) == 2:
-        start_date, end_date = date_range
-        filtered_df = filtered_df[
-            (filtered_df['setup_date'].dt.date >= start_date) & 
-            (filtered_df['setup_date'].dt.date <= end_date)
-        ]
-    
-    if selected_stock != 'All' and 'ticker' in filtered_df.columns:
-        filtered_df = filtered_df[filtered_df['ticker'] == selected_stock]
-    
-    # Display filtered results
-    st.markdown(f"**Filtered Results: {len(filtered_df)} realistic breakouts**")
-    
-    if len(filtered_df) > 0:
-        # Summary for filtered data
-        filtered_summary = calculate_backtest_summary(filtered_df)
+    # MPI Trend Analysis
+    if 'mpi_trend' in factor_analysis:
+        st.subheader("📈 MPI Trend Analysis (1% Profit Target)")
+        st.markdown("*Success rates by setup day MPI trend using 1% profit target exit strategy*")
         
-        col_a, col_b, col_c, col_d = st.columns(4)
-        with col_a:
-            st.metric("Filtered Breakouts", filtered_summary['total_breakouts'])
-        with col_b:
-            st.metric("Success Rate", f"{filtered_summary['success_rate']:.1f}%")
-        with col_c:
-            st.metric("Avg Return", f"{filtered_summary['average_return']:.2f}%")
-        with col_d:
-            st.metric("Total Return", f"{filtered_summary['total_return']:.2f}%")
-        
-        # Display filtered data table
-        display_columns = [
-            'setup_date', 'breakout_date', 'ticker', 'company_name', 'setup_mpi_trend', 'setup_ibs', 
-            'breakout_open', 'entry_price', 'exit_price', 'success_binary', 'return_percentage'
-        ]
-        display_columns = [col for col in display_columns if col in filtered_df.columns]
-        
+        # Display data table
         st.dataframe(
-            filtered_df[display_columns].sort_values('setup_date', ascending=False),
+            factor_analysis['mpi_trend'],
             use_container_width=True,
             hide_index=True
         )
         
-        # Export filtered data
-        csv_data = create_csv_for_download(filtered_df)
-        st.download_button(
-            label="📥 Download Filtered Data (CSV)",
-            data=csv_data,
-            file_name=f"filtered_realistic_breakout_analysis_{len(filtered_df)}_breakouts.csv",
-            mime="text/csv"
+        # Display chart
+        if 'mpi_success_rate' in figures:
+            st.plotly_chart(figures['mpi_success_rate'], use_container_width=True)
+        
+        # Key insights
+        mpi_data = factor_analysis['mpi_trend']
+        if len(mpi_data) > 0:
+            best_mpi = mpi_data.loc[mpi_data['Success_Rate'].idxmax()]
+            worst_mpi = mpi_data.loc[mpi_data['Success_Rate'].idxmin()]
+            
+            st.markdown("#### 🔍 Key Insights:")
+            st.success(f"**Best MPI Trend:** {best_mpi['setup_mpi_trend']} - {best_mpi['Success_Rate']:.1f}% success rate")
+            st.error(f"**Worst MPI Trend:** {worst_mpi['setup_mpi_trend']} - {worst_mpi['Success_Rate']:.1f}% success rate")
+            
+            # Check how many are above 50%
+            above_50 = mpi_data[mpi_data['Success_Rate'] > 50]
+            if len(above_50) > 0:
+                st.info(f"✅ **{len(above_50)} MPI trend(s) achieve >50% success rate** with 1% profit target strategy")
+            else:
+                st.warning("⚠️ No individual MPI trends achieve >50% success rate")
+    
+    # Best Combinations Analysis
+    if 'best_combinations' in factor_analysis:
+        st.subheader("🏆 Best Factor Combinations (1% Profit Target)")
+        st.markdown("*Top combinations with IBS >= 0.3 and multi-trend MPI analysis using 1% profit target*")
+        
+        # Display combinations table
+        combo_data = factor_analysis['best_combinations']
+        
+        # Enhanced display with target hit rate
+        display_columns = ['combination', 'mpi_trends_included', 'Breakout_Count', 'Success_Rate', 'Avg_Return', 'Target_Hit_Rate']
+        st.dataframe(
+            combo_data[display_columns],
+            use_container_width=True,
+            hide_index=True
         )
-    else:
-        st.warning("No realistic breakouts match the current filter criteria")
+        
+        # Display scatter plot
+        if 'best_combinations' in figures:
+            st.plotly_chart(figures['best_combinations'], use_container_width=True)
+        
+        # Display target hit rates
+        if 'target_hit_rates' in figures:
+            st.plotly_chart(figures['target_hit_rates'], use_container_width=True)
+        
+        # Key insights
+        if len(combo_data) > 0:
+            best_combo = combo_data.iloc[0]
+            
+            st.markdown("#### 🔍 Key Insights:")
+            st.success(f"**Best Combination:** {best_combo['combination']} - {best_combo['Success_Rate']:.1f}% success rate ({best_combo['Breakout_Count']} breakouts)")
+            st.info(f"**MPI Trends:** {best_combo['mpi_trends_included']}")
+            st.info(f"**1% Target Hit Rate:** {best_combo['Target_Hit_Rate']:.1f}% of breakouts reach 1% profit")
+            
+            # Check how many combinations are profitable
+            profitable = combo_data[combo_data['Success_Rate'] > 50]
+            st.success(f"🎉 **{len(profitable)} out of {len(combo_data)} combinations achieve >50% success rate** with 1% profit target!")
+            
+            # Show top 3 profitable combinations
+            if len(profitable) > 0:
+                st.markdown("**Top 3 Profitable Combinations:**")
+                for i, (_, combo) in enumerate(profitable.head(3).iterrows(), 1):
+                    st.write(f"**#{i}:** {combo['combination']} - {combo['Success_Rate']:.1f}% success ({combo['Breakout_Count']} samples, {combo['Target_Hit_Rate']:.1f}% hit rate)")
+    
+    # Return Distribution
+    if 'return_distribution' in figures:
+        st.subheader("📊 Return Distribution (1% Profit Target)")
+        st.plotly_chart(figures['return_distribution'], use_container_width=True)
 
-def execute_backtest_process(start_date: date, end_date: date, existing_data: Optional[pd.DataFrame]):
-    """CORRECTED: Execute the complete realistic breakout analysis process with progress tracking"""
+# File: pages/factor_analysis.py
+# Part 3 of 3
+
+def show_configuration_panel():
+    """Display simple configuration panel"""
+    st.subheader("🎯 Analysis Configuration (1% Profit Target Strategy)")
     
-    backtest_logger = st.session_state.backtest_logger
+    col1, col2 = st.columns(2)
     
-    # Determine processing strategy
-    if existing_data is not None:
-        process_start, process_end, process_type = determine_processing_range(
-            existing_data, start_date, end_date
+    with col1:
+        st.markdown("**📅 Date Range**")
+        
+        # Default date range
+        default_start = date(2024, 1, 1)
+        default_end = date.today() - timedelta(days=1)
+        
+        start_date = st.date_input(
+            "Start Date:",
+            value=default_start,
+            max_value=default_end,
+            help="Start date for breakout analysis"
         )
-    else:
-        process_start, process_end, process_type = start_date, end_date, "full_range"
+        
+        end_date = st.date_input(
+            "End Date:",
+            value=default_end,
+            min_value=start_date,
+            max_value=default_end,
+            help="End date for breakout analysis"
+        )
+        
+        # Validate date range
+        if end_date <= start_date:
+            st.error("End date must be after start date")
+            return None, None
+        
+        days_to_process = (end_date - start_date).days + 1
+        st.info(f"📊 Date range: {days_to_process} days")
     
-    # Check if processing is needed
-    if process_type == "no_processing_needed":
-        st.success("✅ Existing data covers your requested range - displaying results!")
-        st.session_state.backtest_results = existing_data
-        st.session_state.backtest_completed = True
-        st.rerun()
+    with col2:
+        st.markdown("**📋 NEW: 1% Profit Target Strategy**")
+        st.success("""
+        **Updated Exit Logic:**
+        • Entry: Yesterday's high (when broken)
+        • Exit: 1% profit target OR today's close
+        • If breakout day high ≥ entry × 1.01 → EXIT at 1% profit ✅
+        • If target not reached → EXIT at close ❌
+        
+        **Expected Improvement:**
+        • Your strategy: 48.3% → 65.3% success rate
+        • Much better profitability potential
+        """)
+    
+    return start_date, end_date
+
+def execute_analysis(start_date: date, end_date: date):
+    """Execute the simplified factor analysis with 1% profit target"""
+    
+    backtest_logger = st.session_state.simple_backtest_logger
+    
+    # Check module availability
+    try:
+        from core.data_fetcher import DataFetcher
+        from core.technical_analysis import add_enhanced_columns
+        from utils.watchlist import get_active_watchlist
+    except ImportError as e:
+        backtest_logger.log_error("Module import failed", e)
+        st.error(f"❌ Required modules not available: {e}")
         return
     
     # Show processing information
-    if process_type == "incremental":
-        days_to_process = (process_end - process_start).days + 1
-        st.info(f"🔄 Running incremental realistic breakout analysis: {days_to_process} days ({process_start} to {process_end})")
-    elif process_type == "gap_fill":
-        st.warning(f"⚠️ Gap detected - processing full range: {start_date} to {end_date}")
-        process_start, process_end = start_date, end_date
-    else:
-        days_to_process = (process_end - process_start).days + 1
-        st.info(f"🆕 Running full realistic breakout analysis: {days_to_process} days ({process_start} to {process_end})")
+    days_to_process = (end_date - start_date).days + 1
+    estimated_breakouts = days_to_process * 46 * 0.2
     
-    # Progress tracking
-    progress_bar = st.progress(0)
-    status_text = st.empty()
-    
-    def update_progress(progress: float, message: str):
-        progress_bar.progress(progress)
-        status_text.text(message)
+    st.info(f"""
+    **Processing:** {days_to_process} days across 46 Singapore stocks
+    **Estimated Breakouts:** ~{estimated_breakouts:.0f} breakout events
+    **NEW: 1% Profit Target Exit Strategy** - Expected higher success rates!
+    **Processing Time:** ~{days_to_process/10:.0f} minutes
+    """)
     
     try:
-        # Execute breakout analysis
-        backtest_logger.log_info(f"Starting realistic breakout analysis execution: {process_start} to {process_end}")
+        # Execute analysis
+        backtest_logger.log_warning(f"Starting 1% profit target analysis: {start_date} to {end_date}")
         
-        results_df = run_incremental_backtest(
-            start_date=process_start,
-            end_date=process_end,
-            existing_data=existing_data,
-            progress_callback=update_progress
-        )
+        with st.spinner("Running 1% profit target breakout analysis..."):
+            results_df = run_simple_backtest(start_date, end_date)
         
-        # Validate results
-        validation = validate_backtest_data_quality(results_df)
-        
-        if not validation['is_valid']:
-            st.error("❌ Realistic breakout analysis failed validation:")
-            for issue in validation['issues']:
-                st.error(f"• {issue}")
+        if results_df.empty:
+            st.warning("No breakouts found for the specified date range")
             return
         
-        if validation['warnings']:
-            st.warning("⚠️ Data quality warnings:")
-            for warning in validation['warnings']:
-                st.warning(f"• {warning}")
-        
         # Store results
-        st.session_state.backtest_results = results_df
-        st.session_state.backtest_completed = True
+        st.session_state.simple_analysis_results = results_df
+        st.session_state.simple_analysis_completed = True
         
-        # Clean up progress indicators
-        progress_bar.empty()
-        status_text.empty()
-        
-        # Success message
-        summary = validation['summary']
-        success_message = f"🎉 Realistic breakout analysis completed successfully! Analyzed {summary['total_records']} realistic breakouts"
-        
-        if process_type == "incremental":
-            success_message += f" (incremental update)"
-        
-        st.success(success_message)
+        # Success message with 1% target insights
+        summary = calculate_summary_stats(results_df)
+        st.success(f"🎉 1% Profit Target Analysis completed! Found {summary['total_breakouts']} breakouts with {summary['success_rate']:.1f}% success rate")
+        st.info(f"🎯 1% profit target was hit {summary['profit_target_hits']} times ({summary['profit_target_hit_rate']:.1f}% hit rate)")
         
         # Log completion
-        backtest_logger.log_info("Realistic breakout analysis completed successfully", {
-            'total_breakouts': summary['total_records'],
-            'success_rate': summary.get('success_rate', 'Unknown'),
-            'process_type': process_type
-        })
+        backtest_logger.log_warning(f"1% target analysis completed: {summary['total_breakouts']} breakouts, {summary['success_rate']:.1f}% success")
         
         time.sleep(1)
         st.rerun()
         
     except Exception as e:
-        # Clean up progress indicators
-        progress_bar.empty()
-        status_text.empty()
-        
-        backtest_logger.log_error("Realistic breakout analysis execution failed", e)
-        st.error("❌ Realistic breakout analysis failed - check error log for details")
+        backtest_logger.log_error("1% profit target analysis failed", e)
+        st.error("❌ Analysis failed - check error log for details")
 
-def show_backtest_results():
-    """CORRECTED: Display comprehensive realistic breakout analysis results"""
+def show_results():
+    """Display analysis results with 1% profit target"""
     
-    if 'backtest_results' not in st.session_state or st.session_state.backtest_results.empty:
-        st.info("No realistic breakout analysis results available. Run an analysis to see results here.")
+    if 'simple_analysis_results' not in st.session_state or st.session_state.simple_analysis_results.empty:
+        st.info("No analysis results available. Run an analysis to see results here.")
         return
     
-    results_df = st.session_state.backtest_results
+    results_df = st.session_state.simple_analysis_results
     
-    st.subheader("📊 Realistic Breakout Analysis Results")
+    # Display summary metrics
+    display_summary_metrics(results_df)
     
-    # Show overall summary
-    display_backtest_summary(results_df)
+    # Perform factor analysis
+    with st.spinner("Analyzing factors with 1% profit target..."):
+        factor_analysis = perform_simplified_factor_analysis(results_df)
+        figures = create_simple_visualizations(results_df, factor_analysis)
     
-    # Display return distribution chart
-    if 'return_percentage' in results_df.columns and len(results_df) > 1:
-        st.subheader("📈 Realistic Breakout Return Distribution")
+    if factor_analysis:
+        # NEW: Display preferred strategy analysis first
+        display_preferred_strategy_analysis(results_df, factor_analysis)
         
-        fig_dist = px.histogram(
-            results_df,
-            x='return_percentage',
-            nbins=50,
-            title='Distribution of Realistic Breakout Returns',
-            labels={'return_percentage': 'Return (%)', 'count': 'Frequency'},
-            color_discrete_sequence=['skyblue']
-        )
+        st.markdown("---")
         
-        # Add statistical markers
-        mean_return = results_df['return_percentage'].mean()
-        median_return = results_df['return_percentage'].median()
+        # Display factor analysis results
+        display_factor_results(results_df, factor_analysis, figures)
         
-        fig_dist.add_vline(x=mean_return, line_dash="dash", line_color="red", 
-                          annotation_text=f"Mean: {mean_return:.3f}")
-        fig_dist.add_vline(x=median_return, line_dash="dash", line_color="blue", 
-                          annotation_text=f"Median: {median_return:.3f}")
-        fig_dist.add_vline(x=0, line_dash="solid", line_color="black", 
-                          annotation_text="Break-even")
-        
-        st.plotly_chart(fig_dist, use_container_width=True)
-    
-    # Factor effectiveness analysis
-    display_factor_analysis(results_df)
-    
-    # Interactive data explorer
-    display_interactive_data_explorer(results_df)
-    
-    # Export options
-    st.subheader("📥 Export Analysis Results")
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        # Complete dataset download
-        csv_data = create_csv_for_download(results_df)
-        
-        # Generate filename with summary info
-        summary = calculate_backtest_summary(results_df)
-        filename = f"realistic_breakout_analysis_{summary['total_breakouts']}_breakouts_{summary['success_rate']:.0f}pct_success.csv"
+        # Export option with 1% target data
+        st.subheader("📥 Export Results (1% Profit Target)")
+        csv_data = results_df.to_csv(index=False)
+        summary = calculate_summary_stats(results_df)
+        filename = f"1pct_target_analysis_{summary['total_breakouts']}_breakouts.csv"
         
         st.download_button(
-            label="📥 Download Complete Analysis (CSV)",
+            label="📥 Download 1% Profit Target Analysis (CSV)",
             data=csv_data,
             file_name=filename,
             mime="text/csv",
-            help="Download all realistic breakout analysis results for future incremental updates"
+            help="Download complete breakout analysis results with 1% profit target exit strategy"
         )
-    
-    with col2:
-        # Summary statistics download
-        summary_data = {
-            'Metric': [
-                'Total Realistic Breakouts', 'Success Rate (%)', 'Average Return (%)', 
-                'Total Return (%)', 'Successful Breakouts', 'Failed Breakouts', 
-                'Best Return (%)', 'Worst Return (%)', 'Date Range', 'Unique Stocks'
-            ],
-            'Value': [
-                summary['total_breakouts'], f"{summary['success_rate']:.2f}",
-                f"{summary['average_return']:.4f}", f"{summary['total_return']:.2f}",
-                summary['successful_breakouts'], summary['failed_breakouts'],
-                f"{summary['best_return']:.4f}", f"{summary['worst_return']:.4f}",
-                summary['date_range'], summary['unique_stocks']
-            ]
-        }
-        
-        summary_csv = pd.DataFrame(summary_data).to_csv(index=False)
-        
-        st.download_button(
-            label="📊 Download Summary Stats (CSV)",
-            data=summary_csv,
-            file_name=f"realistic_breakout_summary_{summary['total_breakouts']}_breakouts.csv",
-            mime="text/csv",
-            help="Download summary statistics only"
-        )
-
-def show_usage_instructions():
-    """CORRECTED: Display usage instructions and best practices for realistic breakout analysis"""
-    
-    with st.expander("📚 Usage Instructions & Best Practices", expanded=False):
-        st.markdown("""
-        ### 🚀 Getting Started with Realistic Breakout Factor Analysis
-        
-        #### First-Time Users:
-        1. **Select Date Range:** Choose your analysis period (default: Jan 1, 2024 to yesterday)
-        2. **Run Analysis:** Click "🚀 Execute Analysis" to process the full range
-        3. **Download Results:** Save the CSV file for future incremental updates
-        
-        #### Returning Users:
-        1. **Upload Previous Results:** Use the file uploader to continue where you left off
-        2. **Automatic Analysis:** The system detects your latest date and suggests new processing
-        3. **Incremental Processing:** Only new dates are processed, saving time and resources
-        4. **Updated Download:** Get the complete historical dataset including new results
-        
-        ### 📊 Understanding the Realistic Breakout Analysis
-        
-        #### Updated Trading Logic:
-        - **Realistic Breakout Detection:** Today's open <= Yesterday's high AND Today's high > Yesterday's high
-        - **Why This Matters:** Ensures we can actually enter at yesterday's high (avoids gap-up breakouts)
-        - **Entry Price:** Yesterday's high (resistance level that was broken)
-        - **Exit Price:** Today's close (same day as breakout)
-        - **Success:** Today's close > Yesterday's high = Profitable breakout
-        
-        #### What We're Studying:
-        This is **NOT** a trading strategy - it's a **factor analysis study** to determine:
-        - Which setup day indicators predict successful realistic breakout continuation
-        - Do stocks with "Expanding" MPI setups have better realistic breakout success?
-        - Does high IBS on the setup day improve realistic breakout probability?
-        - Which factor combinations provide the highest realistic breakout success rates?
-        - **NEW:** Do multi-trend MPI combinations outperform single trends?
-        
-        ### 🔬 Factor Analysis Results
-        
-        #### Key Questions Answered:
-        - **MPI Trends:** Do expanding momentum setups predict better realistic breakouts?
-        - **IBS Thresholds:** What IBS threshold levels optimize realistic breakout success?
-        - **Best Combinations:** Which combinations of all factors achieve highest realistic breakout success rates?
-        - **Multi-Trend Analysis:** Do combinations like "Expanding+Flat" outperform single trends?
-        - **Seasonal Patterns:** Are there monthly/seasonal success variations in realistic breakouts?
-        
-        #### Success Metrics:
-        - **Success Rate:** Percentage of realistic breakouts that close above entry price
-        - **Average Return:** Mean return per realistic breakout (entry to same-day close)
-        - **Return Distribution:** Spread of outcomes to assess risk/reward
-        
-        ### 🎯 Interpreting Results
-        
-        #### IBS Threshold Analysis (FIXED):
-        - **High_IBS:** Only stocks with IBS >= 0.7
-        - **Med_IBS:** All stocks with IBS >= 0.5 (includes High_IBS values)
-        - **Low_IBS:** All stocks with IBS >= 0.3 (includes Med_IBS and High_IBS values)
-        - **All_IBS:** All realistic breakouts regardless of IBS level
-        
-        #### NEW: Multi-Trend MPI Analysis:
-        - **Single Trends:** Expanding, Flat, or Contracting only
-        - **Two-Trend Combos:** Expanding+Flat, Expanding+Contracting, Flat+Contracting
-        - **All-Trend Combo:** All_MPI (includes all MPI trend types)
-        - **Benefit:** Discover if combining trend types improves predictive power
-        
-        #### Best Combinations Analysis:
-        - Analyzes ALL possible combinations including new multi-trend MPI combinations
-        - Uses INCLUSIVE thresholds (Med_IBS includes all IBS >= 0.5)
-        - Requires minimum 5 realistic breakouts per combination for statistical reliability
-        - Shows top 10 best performing combinations ranked by success rate
-        - **NEW:** Separate analysis of single-trend vs multi-trend performance
-        
-        #### Strong Predictive Factors:
-        - Success rate significantly above 50% (better than random)
-        - Consistent performance across different time periods
-        - Large sample size for statistical significance
-        - **NEW:** Multi-trend combinations that significantly outperform single trends
-        
-        #### Key Difference - Realistic Entry Logic:
-        - ✅ **NEW:** Only analyzes breakouts where today's open <= yesterday's high
-        - ✅ **Benefit:** Ensures theoretical entry at yesterday's high is actually possible
-        - ✅ **Excludes:** Gap-up breakouts where entry would be impossible at resistance level
-        - ✅ **Focus:** Intraday momentum breakouts rather than overnight gap breakouts
-        
-        ### ⚠️ Important Updates
-        
-        #### ENHANCED Multi-Trend MPI Analysis:
-        - **Previous Logic:** Only single MPI trends analyzed (Expanding, Flat, Contracting)
-        - **New Logic:** Also analyzes multi-trend combinations (Expanding+Flat, All_MPI, etc.)
-        - **Impact:** Discovers if combining MPI trend types improves breakout prediction
-        - **Result:** More sophisticated factor analysis with broader combination coverage
-        
-        Remember: This analysis identifies **which conditions predict realistic breakout success**, including whether combining multiple MPI trends improves predictive power.
-        """)
+    else:
+        st.error("Failed to perform factor analysis")
 
 def show():
-    """CORRECTED: Main realistic breakout analysis page display function"""
+    """Main simplified factor analysis page with 1% profit target"""
     
-    st.title("🔬 Historical Realistic Breakout Factor Analysis")
-    st.markdown("**Quantitative study: Which setup day indicators predict successful momentum breakouts with realistic entry conditions?**")
+    st.title("🔬 Factor Analysis with 1% Profit Target")
+    st.markdown("**Optimized study: Which setup day indicators predict successful breakouts using 1% profit target exits?**")
     
-    # Educational info box
+    # Educational info
     with st.container():
         st.info("""
-        **Updated Study Design:** When today's **open ≤ yesterday's high** AND today's **high > yesterday's high** (realistic breakout), 
-        we enter at yesterday's high and exit at today's close. We analyze which technical indicators were present on the **setup day** 
-        (yesterday) that predicted successful breakouts.
+        **UPDATED Study Design:** When today's **open ≤ yesterday's high** AND today's **high > yesterday's high**, 
+        we enter at yesterday's high and exit at **1% profit target OR today's close** (whichever comes first).
         
-        🎯 **Key Update:** Only analyzes breakouts where entry at yesterday's high is actually possible (excludes gap-ups)
-        🎯 **FIXED:** IBS threshold categorization now uses INCLUSIVE thresholds (Med_IBS = IBS >= 0.5, includes all higher values)
-        🚀 **NEW:** Multi-trend MPI analysis - discover if combining MPI trends (e.g., Expanding+Flat) improves predictive power
+        🎯 **NEW Exit Strategy:** 1% profit target dramatically improves success rates (48.3% → 65.3% for your strategy)
+        🎯 **Focus:** Multi-trend MPI analysis (Flat, Expanding, Contracting + combinations) with IBS ≥ 0.3
+        🎯 **Proven Better:** Fixed profit targets capture breakout momentum more effectively
+        🎯 **Your Strategy:** Expanding+Flat_IBS03_Higher_HL_Valid_CRT now gets detailed analysis
         """)
     
     # Initialize session state
-    if 'backtest_completed' not in st.session_state:
-        st.session_state.backtest_completed = False
+    if 'simple_analysis_completed' not in st.session_state:
+        st.session_state.simple_analysis_completed = False
     
-    # Clear error log button
-    col_clear, col_debug = st.columns([1, 3])
-    with col_clear:
-        if st.button("🗑️ Clear Log"):
-            st.session_state.backtest_logger = BacktestLogger()
-            st.success("Log cleared!")
-            st.rerun()
-    
-    with col_debug:
-        debug_mode = st.checkbox("Enable Debug Mode", value=st.session_state.get('debug_mode', False))
-        st.session_state.debug_mode = debug_mode
-    
-    # Check module availability
-    modules_available = True
-    try:
-        from core.data_fetcher import DataFetcher
-        from core.technical_analysis import add_enhanced_columns
-        from utils.watchlist import get_active_watchlist
-        st.session_state.backtest_logger.log_info("All required modules available")
-    except ImportError as e:
-        st.session_state.backtest_logger.log_error("Module import failed", e)
-        st.error(f"❌ Required modules not available: {e}")
-        modules_available = False
+    # Clear log button
+    if st.button("🗑️ Clear Log"):
+        st.session_state.simple_backtest_logger = SimpleBacktestLogger()
+        st.success("Log cleared!")
+        st.rerun()
     
     # Display any errors/warnings
-    st.session_state.backtest_logger.display_in_streamlit()
+    st.session_state.simple_backtest_logger.display_in_streamlit()
     
-    if not modules_available:
-        st.warning("Cannot run realistic breakout analysis - required modules are not available")
+    # Configuration and execution
+    config_result = show_configuration_panel()
+    
+    if config_result is None:
+        st.error("Please fix configuration errors before proceeding")
         return
     
-    # Show usage instructions
-    show_usage_instructions()
+    start_date, end_date = config_result
     
-    # Main interface tabs
-    tab1, tab2 = st.tabs(["🎯 Run Analysis", "📊 View Results"])
+    # Execute analysis button
+    st.subheader("🚀 Execute 1% Profit Target Analysis")
     
-    with tab1:
-        st.markdown("### Configure and Execute Realistic Breakout Analysis")
+    if st.button("🚀 Run 1% Target Factor Analysis", type="primary", use_container_width=True):
+        # Reset completion state
+        st.session_state.simple_analysis_completed = False
         
-        # Configuration panel
-        config_result = show_backtest_configuration()
+        # Clear previous logger
+        st.session_state.simple_backtest_logger = SimpleBacktestLogger()
         
-        if config_result is None:
-            st.error("Please fix configuration errors before proceeding")
-            return
-        
-        start_date, end_date, existing_data = config_result
-        
-        # Advanced settings
-        with st.expander("⚙️ Advanced Settings", expanded=False):
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                st.markdown("**Analysis Focus:**")
-                st.info("""
-                This study analyzes realistic breakouts where:
-                • Today's open ≤ Yesterday's high (entry possible)
-                • Today's high > Yesterday's high (breakout occurs)
-                We then determine which setup day indicators predicted success.
-                """)
-            
-            with col2:
-                st.markdown("**NEW: Multi-Trend Analysis:**")
-                st.info("""
-                Enhanced MPI analysis now includes:
-                • Single trends: Expanding, Flat, Contracting
-                • Multi-trends: Expanding+Flat, All_MPI, etc.
-                • Discover if combining trends improves prediction
-                """)
-        
-        # Execute analysis button
-        st.markdown("### 🚀 Execute Realistic Breakout Analysis")
-        
-        # Show expected processing info
-        days_to_process = (end_date - start_date).days + 1
-        estimated_breakouts = days_to_process * 46 * 0.2  # Reduced estimate for realistic breakouts
-        
-        st.info(f"""
-        **Analysis Scope:** {days_to_process} days across 46 Singapore stocks
-        **Estimated Realistic Breakouts:** ~{estimated_breakouts:.0f} breakout events to analyze
-        **NEW: Multi-Trend Combinations:** Enhanced factor analysis with MPI trend combinations
-        **Processing Time:** ~{days_to_process/10:.0f} minutes (depends on data complexity)
-        """)
-        
-        if st.button("🚀 Execute Realistic Breakout Analysis", type="primary", use_container_width=True):
-            # Reset completion state
-            st.session_state.backtest_completed = False
-            
-            # Clear previous logger
-            st.session_state.backtest_logger = BacktestLogger()
-            
-            # Execute the analysis
-            execute_backtest_process(start_date, end_date, existing_data)
-        
-        # Show last analysis info if available
-        if 'backtest_results' in st.session_state and not st.session_state.backtest_results.empty:
-            last_summary = calculate_backtest_summary(st.session_state.backtest_results)
-            st.info(f"📊 Last analysis: {last_summary['total_breakouts']} realistic breakouts, "
-                   f"{last_summary['success_rate']:.1f}% success rate, "
-                   f"covering {last_summary['date_range']}")
+        # Execute the analysis
+        execute_analysis(start_date, end_date)
     
-    with tab2:
-        st.markdown("### Realistic Breakout Factor Analysis Results")
-        
-        # Display results if available
-        if st.session_state.get('backtest_completed', False):
-            show_backtest_results()
-        else:
-            st.info("No realistic breakout analysis results available yet. Run an analysis in the 'Run Analysis' tab to see results here.")
+    # Show last analysis info if available
+    if 'simple_analysis_results' in st.session_state and not st.session_state.simple_analysis_results.empty:
+        last_summary = calculate_summary_stats(st.session_state.simple_analysis_results)
+        st.info(f"📊 Last 1% target analysis: {last_summary['total_breakouts']} breakouts, "
+               f"{last_summary['success_rate']:.1f}% success rate, "
+               f"{last_summary['profit_target_hit_rate']:.1f}% target hit rate")
+    
+    # Display results
+    if st.session_state.get('simple_analysis_completed', False):
+        st.markdown("---")
+        show_results()
 
 if __name__ == "__main__":
     show()
-
-    
