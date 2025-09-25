@@ -164,6 +164,36 @@ def calculate_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
     
     return df
 
+# File: core/technical_analysis.py
+# Add this function to the existing file (insert after calculate_technical_indicators function)
+
+def calculate_relative_volume(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Calculate Relative Volume similar to the website's approach
+    
+    Relative Volume = (Current Day Volume) / (14-day Average Volume) × 100
+    
+    Args:
+        df: DataFrame with OHLCV data
+    
+    Returns:
+        DataFrame with Relative Volume columns added
+    """
+    # Calculate 14-day rolling average volume
+    df['Volume_14D_Avg'] = df['Volume'].rolling(14, min_periods=7).mean()
+    
+    # Calculate relative volume as percentage
+    df['Relative_Volume'] = (df['Volume'] / df['Volume_14D_Avg']) * 100
+    
+    # Fill NaN values with 100% (neutral)
+    df['Relative_Volume'] = df['Relative_Volume'].fillna(100.0)
+    
+    # High activity flags for reference
+    df['High_Rel_Volume_150'] = (df['Relative_Volume'] >= 150).astype(int)  # 1.5x average
+    df['High_Rel_Volume_200'] = (df['Relative_Volume'] >= 200).astype(int)  # 2x average
+    
+    return df
+
 def calculate_crt_levels(df: pd.DataFrame) -> pd.DataFrame:
     """Calculate CRT (Candle Range Theory) levels and signals"""
     # Trading day identification
@@ -207,89 +237,15 @@ def calculate_crt_levels(df: pd.DataFrame) -> pd.DataFrame:
 # Part 2 of 2
 """
 Technical Analysis Module - Part 2
-CRT signal calculations and main enhancement function
+Main enhancement function and utility functions (Buy Signal logic removed)
 """
 
-def calculate_crt_signals(df: pd.DataFrame) -> pd.DataFrame:
-    """Calculate CRT trading signals efficiently"""
-    # Initialize signal columns
-    df['Wick_Below'] = 0
-    df['Close_Above'] = 0
-    
-    # Create week grouping for efficient processing
-    df['week_start'] = df.index - pd.to_timedelta(df.index.weekday, unit='D')
-    df['week_start'] = df['week_start'].dt.normalize()
-    
-    # Process each week's signals
-    for week_start in df['week_start'].unique():
-        week_mask = df['week_start'] == week_start
-        week_data = df[week_mask].copy()
-        
-        if len(week_data) == 0:
-            continue
-        
-        # Get CRT levels for the week
-        crt_high = week_data['CRT_High'].iloc[0]
-        crt_low = week_data['CRT_Low'].iloc[0]
-        
-        if pd.isna(crt_high) or pd.isna(crt_low):
-            continue
-        
-        # Process signal days (Tuesday-Friday)
-        signal_days = week_data[week_data.index.weekday > 0]
-        if len(signal_days) == 0:
-            continue
-        
-        # WICK_BELOW signal logic
-        wick_below_triggered = _process_wick_below_signal(signal_days, crt_low)
-        if wick_below_triggered is not None:
-            subsequent_days = signal_days[signal_days.index >= wick_below_triggered].index
-            df.loc[subsequent_days, 'Wick_Below'] = 1
-        
-        # CLOSE_ABOVE signal logic  
-        close_above_triggered = _process_close_above_signal(signal_days, crt_high)
-        if close_above_triggered is not None:
-            subsequent_days = signal_days[signal_days.index >= close_above_triggered].index
-            df.loc[subsequent_days, 'Close_Above'] = 1
-    
-    # Clean up temporary column
-    df.drop(['week_start'], axis=1, inplace=True)
-    
-    # Calculate final buy signal
-    df['Buy_Signal'] = (
-        (df['Valid_CRT'] == 1) &
-        (df['IBS'] >= 0.5) &
-        ((df['Wick_Below'] == 1) | (df['Close_Above'] == 1))
-    ).astype(int)
-    
-    return df
-
-def _process_wick_below_signal(signal_days: pd.DataFrame, crt_low: float) -> Optional[pd.Timestamp]:
-    """Process wick below signal for a week"""
-    condition_1_triggered = False
-    
-    for day_date, day_row in signal_days.iterrows():
-        # Check if low breached CRT low
-        if day_row['Low'] < crt_low:
-            condition_1_triggered = True
-        
-        # Check if close recovered above CRT low after breach
-        if condition_1_triggered and day_row['Close'] >= crt_low:
-            return day_date
-    
-    return None
-
-def _process_close_above_signal(signal_days: pd.DataFrame, crt_high: float) -> Optional[pd.Timestamp]:
-    """Process close above signal for a week"""
-    for day_date, day_row in signal_days.iterrows():
-        if day_row['Close'] >= crt_high:
-            return day_date
-    
-    return None
+# File: core/technical_analysis.py
+# Replace the existing add_enhanced_columns function with this updated version
 
 def add_enhanced_columns(df_daily: pd.DataFrame, ticker: str, rolling_window: int = 20) -> pd.DataFrame:
     """
-    Add enhanced columns with PURE MPI EXPANSION system
+    Add enhanced columns with PURE MPI EXPANSION system and Relative Volume
     
     Args:
         df_daily: Raw OHLCV data from yfinance
@@ -297,7 +253,7 @@ def add_enhanced_columns(df_daily: pd.DataFrame, ticker: str, rolling_window: in
         rolling_window: Window for moving averages (kept for backward compatibility)
     
     Returns:
-        DataFrame with MPI-enhanced technical analysis columns
+        DataFrame with MPI-enhanced technical analysis columns and Relative Volume
     """
     
     df = df_daily.copy()
@@ -311,23 +267,27 @@ def add_enhanced_columns(df_daily: pd.DataFrame, ticker: str, rolling_window: in
         df = calculate_technical_indicators(df)
         df = calculate_crt_levels(df)
         df = calculate_mpi_expansion(df)
-        df = calculate_crt_signals(df)
+        df = calculate_relative_volume(df)  # NEW: Add relative volume calculation
         
         # Log successful calculation
         logger.info(f"{ticker}: Enhanced analysis completed successfully")
         logger.info(f"{ticker}: Latest MPI: {df['MPI'].iloc[-1]:.1%}, "
                    f"Velocity: {df['MPI_Velocity'].iloc[-1]:+.3f}, "
                    f"Trend: {df['MPI_Trend'].iloc[-1]}")
+        logger.info(f"{ticker}: Latest Relative Volume: {df['Relative_Volume'].iloc[-1]:.0f}%")
         
     except Exception as e:
         logger.error(f"{ticker}: Technical analysis failed: {e}")
-        # Add fallback MPI values
+        # Add fallback values
         df['MPI'] = 0.5
         df['MPI_Velocity'] = 0.0
         df['MPI_Trend'] = 'Calculation Error'
         df['Signal_Expansion_Buy'] = 0
         df['Signal_Strong_Buy'] = 0
         df['Signal_Exit'] = 0
+        df['Relative_Volume'] = 100.0  # NEW: Fallback relative volume
+        df['High_Rel_Volume_150'] = 0
+        df['High_Rel_Volume_200'] = 0
     
     return df
 
@@ -347,8 +307,8 @@ def detect_range_expansion(df: pd.DataFrame) -> pd.DataFrame:
     return df[expansion_mask]
 
 def validate_data_quality(df: pd.DataFrame) -> dict:
-    """Validate the quality of the MPI-enhanced data"""
-    required_columns = ['Close', 'High', 'Low', 'Volume', 'IBS', 'Buy_Signal', 
+    """Validate the quality of the MPI-enhanced data (Buy Signal references removed)"""
+    required_columns = ['Close', 'High', 'Low', 'Volume', 'IBS', 
                        'MPI', 'MPI_Velocity', 'MPI_Trend']
     missing_columns = [col for col in required_columns if col not in df.columns]
     
@@ -357,7 +317,6 @@ def validate_data_quality(df: pd.DataFrame) -> dict:
         'missing_columns': missing_columns,
         'row_count': len(df),
         'has_recent_data': len(df) > 0,
-        'buy_signals_count': int(df['Buy_Signal'].sum()) if 'Buy_Signal' in df.columns else 0,
         'expansion_signals_count': int(df['Signal_Expansion_Buy'].sum()) if 'Signal_Expansion_Buy' in df.columns else 0,
         'mpi_data_available': 'MPI' in df.columns,
         'strong_expansion_count': int((df['MPI_Trend'] == 'Strong Expansion').sum()) if 'MPI_Trend' in df.columns else 0,
@@ -366,11 +325,7 @@ def validate_data_quality(df: pd.DataFrame) -> dict:
     
     return validation_results
 
-def get_buy_signals(df: pd.DataFrame) -> pd.DataFrame:
-    """Get only the rows where buy signals are active"""
-    if 'Buy_Signal' not in df.columns:
-        return pd.DataFrame()
-    return df[df['Buy_Signal'] == 1].copy()
+# REMOVED: get_buy_signals() function - no longer needed
 
 def calculate_technical_indicators_wrapper(df: pd.DataFrame, ticker: str = 'Unknown') -> pd.DataFrame:
     """Simple wrapper for add_enhanced_columns (backward compatibility)"""
@@ -426,4 +381,4 @@ def get_mpi_trend_distribution(df: pd.DataFrame) -> pd.DataFrame:
     
     return pd.DataFrame(trends)
 
-logger.info("Technical Analysis Module loaded with optimized PURE MPI EXPANSION system")
+logger.info("Technical Analysis Module loaded with optimized PURE MPI EXPANSION system (Buy Signal logic removed)")
