@@ -321,6 +321,57 @@ def apply_ibs_filter(filtered_stocks: pd.DataFrame) -> tuple:
     
     return filtered_stocks, info_message
 
+# File: pages/scanner_higher_hl.py
+# Add this new function after the apply_ibs_filter function
+
+def apply_relative_volume_filter(filtered_stocks: pd.DataFrame) -> tuple:
+    """Apply Relative Volume percentile filter (similar to IBS filtering)"""
+    if filtered_stocks.empty:
+        return filtered_stocks, "No stocks available"
+    
+    rel_volume_values = filtered_stocks['Relative_Volume']
+    
+    # Percentile options (same structure as IBS filter)
+    rel_volume_percentile_options = {
+        "Top 25%": 75,
+        "Top 50%": 50,
+        "Top 75%": 25,
+        "Custom": "custom",
+        "No Filter": None
+    }
+    
+    selected_rel_volume_option = st.radio(
+        "Select Relative Volume filter:",
+        list(rel_volume_percentile_options.keys()),
+        key="rel_volume_percentile_radio"
+    )
+    
+    # Apply filtering
+    if selected_rel_volume_option == "Custom":
+        custom_rel_volume_value = st.number_input(
+            "Enter minimum Relative Volume %:",
+            min_value=50.0,
+            max_value=500.0,
+            value=100.0,
+            step=10.0,
+            format="%.1f",
+            key="custom_rel_volume_input",
+            help="100% = average volume, 200% = double average volume"
+        )
+        filtered_stocks = filtered_stocks[filtered_stocks['Relative_Volume'] >= custom_rel_volume_value]
+        info_message = f"Rel Volume ≥ {custom_rel_volume_value:.1f}%"
+        
+    elif selected_rel_volume_option != "No Filter":
+        percentile_val = rel_volume_percentile_options[selected_rel_volume_option]
+        threshold_value = np.percentile(rel_volume_values, percentile_val)
+        filtered_stocks = filtered_stocks[filtered_stocks['Relative_Volume'] >= threshold_value]
+        info_message = f"Rel Volume ≥ {threshold_value:.1f}% ({selected_rel_volume_option})"
+        
+    else:
+        info_message = "All Relative Volume levels included"
+    
+    return filtered_stocks, info_message
+
 def apply_higher_hl_filter(filtered_stocks: pd.DataFrame, base_filter_type: str) -> tuple:
     """Apply Higher H/L pattern filter if needed"""
     if base_filter_type in ["Valid CRT + Higher H/L", "Higher H/L Only"]:
@@ -388,6 +439,9 @@ def apply_mpi_filter(filtered_stocks: pd.DataFrame) -> tuple:
     
     return filtered_stocks, selected_trends, info_message
 
+# File: pages/scanner_higher_hl.py
+# Update the show_filter_statistics function to include Relative Volume statistics
+
 def show_filter_statistics(component_name: str, data: pd.Series, base_stocks: pd.DataFrame = None):
     """Show statistics for a filter component"""
     with st.expander(f"{component_name} Statistics", expanded=False):
@@ -396,6 +450,10 @@ def show_filter_statistics(component_name: str, data: pd.Series, base_stocks: pd
             st.dataframe(stats_df, hide_index=True, use_container_width=True)
             
         elif component_name == "IBS" and len(data) > 0:
+            stats_df = create_filter_statistics_dataframe(data, component_name)
+            st.dataframe(stats_df, hide_index=True, use_container_width=True)
+            
+        elif component_name == "Relative Volume" and len(data) > 0:
             stats_df = create_filter_statistics_dataframe(data, component_name)
             st.dataframe(stats_df, hide_index=True, use_container_width=True)
             
@@ -442,9 +500,12 @@ def show_filter_statistics(component_name: str, data: pd.Series, base_stocks: pd
             if trend_stats_data:
                 st.dataframe(pd.DataFrame(trend_stats_data), hide_index=True, use_container_width=True)
 
+# File: pages/scanner_higher_hl.py
+# Replace the existing apply_dynamic_filters function with this updated version
+
 def apply_dynamic_filters(base_stocks: pd.DataFrame, results_df: pd.DataFrame) -> pd.DataFrame:
     """
-    Apply dynamic filtering with optimized component structure
+    Apply dynamic filtering with optimized component structure including Relative Volume
     Returns filtered stocks
     """
     if base_stocks.empty:
@@ -453,14 +514,14 @@ def apply_dynamic_filters(base_stocks: pd.DataFrame, results_df: pd.DataFrame) -
     
     st.subheader("🎯 Dynamic Filtering")
     
-    # Create four columns for filters
-    col1, col2, col3, col4 = st.columns(4)
+    # Create five columns for filters (was four, now five)
+    col1, col2, col3, col4, col5 = st.columns(5)
     
     # Initialize filtered stocks
     filtered_stocks = base_stocks.copy()
     filter_summary = []
     
-    # COL 1: CRT VELOCITY FILTER
+    # COL 1: CRT VELOCITY FILTER (unchanged)
     with col1:
         st.markdown("**CRT Velocity Filter:**")
         filtered_stocks, velocity_data, velocity_info = apply_velocity_filter(filtered_stocks, results_df)
@@ -471,7 +532,7 @@ def apply_dynamic_filters(base_stocks: pd.DataFrame, results_df: pd.DataFrame) -
             if "≥" in velocity_info:
                 filter_summary.append("CRT Velocity filtered")
     
-    # COL 2: IBS FILTER
+    # COL 2: IBS FILTER (unchanged)
     with col2:
         st.markdown("**IBS Filter:**")
         filtered_stocks, ibs_info = apply_ibs_filter(filtered_stocks)
@@ -482,8 +543,19 @@ def apply_dynamic_filters(base_stocks: pd.DataFrame, results_df: pd.DataFrame) -
             if "≥" in ibs_info:
                 filter_summary.append("IBS filtered")
     
-    # COL 3: HIGHER H/L FILTER
+    # COL 3: NEW RELATIVE VOLUME FILTER
     with col3:
+        st.markdown("**Relative Volume Filter:**")
+        filtered_stocks, rel_volume_info = apply_relative_volume_filter(filtered_stocks)
+        st.info(rel_volume_info)
+        
+        if len(filtered_stocks) > 0:
+            show_filter_statistics("Relative Volume", filtered_stocks['Relative_Volume'])
+            if "≥" in rel_volume_info:
+                filter_summary.append("Relative Volume filtered")
+    
+    # COL 4: HIGHER H/L FILTER (moved from col3)
+    with col4:
         base_filter_type = st.session_state.get('base_filter_type', 'All Stocks')
         
         if base_filter_type not in ["Valid CRT + Higher H/L", "Higher H/L Only"]:
@@ -498,8 +570,8 @@ def apply_dynamic_filters(base_stocks: pd.DataFrame, results_df: pd.DataFrame) -
             st.markdown("**Additional Filters:**")
             st.info("Higher H/L filter not needed - already filtered by base selection")
     
-    # COL 4: MPI EXPANSION FILTER
-    with col4:
+    # COL 5: MPI EXPANSION FILTER (moved from col4)
+    with col5:
         st.markdown("**MPI Expansion Filter:**")
         filtered_stocks, selected_trends, mpi_info = apply_mpi_filter(filtered_stocks)
         st.info(mpi_info)
@@ -797,6 +869,9 @@ def _get_historical_analysis_row(df_enhanced: pd.DataFrame, analysis_date: date,
         logger.error(f"Historical date processing failed for {ticker}: {e}")
         return None, None
 
+# File: pages/scanner_higher_hl.py  
+# Find the _create_result_dict function and add these lines after the existing result dictionary creation
+
 def _create_result_dict(analysis_row: pd.Series, actual_date, ticker: str, fetcher) -> dict:
     """Create result dictionary from analysis row"""
     # Get company name
@@ -850,6 +925,12 @@ def _create_result_dict(analysis_row: pd.Series, actual_date, ticker: str, fetch
         'MPI_Trend_Emoji': mpi_trend_info.get('emoji', '❓'),
         'MPI_Description': mpi_trend_info.get('description', 'Unknown'),
         'MPI_Visual': format_mpi_visual(analysis_row.get('MPI', 0.5)),
+        
+        # NEW: Relative Volume columns
+        'Relative_Volume': round(float(analysis_row.get('Relative_Volume', 100.0)), 1) if not pd.isna(analysis_row.get('Relative_Volume', 100.0)) else 100.0,
+        'High_Rel_Volume_150': int(analysis_row.get('High_Rel_Volume_150', 0)),
+        'High_Rel_Volume_200': int(analysis_row.get('High_Rel_Volume_200', 0)),
+        
         'Price_Decimals': price_decimals
     }
     
@@ -946,6 +1027,9 @@ def show_base_pattern_filter(results_df: pd.DataFrame) -> pd.DataFrame:
     
     return base_stocks
 
+# File: pages/scanner_higher_hl.py
+# Update the display_filtered_results function to include Relative Volume in display
+
 def display_filtered_results(filtered_stocks: pd.DataFrame, selected_base_filter: str):
     """Display the filtered results table and export options"""
     st.subheader(f"📋 Pure MPI Expansion Results ({len(filtered_stocks)} stocks)")
@@ -954,9 +1038,10 @@ def display_filtered_results(filtered_stocks: pd.DataFrame, selected_base_filter
         st.warning("No stocks match the current filter criteria")
         return
     
-    # Define display columns
+    # Define display columns (add Relative_Volume)
     display_cols = ['Ticker', 'Name', 'Close', 'CRT_High', 'CRT_Low',
-                   'CRT_Velocity', 'IBS', 'Higher_HL', 'MPI_Trend_Emoji', 'MPI', 'MPI_Velocity', 'MPI_Visual']
+                   'CRT_Velocity', 'IBS', 'Relative_Volume', 'Higher_HL', 
+                   'MPI_Trend_Emoji', 'MPI', 'MPI_Velocity', 'MPI_Visual']
     
     # Create column configuration
     base_column_config = {
@@ -964,6 +1049,7 @@ def display_filtered_results(filtered_stocks: pd.DataFrame, selected_base_filter
         'Name': st.column_config.TextColumn('Company Name', width='medium'),
         'CRT_Velocity': st.column_config.NumberColumn('CRT Vel', format='%+.4f'),
         'IBS': st.column_config.NumberColumn('IBS', format='%.3f'),
+        'Relative_Volume': st.column_config.NumberColumn('Rel Vol', format='%.1f%%', help='Relative Volume vs 14-day average'),
         'Higher_HL': st.column_config.NumberColumn('H/L', width='small'),
         'MPI_Trend_Emoji': st.column_config.TextColumn('📊', width='small', help='MPI Expansion Trend'),
         'MPI': st.column_config.NumberColumn('MPI', format='%.1f', help='Market Positivity Index'),
