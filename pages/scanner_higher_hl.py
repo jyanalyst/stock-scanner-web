@@ -872,6 +872,9 @@ def _get_historical_analysis_row(df_enhanced: pd.DataFrame, analysis_date: date,
 # File: pages/scanner_higher_hl.py  
 # Find the _create_result_dict function and add these lines after the existing result dictionary creation
 
+# Updated _create_result_dict function for pages/scanner_higher_hl.py
+# This replaces the existing _create_result_dict function
+
 def _create_result_dict(analysis_row: pd.Series, actual_date, ticker: str, fetcher) -> dict:
     """Create result dictionary from analysis row"""
     # Get company name
@@ -889,6 +892,15 @@ def _create_result_dict(analysis_row: pd.Series, actual_date, ticker: str, fetch
             return round(float(value), decimals) if not pd.isna(value) else 0
         except:
             return 0
+    
+    def safe_int(value, default=0):
+        """Safely convert value to int, handling NaN and other edge cases"""
+        try:
+            if pd.isna(value):
+                return default
+            return int(value)
+        except:
+            return default
     
     # Get MPI trend info
     mpi_trend = str(analysis_row.get('MPI_Trend', 'Unknown'))
@@ -909,14 +921,14 @@ def _create_result_dict(analysis_row: pd.Series, actual_date, ticker: str, fetch
         'High': safe_round(analysis_row['High'], price_decimals),
         'Low': safe_round(analysis_row['Low'], price_decimals),
         'IBS': round(float(analysis_row['IBS']), 3) if not pd.isna(analysis_row['IBS']) else 0,
-        'Valid_CRT': int(analysis_row.get('Valid_CRT', 0)),
-        'Higher_HL': int(analysis_row.get('Higher_HL', 0)) if not pd.isna(analysis_row.get('Higher_HL', 0)) else 0,
+        'Valid_CRT': safe_int(analysis_row.get('Valid_CRT', 0)),
+        'Higher_HL': safe_int(analysis_row.get('Higher_HL', 0)),
         'CRT_Velocity': round(float(analysis_row.get('CRT_Qualifying_Velocity', 0)), 4) if not pd.isna(analysis_row.get('CRT_Qualifying_Velocity', 0)) else 0,
         'Weekly_Open': safe_round(analysis_row.get('Weekly_Open', 0), price_decimals),
         'CRT_High': safe_round(analysis_row.get('CRT_High', 0), price_decimals),
         'CRT_Low': safe_round(analysis_row.get('CRT_Low', 0), price_decimals),
         'VW_Range_Percentile': round(float(analysis_row.get('VW_Range_Percentile', 0)), 4) if not pd.isna(analysis_row.get('VW_Range_Percentile', 0)) else 0,
-        'Rel_Range_Signal': int(analysis_row.get('Rel_Range_Signal', 0)),
+        'Rel_Range_Signal': safe_int(analysis_row.get('Rel_Range_Signal', 0)),
         
         # Pure MPI Expansion columns
         'MPI': round(float(analysis_row.get('MPI', 0.5)), 4) if not pd.isna(analysis_row.get('MPI', 0.5)) else 0.5,
@@ -926,10 +938,10 @@ def _create_result_dict(analysis_row: pd.Series, actual_date, ticker: str, fetch
         'MPI_Description': mpi_trend_info.get('description', 'Unknown'),
         'MPI_Visual': format_mpi_visual(analysis_row.get('MPI', 0.5)),
         
-        # NEW: Relative Volume columns
+        # Relative Volume columns
         'Relative_Volume': round(float(analysis_row.get('Relative_Volume', 100.0)), 1) if not pd.isna(analysis_row.get('Relative_Volume', 100.0)) else 100.0,
-        'High_Rel_Volume_150': int(analysis_row.get('High_Rel_Volume_150', 0)),
-        'High_Rel_Volume_200': int(analysis_row.get('High_Rel_Volume_200', 0)),
+        'High_Rel_Volume_150': safe_int(analysis_row.get('High_Rel_Volume_150', 0)),
+        'High_Rel_Volume_200': safe_int(analysis_row.get('High_Rel_Volume_200', 0)),
         
         'Price_Decimals': price_decimals
     }
