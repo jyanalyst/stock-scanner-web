@@ -3,6 +3,7 @@
 """
 CRT Higher H/L Scanner - Optimized with Pure MPI Expansion Filtering
 Enhanced error handling and streamlined UI components
+NOW USING VW_RANGE_VELOCITY FOR DAILY MOMENTUM FILTERING
 """
 
 import streamlit as st
@@ -253,19 +254,20 @@ def create_distribution_chart(data: pd.Series, title: str, x_label: str, thresho
 # Part 2 of 4
 """
 Dynamic filtering functions - optimized and streamlined
+NOW USING VW_RANGE_VELOCITY FOR DAILY MOMENTUM
 """
 
 def apply_velocity_filter(filtered_stocks: pd.DataFrame, results_df: pd.DataFrame) -> tuple:
-    """Apply CRT velocity percentile filter"""
+    """Apply VW Range Velocity percentile filter for daily momentum"""
     if filtered_stocks.empty:
         return filtered_stocks, None, "No stocks available"
     
     # Get velocity data
-    if 'CRT_Velocity' in filtered_stocks.columns:
-        velocities = filtered_stocks['CRT_Velocity']
+    if 'VW_Range_Velocity' in filtered_stocks.columns:
+        velocities = filtered_stocks['VW_Range_Velocity']
     else:
         velocities = filtered_stocks.index.map(
-            lambda idx: results_df.loc[idx, 'CRT_Velocity'] if idx in results_df.index else 0
+            lambda idx: results_df.loc[idx, 'VW_Range_Velocity'] if idx in results_df.index else 0
         )
         velocities = pd.Series(velocities, index=filtered_stocks.index)
     
@@ -273,7 +275,7 @@ def apply_velocity_filter(filtered_stocks: pd.DataFrame, results_df: pd.DataFram
     non_zero_velocities = velocities[velocities != 0]
     
     if len(non_zero_velocities) == 0:
-        return filtered_stocks, None, "No CRT Velocity data available"
+        return filtered_stocks, None, "No VW Range Velocity data available"
     
     # Percentile options
     percentile_options = {
@@ -286,7 +288,7 @@ def apply_velocity_filter(filtered_stocks: pd.DataFrame, results_df: pd.DataFram
     selected_percentile = st.radio(
         "Select velocity filter:",
         list(percentile_options.keys()),
-        key="crt_velocity_percentile_radio"
+        key="vw_range_velocity_percentile_radio"
     )
     
     # Apply filtering
@@ -294,7 +296,7 @@ def apply_velocity_filter(filtered_stocks: pd.DataFrame, results_df: pd.DataFram
         percentile_val = percentile_options[selected_percentile]
         threshold_value = np.percentile(non_zero_velocities, percentile_val)
         filtered_stocks = filtered_stocks[velocities >= threshold_value]
-        info_message = f"CRT Velocity ≥ {threshold_value:+.4f} pp"
+        info_message = f"VW Range Velocity ≥ {threshold_value:+.4f} pp"
     else:
         info_message = "All velocities included"
     
@@ -346,9 +348,6 @@ def apply_ibs_filter(filtered_stocks: pd.DataFrame) -> tuple:
         info_message = "All IBS values included"
     
     return filtered_stocks, info_message
-
-# File: pages/scanner_higher_hl.py
-# Add this new function after the apply_ibs_filter function
 
 def apply_relative_volume_filter(filtered_stocks: pd.DataFrame) -> tuple:
     """Apply Relative Volume percentile filter (similar to IBS filtering)"""
@@ -504,13 +503,10 @@ def apply_regime_filter(filtered_stocks: pd.DataFrame) -> tuple:
     
     return filtered_stocks, info_message
 
-# File: pages/scanner_higher_hl.py
-# Update the show_filter_statistics function to include Relative Volume statistics
-
 def show_filter_statistics(component_name: str, data: pd.Series, base_stocks: pd.DataFrame = None):
     """Show statistics for a filter component"""
     with st.expander(f"{component_name} Statistics", expanded=False):
-        if component_name == "CRT Velocity" and len(data) > 0:
+        if component_name == "VW Range Velocity" and len(data) > 0:
             stats_df = create_filter_statistics_dataframe(data, component_name)
             st.dataframe(stats_df, hide_index=True, use_container_width=True)
             
@@ -565,8 +561,6 @@ def show_filter_statistics(component_name: str, data: pd.Series, base_stocks: pd
             if trend_stats_data:
                 st.dataframe(pd.DataFrame(trend_stats_data), hide_index=True, use_container_width=True)
 
-        # Find this function and add this case after the MPI Trend section:
-
         elif component_name == "Market Regime" and base_stocks is not None and 'Market_Regime' in base_stocks.columns:
             regime_counts = base_stocks['Market_Regime'].value_counts()
             
@@ -585,12 +579,9 @@ def show_filter_statistics(component_name: str, data: pd.Series, base_stocks: pd
             if regime_stats_data:
                 st.dataframe(pd.DataFrame(regime_stats_data), hide_index=True, use_container_width=True)
 
-# File: pages/scanner_higher_hl.py
-# Replace the existing apply_dynamic_filters function with this updated version
-
 def apply_dynamic_filters(base_stocks: pd.DataFrame, results_df: pd.DataFrame) -> pd.DataFrame:
     """
-    Apply dynamic filtering with optimized component structure including Relative Volume and Market Regime
+    Apply dynamic filtering with optimized component structure including VW Range Velocity, Relative Volume and Market Regime
     Returns filtered stocks
     """
     if base_stocks.empty:
@@ -599,25 +590,25 @@ def apply_dynamic_filters(base_stocks: pd.DataFrame, results_df: pd.DataFrame) -
     
     st.subheader("🎯 Dynamic Filtering")
     
-    # Create SIX columns for filters (was five, now six)
+    # Create SIX columns for filters
     col1, col2, col3, col4, col5, col6 = st.columns(6)
     
     # Initialize filtered stocks
     filtered_stocks = base_stocks.copy()
     filter_summary = []
     
-    # COL 1: CRT VELOCITY FILTER (unchanged)
+    # COL 1: VW RANGE VELOCITY FILTER (UPDATED)
     with col1:
-        st.markdown("**CRT Velocity Filter:**")
+        st.markdown("**VW Range Velocity Filter:**")
         filtered_stocks, velocity_data, velocity_info = apply_velocity_filter(filtered_stocks, results_df)
         st.info(velocity_info)
         
         if velocity_data is not None and len(velocity_data) > 0:
-            show_filter_statistics("CRT Velocity", velocity_data)
+            show_filter_statistics("VW Range Velocity", velocity_data)
             if "≥" in velocity_info:
-                filter_summary.append("CRT Velocity filtered")
+                filter_summary.append("VW Range Velocity filtered")
     
-    # COL 2: IBS FILTER (unchanged)
+    # COL 2: IBS FILTER
     with col2:
         st.markdown("**IBS Filter:**")
         filtered_stocks, ibs_info = apply_ibs_filter(filtered_stocks)
@@ -667,7 +658,7 @@ def apply_dynamic_filters(base_stocks: pd.DataFrame, results_df: pd.DataFrame) -
         elif "disabled" in mpi_info:
             filter_summary.append("MPI: Disabled")
     
-    # COL 6: MARKET REGIME FILTER (NEW)
+    # COL 6: MARKET REGIME FILTER
     with col6:
         st.markdown("**Market Regime Filter:**")
         filtered_stocks, regime_info = apply_regime_filter(filtered_stocks)
@@ -1014,6 +1005,7 @@ def _create_result_dict(analysis_row: pd.Series, actual_date, ticker: str, fetch
         'Valid_CRT': safe_int(analysis_row.get('Valid_CRT', 0)),
         'Higher_HL': safe_int(analysis_row.get('Higher_HL', 0)),
         'CRT_Velocity': round(float(analysis_row.get('CRT_Qualifying_Velocity', 0)), 4) if not pd.isna(analysis_row.get('CRT_Qualifying_Velocity', 0)) else 0,
+        'VW_Range_Velocity': round(float(analysis_row.get('VW_Range_Velocity', 0)), 4) if not pd.isna(analysis_row.get('VW_Range_Velocity', 0)) else 0,
         'Weekly_Open': safe_round(analysis_row.get('Weekly_Open', 0), price_decimals),
         'CRT_High': safe_round(analysis_row.get('CRT_High', 0), price_decimals),
         'CRT_Low': safe_round(analysis_row.get('CRT_Low', 0), price_decimals),
@@ -1033,7 +1025,7 @@ def _create_result_dict(analysis_row: pd.Series, actual_date, ticker: str, fetch
         'High_Rel_Volume_150': safe_int(analysis_row.get('High_Rel_Volume_150', 0)),
         'High_Rel_Volume_200': safe_int(analysis_row.get('High_Rel_Volume_200', 0)),
         
-        # Market Regime columns (NEW)
+        # Market Regime columns
         'Market_Regime': str(analysis_row.get('Market_Regime', 'Unknown')),
         'Regime_Probability': round(float(analysis_row.get('Regime_Probability', 0.5)), 3) if not pd.isna(analysis_row.get('Regime_Probability', 0.5)) else 0.5,
         
@@ -1133,9 +1125,6 @@ def show_base_pattern_filter(results_df: pd.DataFrame) -> pd.DataFrame:
     
     return base_stocks
 
-# File: pages/scanner_higher_hl.py
-# Update the display_filtered_results function to include Relative Volume in display
-
 def display_filtered_results(filtered_stocks: pd.DataFrame, selected_base_filter: str):
     """Display the filtered results table and export options"""
     st.subheader(f"📋 Pure MPI Expansion Results ({len(filtered_stocks)} stocks)")
@@ -1144,9 +1133,9 @@ def display_filtered_results(filtered_stocks: pd.DataFrame, selected_base_filter
         st.warning("No stocks match the current filter criteria")
         return
     
-    # Define display columns (add Market_Regime and Regime_Probability)
+    # Define display columns (now includes VW_Range_Velocity instead of CRT_Velocity)
     display_cols = ['Ticker', 'Name', 'Close', 'CRT_High', 'CRT_Low',
-                   'CRT_Velocity', 'IBS', 'Relative_Volume', 'Higher_HL', 
+                   'VW_Range_Velocity', 'IBS', 'Relative_Volume', 'Higher_HL', 
                    'MPI_Trend_Emoji', 'MPI', 'MPI_Velocity', 'MPI_Visual',
                    'Market_Regime', 'Regime_Probability']
     
@@ -1154,7 +1143,7 @@ def display_filtered_results(filtered_stocks: pd.DataFrame, selected_base_filter
     base_column_config = {
         'Ticker': st.column_config.TextColumn('Ticker', width='small'),
         'Name': st.column_config.TextColumn('Company Name', width='medium'),
-        'CRT_Velocity': st.column_config.NumberColumn('CRT Vel', format='%+.4f'),
+        'VW_Range_Velocity': st.column_config.NumberColumn('Range Vel', format='%+.4f', help='Daily range expansion velocity'),
         'IBS': st.column_config.NumberColumn('IBS', format='%.3f'),
         'Relative_Volume': st.column_config.NumberColumn('Rel Vol', format='%.1f%%', help='Relative Volume vs 14-day average'),
         'Higher_HL': st.column_config.NumberColumn('H/L', width='small'),
@@ -1227,7 +1216,7 @@ def show_full_results_table(results_df: pd.DataFrame):
         try:
             full_results_cols = [
                 'Analysis_Date', 'Ticker', 'Name', 'Close', 'CRT_High', 'CRT_Low',
-                'CRT_Velocity', 'IBS', 'Higher_HL', 'Valid_CRT', 
+                'VW_Range_Velocity', 'IBS', 'Higher_HL', 'Valid_CRT', 
                 'MPI_Trend_Emoji', 'MPI_Trend', 'MPI', 'MPI_Velocity', 'MPI_Visual'
             ]
             
@@ -1235,7 +1224,7 @@ def show_full_results_table(results_df: pd.DataFrame):
                 'Analysis_Date': st.column_config.TextColumn('Date', width='small'),
                 'Ticker': st.column_config.TextColumn('Ticker', width='small'),
                 'Name': st.column_config.TextColumn('Company Name', width='medium'),
-                'CRT_Velocity': st.column_config.NumberColumn('CRT Vel', format='%+.4f'),
+                'VW_Range_Velocity': st.column_config.NumberColumn('Range Vel', format='%+.4f'),
                 'IBS': st.column_config.NumberColumn('IBS', format='%.3f'),
                 'Higher_HL': st.column_config.NumberColumn('H/L', width='small'),
                 'Valid_CRT': st.column_config.NumberColumn('CRT', width='small'),
@@ -1385,6 +1374,7 @@ def show():
     
     st.title("📈 CRT Higher H/L Scanner")
     st.markdown("Enhanced with **Pure MPI Expansion System** - Focus on momentum velocity, not absolute levels")
+    st.markdown("**Now using VW Range Velocity for daily momentum filtering**")
     
     # Clear error log button
     if st.button("🗑️ Clear Error Log"):
