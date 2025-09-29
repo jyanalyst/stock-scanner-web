@@ -18,6 +18,32 @@ import plotly.express as px
 import plotly.graph_objects as go
 from typing import Dict, List
 
+def show_regime_filter(filtered_stocks: pd.DataFrame) -> pd.DataFrame:
+    """
+    Apply market regime filter to stocks
+    """
+    if 'Market_Regime' not in filtered_stocks.columns:
+        return filtered_stocks
+    
+    regime_options = {
+        "All Regimes": None,
+        "Low Volatility Only": "Low Volatility",
+        "High Volatility Only": "High Volatility"
+    }
+    
+    selected_regime = st.radio(
+        "Select market regime filter:",
+        list(regime_options.keys()),
+        key="regime_filter_radio",
+        help="Filter stocks by their current market regime"
+    )
+    
+    if selected_regime != "All Regimes":
+        regime_value = regime_options[selected_regime]
+        filtered_stocks = filtered_stocks[filtered_stocks['Market_Regime'] == regime_value]
+        
+    return filtered_stocks
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -439,6 +465,45 @@ def apply_mpi_filter(filtered_stocks: pd.DataFrame) -> tuple:
     
     return filtered_stocks, selected_trends, info_message
 
+def apply_regime_filter(filtered_stocks: pd.DataFrame) -> tuple:
+    """Apply market regime filter"""
+    if filtered_stocks.empty:
+        return filtered_stocks, "No stocks available"
+    
+    if 'Market_Regime' not in filtered_stocks.columns:
+        return filtered_stocks, "Regime data not available"
+    
+    regime_options = {
+        "All Regimes": None,
+        "Low Volatility Only": "Low Volatility",
+        "High Volatility Only": "High Volatility",
+        "No Filter": "none"
+    }
+    
+    selected_regime_option = st.radio(
+        "Select regime filter:",
+        list(regime_options.keys()),
+        key="regime_filter_radio",
+        help="Filter by market volatility regime"
+    )
+    
+    # Apply filtering
+    if selected_regime_option == "Low Volatility Only":
+        filtered_stocks = filtered_stocks[filtered_stocks['Market_Regime'] == "Low Volatility"]
+        info_message = f"Low volatility regime only ({len(filtered_stocks)} stocks)"
+    elif selected_regime_option == "High Volatility Only":
+        filtered_stocks = filtered_stocks[filtered_stocks['Market_Regime'] == "High Volatility"]
+        info_message = f"High volatility regime only ({len(filtered_stocks)} stocks)"
+    elif selected_regime_option == "No Filter":
+        info_message = "All regimes included"
+    else:  # All Regimes
+        regime_counts = filtered_stocks['Market_Regime'].value_counts()
+        low_vol = regime_counts.get('Low Volatility', 0)
+        high_vol = regime_counts.get('High Volatility', 0)
+        info_message = f"Low: {low_vol}, High: {high_vol}"
+    
+    return filtered_stocks, info_message
+
 # File: pages/scanner_higher_hl.py
 # Update the show_filter_statistics function to include Relative Volume statistics
 
@@ -500,12 +565,32 @@ def show_filter_statistics(component_name: str, data: pd.Series, base_stocks: pd
             if trend_stats_data:
                 st.dataframe(pd.DataFrame(trend_stats_data), hide_index=True, use_container_width=True)
 
+        # Find this function and add this case after the MPI Trend section:
+
+        elif component_name == "Market Regime" and base_stocks is not None and 'Market_Regime' in base_stocks.columns:
+            regime_counts = base_stocks['Market_Regime'].value_counts()
+            
+            regime_stats_data = []
+            for regime, count in regime_counts.items():
+                regime_stocks = base_stocks[base_stocks['Market_Regime'] == regime]
+                avg_probability = regime_stocks['Regime_Probability'].mean() if 'Regime_Probability' in regime_stocks.columns else 0
+                
+                regime_stats_data.append({
+                    "Market Regime": regime,
+                    "Count": count,
+                    "Percentage": f"{count/len(base_stocks)*100:.1f}%",
+                    "Avg Probability": f"{avg_probability:.1%}"
+                })
+            
+            if regime_stats_data:
+                st.dataframe(pd.DataFrame(regime_stats_data), hide_index=True, use_container_width=True)
+
 # File: pages/scanner_higher_hl.py
 # Replace the existing apply_dynamic_filters function with this updated version
 
 def apply_dynamic_filters(base_stocks: pd.DataFrame, results_df: pd.DataFrame) -> pd.DataFrame:
     """
-    Apply dynamic filtering with optimized component structure including Relative Volume
+    Apply dynamic filtering with optimized component structure including Relative Volume and Market Regime
     Returns filtered stocks
     """
     if base_stocks.empty:
@@ -514,8 +599,8 @@ def apply_dynamic_filters(base_stocks: pd.DataFrame, results_df: pd.DataFrame) -
     
     st.subheader("🎯 Dynamic Filtering")
     
-    # Create five columns for filters (was four, now five)
-    col1, col2, col3, col4, col5 = st.columns(5)
+    # Create SIX columns for filters (was five, now six)
+    col1, col2, col3, col4, col5, col6 = st.columns(6)
     
     # Initialize filtered stocks
     filtered_stocks = base_stocks.copy()
@@ -543,7 +628,7 @@ def apply_dynamic_filters(base_stocks: pd.DataFrame, results_df: pd.DataFrame) -
             if "≥" in ibs_info:
                 filter_summary.append("IBS filtered")
     
-    # COL 3: NEW RELATIVE VOLUME FILTER
+    # COL 3: RELATIVE VOLUME FILTER
     with col3:
         st.markdown("**Relative Volume Filter:**")
         filtered_stocks, rel_volume_info = apply_relative_volume_filter(filtered_stocks)
@@ -554,7 +639,7 @@ def apply_dynamic_filters(base_stocks: pd.DataFrame, results_df: pd.DataFrame) -
             if "≥" in rel_volume_info:
                 filter_summary.append("Relative Volume filtered")
     
-    # COL 4: HIGHER H/L FILTER (moved from col3)
+    # COL 4: HIGHER H/L FILTER
     with col4:
         base_filter_type = st.session_state.get('base_filter_type', 'All Stocks')
         
@@ -570,7 +655,7 @@ def apply_dynamic_filters(base_stocks: pd.DataFrame, results_df: pd.DataFrame) -
             st.markdown("**Additional Filters:**")
             st.info("Higher H/L filter not needed - already filtered by base selection")
     
-    # COL 5: MPI EXPANSION FILTER (moved from col4)
+    # COL 5: MPI EXPANSION FILTER
     with col5:
         st.markdown("**MPI Expansion Filter:**")
         filtered_stocks, selected_trends, mpi_info = apply_mpi_filter(filtered_stocks)
@@ -581,6 +666,16 @@ def apply_dynamic_filters(base_stocks: pd.DataFrame, results_df: pd.DataFrame) -
             filter_summary.append(f"MPI: {len(selected_trends)} trends")
         elif "disabled" in mpi_info:
             filter_summary.append("MPI: Disabled")
+    
+    # COL 6: MARKET REGIME FILTER (NEW)
+    with col6:
+        st.markdown("**Market Regime Filter:**")
+        filtered_stocks, regime_info = apply_regime_filter(filtered_stocks)
+        st.info(regime_info)
+        
+        show_filter_statistics("Market Regime", None, base_stocks)
+        if "filtered" in regime_info:
+            filter_summary.append("Regime filtered")
     
     # Show combined filter summary
     if filter_summary:
@@ -658,7 +753,7 @@ def show_advanced_settings():
                 "Days of Historical Data", 
                 min_value=30, 
                 max_value=250, 
-                value=59,
+                value=100,
                 help="How many days of data to download for analysis"
             )
         
@@ -869,11 +964,6 @@ def _get_historical_analysis_row(df_enhanced: pd.DataFrame, analysis_date: date,
         logger.error(f"Historical date processing failed for {ticker}: {e}")
         return None, None
 
-# File: pages/scanner_higher_hl.py  
-# Find the _create_result_dict function and add these lines after the existing result dictionary creation
-
-# Updated _create_result_dict function for pages/scanner_higher_hl.py
-# This replaces the existing _create_result_dict function
 
 def _create_result_dict(analysis_row: pd.Series, actual_date, ticker: str, fetcher) -> dict:
     """Create result dictionary from analysis row"""
@@ -942,6 +1032,10 @@ def _create_result_dict(analysis_row: pd.Series, actual_date, ticker: str, fetch
         'Relative_Volume': round(float(analysis_row.get('Relative_Volume', 100.0)), 1) if not pd.isna(analysis_row.get('Relative_Volume', 100.0)) else 100.0,
         'High_Rel_Volume_150': safe_int(analysis_row.get('High_Rel_Volume_150', 0)),
         'High_Rel_Volume_200': safe_int(analysis_row.get('High_Rel_Volume_200', 0)),
+        
+        # Market Regime columns (NEW)
+        'Market_Regime': str(analysis_row.get('Market_Regime', 'Unknown')),
+        'Regime_Probability': round(float(analysis_row.get('Regime_Probability', 0.5)), 3) if not pd.isna(analysis_row.get('Regime_Probability', 0.5)) else 0.5,
         
         'Price_Decimals': price_decimals
     }
@@ -1050,10 +1144,11 @@ def display_filtered_results(filtered_stocks: pd.DataFrame, selected_base_filter
         st.warning("No stocks match the current filter criteria")
         return
     
-    # Define display columns (add Relative_Volume)
+    # Define display columns (add Market_Regime and Regime_Probability)
     display_cols = ['Ticker', 'Name', 'Close', 'CRT_High', 'CRT_Low',
                    'CRT_Velocity', 'IBS', 'Relative_Volume', 'Higher_HL', 
-                   'MPI_Trend_Emoji', 'MPI', 'MPI_Velocity', 'MPI_Visual']
+                   'MPI_Trend_Emoji', 'MPI', 'MPI_Velocity', 'MPI_Visual',
+                   'Market_Regime', 'Regime_Probability']
     
     # Create column configuration
     base_column_config = {
@@ -1066,7 +1161,9 @@ def display_filtered_results(filtered_stocks: pd.DataFrame, selected_base_filter
         'MPI_Trend_Emoji': st.column_config.TextColumn('📊', width='small', help='MPI Expansion Trend'),
         'MPI': st.column_config.NumberColumn('MPI', format='%.1f', help='Market Positivity Index'),
         'MPI_Velocity': st.column_config.NumberColumn('MPI Vel', format='%.1f', help='MPI Expansion Rate'),
-        'MPI_Visual': st.column_config.TextColumn('MPI Visual', width='medium', help='Visual MPI representation')
+        'MPI_Visual': st.column_config.TextColumn('MPI Visual', width='medium', help='Visual MPI representation'),
+        'Market_Regime': st.column_config.TextColumn('Regime', help='Market volatility regime'),
+        'Regime_Probability': st.column_config.NumberColumn('Regime Prob', format='%.1%', help='Regime confidence')
     }
     
     # Apply dynamic price formatting
