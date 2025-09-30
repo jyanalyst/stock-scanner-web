@@ -8,3 +8,4 @@ altair
 python-dotenv
 APScheduler
 scikit-learn
+requests

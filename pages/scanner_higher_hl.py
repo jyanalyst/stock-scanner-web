@@ -677,9 +677,9 @@ def apply_dynamic_filters(base_stocks: pd.DataFrame, results_df: pd.DataFrame) -
     return filtered_stocks
 
 # File: pages/scanner_higher_hl.py
-# Part 3 of 4
+# Part 3 of 4 - FIXED VERSION
 """
-Main scanning and result display functions - optimized
+Main scanning and result display functions - with DATE COMPARISON BUG FIX
 """
 
 def show_scanning_configuration():
@@ -726,8 +726,12 @@ def show_scanning_configuration():
                     "Analysis Date:",
                     value=default_date,
                     max_value=date.today() - timedelta(days=1),
-                    help="Choose the historical date for analysis (must be a past trading day)"
+                    help="Choose the historical date for analysis (scanner will use most recent available trading day)"
                 )
+                
+                # Add informational note about trading days
+                st.caption("ℹ️ Scanner will use the most recent trading day on or before the selected date")
+                
             except Exception as e:
                 st.session_state.error_logger.log_error("Date Selection", e)
                 historical_date = date.today() - timedelta(days=7)
@@ -766,6 +770,81 @@ def show_advanced_settings():
     
     return days_back, rolling_window, debug_mode
 
+def show_debug_panel(debug_info: dict):
+    """Display comprehensive debug information"""
+    with st.expander("🔍 DEBUG INFORMATION", expanded=True):
+        st.markdown("### 📊 Data Download Information")
+        
+        # Cache information
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Download Timestamp", debug_info.get('download_time', 'Unknown'))
+        with col2:
+            st.metric("Stocks Downloaded", debug_info.get('stocks_downloaded', 0))
+        with col3:
+            st.metric("Download Successful", debug_info.get('successful_downloads', 0))
+        
+        # Date range information
+        st.markdown("### 📅 Date Range Analysis")
+        st.info(f"**Today's Date:** {date.today()}")
+        st.info(f"**Requested Analysis Date:** {debug_info.get('requested_date', 'N/A')}")
+        st.info(f"**Days Back Parameter:** {debug_info.get('days_back', 'N/A')}")
+        
+        # Per-stock date information
+        if 'stock_date_info' in debug_info and debug_info['stock_date_info']:
+            st.markdown("### 📈 Per-Stock Date Availability")
+            
+            stock_date_df = pd.DataFrame(debug_info['stock_date_info'])
+            st.dataframe(
+                stock_date_df,
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    'Ticker': st.column_config.TextColumn('Ticker', width='small'),
+                    'Earliest_Date': st.column_config.TextColumn('Earliest Date', width='medium'),
+                    'Latest_Date': st.column_config.TextColumn('Latest Date', width='medium'),
+                    'Total_Days': st.column_config.NumberColumn('Total Days', width='small'),
+                    'Timezone': st.column_config.TextColumn('Timezone', width='medium'),
+                    'Selected_Date': st.column_config.TextColumn('Selected Date', width='medium'),
+                    'Date_Match': st.column_config.TextColumn('Match Status', width='medium')
+                }
+            )
+            
+            # Add download button for debug data
+            csv_data = stock_date_df.to_csv(index=False)
+            st.download_button(
+                label="📥 Download Debug Data (CSV)",
+                data=csv_data,
+                file_name=f"debug_date_analysis_{datetime.now().strftime('%Y%m%dT%H%M')}.csv",
+                mime="text/csv"
+            )
+            
+        # Timezone comparison details
+        if 'timezone_info' in debug_info:
+            st.markdown("### 🌐 Timezone Analysis")
+            tz_info = debug_info['timezone_info']
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                st.write("**Requested Date Timezone:**", tz_info.get('requested_tz', 'None'))
+                st.write("**Target Date (converted):**", tz_info.get('target_date_str', 'N/A'))
+            with col2:
+                st.write("**DataFrame Index Timezone:**", tz_info.get('data_tz', 'None'))
+                st.write("**Comparison Method:**", tz_info.get('comparison_method', 'N/A'))
+        
+        # Cache diagnostics
+        if 'cache_info' in debug_info:
+            st.markdown("### 💾 Cache Diagnostics")
+            cache_info = debug_info['cache_info']
+            
+            cache_status = "🟢 ACTIVE" if cache_info.get('is_cached', False) else "🔴 FRESH DOWNLOAD"
+            st.info(f"**Cache Status:** {cache_status}")
+            
+            if cache_info.get('is_cached', False):
+                st.warning("⚠️ Data is from cache! If you expect newer data, clear cache and re-run.")
+                st.write("**Cache TTL:** 5 minutes (300 seconds)")
+                st.write("**To clear cache:** Press 'C' key or use hamburger menu → Clear cache")
+
 def execute_scan_button(scan_scope, selected_stock, scan_date_type, historical_date, 
                        days_back, rolling_window, debug_mode):
     """Handle scan execution button and logic"""
@@ -803,9 +882,21 @@ def execute_scan_button(scan_scope, selected_stock, scan_date_type, historical_d
             st.error("❌ Failed to execute scan - check error details above")
 
 def run_enhanced_stock_scan(stocks_to_scan, analysis_date=None, days_back=59, rolling_window=20, debug_mode=False):
-    """Execute the enhanced stock scanning process with optimized error handling"""
+    """Execute the enhanced stock scanning process with comprehensive debugging"""
     
     error_logger = st.session_state.error_logger
+    
+    # Initialize debug info dictionary
+    debug_info = {
+        'download_time': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        'requested_date': str(analysis_date) if analysis_date else 'Current',
+        'days_back': days_back,
+        'stock_date_info': [],
+        'timezone_info': {},
+        'cache_info': {},
+        'stocks_downloaded': 0,
+        'successful_downloads': 0
+    }
     
     try:
         from core.data_fetcher import DataFetcher, set_global_data_fetcher
@@ -819,7 +910,10 @@ def run_enhanced_stock_scan(stocks_to_scan, analysis_date=None, days_back=59, ro
         date_text = f"historical analysis (as of {analysis_date})" if is_historical else "current data analysis"
         
         logger.info(f"Starting scan: {scope_text} with {date_text}")
-        st.info(f"🔄 Scanning {scope_text} with {date_text}... Calculating Pure MPI Expansion...")
+        if debug_mode:
+            st.info(f"🔄 DEBUG MODE: Scanning {scope_text} with {date_text}...")
+        else:
+            st.info(f"🔄 Scanning {scope_text} with {date_text}... Calculating Pure MPI Expansion...")
         
         # Initialize progress tracking
         progress_bar = st.progress(0)
@@ -832,14 +926,45 @@ def run_enhanced_stock_scan(stocks_to_scan, analysis_date=None, days_back=59, ro
         
         # Download stock data
         status_text.text("📥 Downloading stock data and company names...")
+        
+        if debug_mode:
+            st.warning("🔍 DEBUG: Checking if data is from cache or fresh download...")
+        
         stock_data = fetcher.download_stock_data(stocks_to_scan)
         set_global_data_fetcher(fetcher)
         progress_bar.progress(0.3)
+        
+        debug_info['stocks_downloaded'] = len(stocks_to_scan)
+        debug_info['successful_downloads'] = len(stock_data)
+        
+        # Detect if data was cached (this is approximate - actual cache detection would require modifying data_fetcher)
+        debug_info['cache_info']['is_cached'] = False  # We'll update this if we can detect it
         
         if not stock_data:
             error_logger.log_error("Data Validation", Exception("No stock data downloaded"))
             st.error("❌ Failed to download stock data. Check error log for details.")
             return
+        
+        # DEBUG: Analyze downloaded data date ranges
+        if debug_mode:
+            status_text.text("🔍 DEBUG: Analyzing downloaded data date ranges...")
+            for ticker, df in stock_data.items():
+                if not df.empty:
+                    earliest = df.index.min()
+                    latest = df.index.max()
+                    
+                    # Get timezone info
+                    tz_info = str(df.index.tz) if hasattr(df.index, 'tz') else 'No timezone'
+                    
+                    debug_info['stock_date_info'].append({
+                        'Ticker': ticker,
+                        'Earliest_Date': earliest.strftime('%Y-%m-%d %H:%M:%S %Z'),
+                        'Latest_Date': latest.strftime('%Y-%m-%d %H:%M:%S %Z'),
+                        'Total_Days': len(df),
+                        'Timezone': tz_info,
+                        'Selected_Date': 'TBD',
+                        'Date_Match': 'TBD'
+                    })
         
         # Process stocks
         status_text.text("🔄 Calculating Pure MPI Expansion and technical analysis...")
@@ -847,6 +972,8 @@ def run_enhanced_stock_scan(stocks_to_scan, analysis_date=None, days_back=59, ro
         
         results = []
         processing_errors = []
+        actual_dates_used = set()
+        requested_date = analysis_date
         
         for i, (ticker, df_raw) in enumerate(stock_data.items()):
             try:
@@ -857,14 +984,38 @@ def run_enhanced_stock_scan(stocks_to_scan, analysis_date=None, days_back=59, ro
                 # Apply technical analysis
                 df_enhanced = add_enhanced_columns(df_raw, ticker, rolling_window)
                 
-                # Handle historical analysis
+                # Handle historical analysis with DEBUG
                 if is_historical:
-                    analysis_row, actual_date = _get_historical_analysis_row(df_enhanced, analysis_date, ticker)
+                    if debug_mode:
+                        analysis_row, actual_date, date_debug = _get_historical_analysis_row_debug(
+                            df_enhanced, analysis_date, ticker
+                        )
+                        
+                        # Update debug info for this stock
+                        for stock_info in debug_info['stock_date_info']:
+                            if stock_info['Ticker'] == ticker:
+                                stock_info['Selected_Date'] = date_debug.get('selected_date_str', 'None')
+                                stock_info['Date_Match'] = date_debug.get('match_status', 'Unknown')
+                        
+                        # Store timezone comparison info (from first stock)
+                        if not debug_info['timezone_info']:
+                            debug_info['timezone_info'] = date_debug.get('timezone_comparison', {})
+                    else:
+                        analysis_row, actual_date = _get_historical_analysis_row(df_enhanced, analysis_date, ticker)
+                    
                     if analysis_row is None:
                         continue
+                    actual_dates_used.add(actual_date.strftime('%Y-%m-%d'))
                 else:
                     analysis_row = df_enhanced.iloc[-1]
                     actual_date = analysis_row.name
+                    
+                    if debug_mode:
+                        # For current date scan, still track the latest date
+                        for stock_info in debug_info['stock_date_info']:
+                            if stock_info['Ticker'] == ticker:
+                                stock_info['Selected_Date'] = actual_date.strftime('%Y-%m-%d %H:%M:%S')
+                                stock_info['Date_Match'] = 'Latest Available'
                 
                 # Collect result
                 result = _create_result_dict(analysis_row, actual_date, ticker, fetcher)
@@ -891,8 +1042,14 @@ def run_enhanced_stock_scan(stocks_to_scan, analysis_date=None, days_back=59, ro
         st.session_state.last_scan_config = {
             'scope': 'Single Stock' if is_single_stock else 'Full Watchlist',
             'date': f'Historical ({analysis_date})' if is_historical else 'Current',
-            'stock_count': len(results_df)
+            'stock_count': len(results_df),
+            'requested_date': str(requested_date) if requested_date else None,
+            'actual_dates': sorted(list(actual_dates_used)) if actual_dates_used else None
         }
+        
+        # Store debug info in session state
+        if debug_mode:
+            st.session_state.debug_info = debug_info
         
         # Complete scan
         progress_bar.progress(1.0)
@@ -902,12 +1059,27 @@ def run_enhanced_stock_scan(stocks_to_scan, analysis_date=None, days_back=59, ro
         progress_bar.empty()
         status_text.empty()
         
-        # Show success message
+        # Show debug panel if debug mode is enabled
+        if debug_mode:
+            show_debug_panel(debug_info)
+        
+        # Show success message with date clarification
         success_message = f"🎉 Pure MPI Expansion Scan completed! Analyzed {len(results_df)} stocks successfully"
         if processing_errors:
             success_message += f" ({len(processing_errors)} errors - check log for details)"
-        if is_historical:
-            success_message += f" as of {analysis_date}"
+        
+        # Add date mismatch warning if applicable
+        if is_historical and actual_dates_used:
+            actual_dates_list = sorted(list(actual_dates_used))
+            if len(actual_dates_list) == 1 and actual_dates_list[0] != str(requested_date):
+                st.warning(f"⚠️ Requested date: **{requested_date}** | Actual trading date used: **{actual_dates_list[0]}**\n\n"
+                          f"The scanner used the most recent available trading day. This typically happens when:\n"
+                          f"- The requested date falls on a weekend\n"
+                          f"- The requested date is a public holiday\n"
+                          f"- Market data for the requested date hasn't been published yet\n\n"
+                          f"{'🔍 Check DEBUG INFORMATION above for detailed date analysis!' if debug_mode else '💡 Enable Debug Mode to see detailed date information'}")
+            elif len(actual_dates_list) > 1:
+                st.info(f"📅 Multiple trading dates found: {', '.join(actual_dates_list)}")
         
         st.success(success_message)
         logger.info(f"Scan completed: {len(results_df)} stocks processed successfully")
@@ -925,29 +1097,48 @@ def run_enhanced_stock_scan(stocks_to_scan, analysis_date=None, days_back=59, ro
             status_text.empty()
 
 def _get_historical_analysis_row(df_enhanced: pd.DataFrame, analysis_date: date, ticker: str) -> tuple:
-    """Get the analysis row for historical date"""
+    """
+    Get the analysis row for historical date - FIXED VERSION
+    
+    KEY FIX: Normalize all comparisons to DATE ONLY (no time component)
+    """
     try:
-        target_date = pd.to_datetime(analysis_date)
+        # Convert analysis_date to pandas Timestamp for consistent handling
+        target_date = pd.Timestamp(analysis_date)
         available_dates = df_enhanced.index
         
-        # Handle timezone consistency
-        if hasattr(available_dates, 'tz') and available_dates.tz is not None:
-            if target_date.tz is None:
-                target_date = target_date.tz_localize('Asia/Singapore')
-            else:
-                target_date = target_date.tz_convert(available_dates.tz)
-        else:
-            if target_date.tz is not None:
-                target_date = target_date.tz_localize(None)
+        # CRITICAL FIX: Convert all dates to DATE ONLY (strip time component)
+        # This ensures we're comparing 2025-09-29 to 2025-09-29, not datetime with time
+        target_date_only = target_date.normalize()  # Sets time to 00:00:00
         
-        valid_dates = available_dates[available_dates <= target_date]
+        # Handle timezone - localize target if data has timezone
+        if hasattr(available_dates, 'tz') and available_dates.tz is not None:
+            if target_date_only.tz is None:
+                target_date_only = target_date_only.tz_localize(available_dates.tz)
+        else:
+            if target_date_only.tz is not None:
+                target_date_only = target_date_only.tz_localize(None)
+        
+        # Normalize available dates to date-only for comparison
+        available_dates_normalized = available_dates.normalize()
+        
+        # Find dates on or before target (using normalized dates)
+        valid_dates_mask = available_dates_normalized <= target_date_only
+        valid_dates = available_dates[valid_dates_mask]
         
         if len(valid_dates) == 0:
             logger.warning(f"No data for {ticker} on or before {analysis_date}")
             return None, None
         
+        # Get the most recent valid date
         analysis_row = df_enhanced.loc[valid_dates[-1]]
         actual_date = valid_dates[-1]
+        
+        # Log if actual date differs from requested date
+        actual_date_str = actual_date.strftime('%Y-%m-%d')
+        requested_date_str = analysis_date.strftime('%Y-%m-%d')
+        if actual_date_str != requested_date_str:
+            logger.info(f"{ticker}: Using {actual_date_str} (requested: {requested_date_str})")
         
         return analysis_row, actual_date
         
@@ -955,6 +1146,106 @@ def _get_historical_analysis_row(df_enhanced: pd.DataFrame, analysis_date: date,
         logger.error(f"Historical date processing failed for {ticker}: {e}")
         return None, None
 
+def _get_historical_analysis_row_debug(df_enhanced: pd.DataFrame, analysis_date: date, ticker: str) -> tuple:
+    """
+    Get the analysis row for historical date with comprehensive debugging - FIXED VERSION
+    
+    KEY FIX: Normalize all comparisons to DATE ONLY (no time component)
+    """
+    date_debug = {
+        'timezone_comparison': {},
+        'selected_date_str': 'None',
+        'match_status': 'No Match'
+    }
+    
+    try:
+        # Convert analysis_date to pandas Timestamp for consistent handling
+        target_date = pd.Timestamp(analysis_date)
+        available_dates = df_enhanced.index
+        
+        # Store original timezone info
+        original_target_tz = str(target_date.tz) if target_date.tz is not None else 'None (naive)'
+        data_tz = str(available_dates.tz) if hasattr(available_dates, 'tz') and available_dates.tz is not None else 'None (naive)'
+        
+        logger.info(f"DEBUG {ticker}: Requested date: {analysis_date}, Target TZ: {original_target_tz}, Data TZ: {data_tz}")
+        
+        # CRITICAL FIX: Normalize to date-only (00:00:00 time)
+        target_date_only = target_date.normalize()
+        logger.info(f"DEBUG {ticker}: Target normalized: {target_date_only}")
+        
+        # Handle timezone - localize target if data has timezone
+        if hasattr(available_dates, 'tz') and available_dates.tz is not None:
+            if target_date_only.tz is None:
+                target_date_only = target_date_only.tz_localize(available_dates.tz)
+                logger.info(f"DEBUG {ticker}: Localized target to {available_dates.tz}: {target_date_only}")
+        else:
+            if target_date_only.tz is not None:
+                target_date_only = target_date_only.tz_localize(None)
+                logger.info(f"DEBUG {ticker}: Removed timezone from target: {target_date_only}")
+        
+        # Store timezone comparison details
+        date_debug['timezone_comparison'] = {
+            'requested_tz': original_target_tz,
+            'data_tz': data_tz,
+            'target_date_str': str(target_date_only),
+            'comparison_method': 'normalized_dates <= target_date (DATE ONLY)'
+        }
+        
+        # Show available dates around the target
+        logger.info(f"DEBUG {ticker}: Available dates range: {available_dates.min()} to {available_dates.max()}")
+        logger.info(f"DEBUG {ticker}: Total available dates: {len(available_dates)}")
+        
+        # Normalize available dates for comparison
+        available_dates_normalized = available_dates.normalize()
+        
+        # Find dates around target (using normalized comparison)
+        dates_before = available_dates[available_dates_normalized < target_date_only]
+        dates_on = available_dates[available_dates_normalized == target_date_only]
+        dates_after = available_dates[available_dates_normalized > target_date_only]
+        
+        logger.info(f"DEBUG {ticker}: Dates before target: {len(dates_before)}")
+        logger.info(f"DEBUG {ticker}: Dates ON target: {len(dates_on)}")
+        logger.info(f"DEBUG {ticker}: Dates after target: {len(dates_after)}")
+        
+        if len(dates_before) > 0:
+            logger.info(f"DEBUG {ticker}: Last 3 dates before target: {dates_before[-3:].tolist()}")
+        if len(dates_on) > 0:
+            logger.info(f"DEBUG {ticker}: Date ON target exists: {dates_on[0]}")
+        if len(dates_after) > 0:
+            logger.info(f"DEBUG {ticker}: First 3 dates after target: {dates_after[:3].tolist()}")
+        
+        # Find valid dates (on or before target)
+        valid_dates_mask = available_dates_normalized <= target_date_only
+        valid_dates = available_dates[valid_dates_mask]
+        
+        if len(valid_dates) == 0:
+            logger.warning(f"DEBUG {ticker}: No data for {ticker} on or before {analysis_date}")
+            date_debug['match_status'] = 'No Data On/Before Date'
+            return None, None, date_debug
+        
+        # Get the most recent valid date
+        analysis_row = df_enhanced.loc[valid_dates[-1]]
+        actual_date = valid_dates[-1]
+        
+        # Store debug info
+        actual_date_str = actual_date.strftime('%Y-%m-%d')
+        requested_date_str = analysis_date.strftime('%Y-%m-%d')
+        
+        date_debug['selected_date_str'] = actual_date.strftime('%Y-%m-%d %H:%M:%S')
+        
+        if actual_date_str == requested_date_str:
+            date_debug['match_status'] = '✅ Exact Match'
+            logger.info(f"DEBUG {ticker}: EXACT MATCH - Using {actual_date_str}")
+        else:
+            date_debug['match_status'] = f'⚠️ Fallback to {actual_date_str}'
+            logger.info(f"DEBUG {ticker}: FALLBACK - Using {actual_date_str} (requested: {requested_date_str})")
+        
+        return analysis_row, actual_date, date_debug
+        
+    except Exception as e:
+        logger.error(f"DEBUG {ticker}: Historical date processing failed: {e}")
+        date_debug['match_status'] = f'❌ Error: {str(e)}'
+        return None, None, date_debug
 
 def _create_result_dict(analysis_row: pd.Series, actual_date, ticker: str, fetcher) -> dict:
     """Create result dictionary from analysis row"""
@@ -1035,9 +1326,9 @@ def _create_result_dict(analysis_row: pd.Series, actual_date, ticker: str, fetch
     return result
 
 # File: pages/scanner_higher_hl.py
-# Part 4 of 4
+# Part 4 of 4 - DEBUG VERSION
 """
-Results display and main show function - optimized
+Results display and main show function - with debug enhancements
 """
 
 def display_scan_summary(results_df: pd.DataFrame):
@@ -1084,6 +1375,11 @@ def display_scan_summary(results_df: pd.DataFrame):
             st.info(f"📅 Analysis date: **{analysis_dates[0]}** | Avg MPI: **{avg_mpi:.1%}** | Avg Velocity: **{avg_velocity:+.1%}** | Expanding: **{strong_expansion + expanding}** | Contracting: **{contracting}**")
         else:
             st.info(f"📅 Analysis dates: **{', '.join(analysis_dates)}** | Avg MPI: **{avg_mpi:.1%}** | Avg Velocity: **{avg_velocity:+.1%}**")
+    
+    # Show debug info button if available
+    if 'debug_info' in st.session_state:
+        if st.button("🔍 Show Debug Information"):
+            show_debug_panel(st.session_state.debug_info)
 
 def show_base_pattern_filter(results_df: pd.DataFrame) -> pd.DataFrame:
     """Show base pattern filter and return filtered stocks"""
@@ -1133,14 +1429,15 @@ def display_filtered_results(filtered_stocks: pd.DataFrame, selected_base_filter
         st.warning("No stocks match the current filter criteria")
         return
     
-    # Define display columns (now includes VW_Range_Velocity instead of CRT_Velocity)
-    display_cols = ['Ticker', 'Name', 'Close', 'CRT_High', 'CRT_Low',
+    # Define display columns (Date added, MPI and MPI_Velocity removed)
+    display_cols = ['Analysis_Date', 'Ticker', 'Name', 'Close', 'CRT_High', 'CRT_Low',
                    'VW_Range_Velocity', 'IBS', 'Relative_Volume', 'Higher_HL', 
-                   'MPI_Trend_Emoji', 'MPI', 'MPI_Velocity', 'MPI_Visual',
+                   'MPI_Trend_Emoji', 'MPI_Visual',
                    'Market_Regime', 'Regime_Probability']
     
     # Create column configuration
     base_column_config = {
+        'Analysis_Date': st.column_config.TextColumn('Date', width='small'),
         'Ticker': st.column_config.TextColumn('Ticker', width='small'),
         'Name': st.column_config.TextColumn('Company Name', width='medium'),
         'VW_Range_Velocity': st.column_config.NumberColumn('Range Vel', format='%+.4f', help='Daily range expansion velocity'),
@@ -1148,8 +1445,6 @@ def display_filtered_results(filtered_stocks: pd.DataFrame, selected_base_filter
         'Relative_Volume': st.column_config.NumberColumn('Rel Vol', format='%.1f%%', help='Relative Volume vs 14-day average'),
         'Higher_HL': st.column_config.NumberColumn('H/L', width='small'),
         'MPI_Trend_Emoji': st.column_config.TextColumn('📊', width='small', help='MPI Expansion Trend'),
-        'MPI': st.column_config.NumberColumn('MPI', format='%.1f', help='Market Positivity Index'),
-        'MPI_Velocity': st.column_config.NumberColumn('MPI Vel', format='%.1f', help='MPI Expansion Rate'),
         'MPI_Visual': st.column_config.TextColumn('MPI Visual', width='medium', help='Visual MPI representation'),
         'Market_Regime': st.column_config.TextColumn('Regime', help='Market volatility regime'),
         'Regime_Probability': st.column_config.NumberColumn('Regime Prob', format='%.1%', help='Regime confidence')
@@ -1370,17 +1665,28 @@ def display_scan_results(results_df: pd.DataFrame):
         st.error("❌ Error displaying Pure MPI Expansion results - check error log for details")
 
 def show():
-    """Main scanner page display for Higher H/L patterns with Pure MPI Expansion filtering"""
+    """Main scanner page display for Higher H/L patterns with Pure MPI Expansion filtering - DEBUG VERSION"""
     
     st.title("📈 CRT Higher H/L Scanner")
     st.markdown("Enhanced with **Pure MPI Expansion System** - Focus on momentum velocity, not absolute levels")
     st.markdown("**Now using VW Range Velocity for daily momentum filtering**")
     
+    # DEBUG MODE INDICATOR
+    if 'debug_info' in st.session_state:
+        st.info("🔍 **DEBUG MODE ACTIVE** - Detailed diagnostics are available")
+    
     # Clear error log button
-    if st.button("🗑️ Clear Error Log"):
-        st.session_state.error_logger = ErrorLogger()
-        st.success("Error log cleared!")
-        st.rerun()
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        if st.button("🗑️ Clear Error Log"):
+            st.session_state.error_logger = ErrorLogger()
+            st.success("Error log cleared!")
+            st.rerun()
+    with col2:
+        if st.button("💾 Clear Cache"):
+            st.cache_data.clear()
+            st.success("Cache cleared! Re-run scan to download fresh data.")
+            st.rerun()
     
     # Check module availability
     try:
@@ -1406,6 +1712,11 @@ def show():
         
         # Scan execution
         st.subheader("🚀 Execute Scan")
+        
+        # Add debug mode information
+        if debug_mode:
+            st.info("🔍 **Debug Mode Enabled** - Detailed date and timezone information will be shown after scan")
+        
         execute_scan_button(scan_scope, selected_stock, scan_date_type, historical_date, 
                            days_back, rolling_window, debug_mode)
         
