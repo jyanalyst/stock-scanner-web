@@ -6,7 +6,7 @@ Contains the Singapore stock symbols with company name fetching from yfinance
 
 # Singapore Exchange stocks
 DEFAULT_WATCHLIST = [
-    'A17U.SI', 'C38U.SI', 'M44U.SI', 'ME8U.SI', 'AJBU.SI', 'J69U.SI', 'N2IU.SI', 'BUOU.SI', 'K71U.SI', 'JYEU.SI', 'HMN.SI', 'NTDU.SI', '8C8U.SI', 'AWX.SI', 'E28.SI', '558.SI', 'MZH.SI', 'BN2.SI', 'BS6.SI', '5E2.SI', 'Z74.SI', '9CI.SI', 'C52.SI', 'YF8.SI', '5LY.SI', 'G13.SI', 'OV8.SI', 'S56.SI', 'AP4.SI', '544.SI', 'G92.SI', 'Z25.SI', 'RXS.SI', 'S58.SI', 'F34.SI', 'EB5.SI', 'P8Z.SI', 'S08.SI', '1MZ.SI', '41O.SI', 'OYY.SI', 'A50.SI', 'E3B.SI', 'OU8.SI', 'LCC.SI', 'AU8U.SI', 'A04.SI', 'ER0.SI', '5WH.SI', '1E3.SI', '5TP.SI', 'P52.SI', 'QES.SI', 'CLN.SI', 'QC7.SI', 'RE4.SI', 'DU4.SI'
+    'A17U.SI', 'C38U.SI', 'M44U.SI', 'ME8U.SI', 'AJBU.SI', 'J69U.SI', 'N2IU.SI', 'BUOU.SI', 'K71U.SI', 'JYEU.SI', 'HMN.SI', 'NTDU.SI', '8C8U.SI', 'AWX.SI', 'E28.SI', '558.SI', 'MZH.SI', 'BN2.SI', 'BS6.SI', '5E2.SI', 'Z74.SI', '9CI.SI', 'C52.SI', 'YF8.SI', '5LY.SI', 'G13.SI', 'OV8.SI', 'S56.SI', 'AP4.SI', '544.SI', 'G92.SI', 'Z25.SI', 'RXS.SI', 'S58.SI', 'F34.SI', 'EB5.SI', 'P8Z.SI', 'S08.SI', '1MZ.SI', '41O.SI', 'OYY.SI', 'A50.SI', 'E3B.SI', 'OU8.SI', 'LCC.SI', 'AU8U.SI', 'A04.SI', 'ER0.SI', '5WH.SI', '1E3.SI', '5TP.SI', 'P52.SI', 'QES.SI', 'CLN.SI', 'QC7.SI', 'RE4.SI', 'DU4.SI', '5WV.SI'
 ]
 
 def get_active_watchlist():
