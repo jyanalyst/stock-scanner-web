@@ -1,6 +1,14 @@
 # File: .gitignore
-# Streamlit secrets (your original line)
+# Streamlit secrets
 .streamlit/secrets.toml
+
+# Stock Scanner Data Files (can be large)
+data/Historical_Data/*.csv
+data/EOD_Data/*.csv
+
+# Keep folder structure
+!data/Historical_Data/.gitkeep
+!data/EOD_Data/.gitkeep
 
 # Python cache files
 __pycache__/
@@ -16,15 +24,15 @@ venv/
 ENV/
 
 # OS specific files
-.DS_Store      # Mac
-Thumbs.db      # Windows
+.DS_Store
+Thumbs.db
 .DS_Store?
 ._*
 
 # IDE files
-.vscode/       # VS Code
-.idea/         # PyCharm
-*.swp          # Vim
+.vscode/
+.idea/
+*.swp
 *.swo
 *~
 
@@ -43,6 +51,6 @@ tmp/
 .coverage
 htmlcov/
 
-# Google Drive credentials
+# Old Google Drive credentials (no longer needed)
 credentials.json
 token.json

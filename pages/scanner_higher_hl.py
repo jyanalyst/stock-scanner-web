@@ -1,7 +1,7 @@
 # File: pages/scanner_higher_hl.py
-# Part 1 of 2
+# Part 1 of 3
 """
-CRT Higher H/L Scanner - Google Drive Data Source
+CRT Higher H/L Scanner - Local File System
 Enhanced with Pure MPI Expansion Filtering
 NOW USING VW_RANGE_VELOCITY FOR DAILY MOMENTUM FILTERING
 Automatically checks for Historical_Data updates on startup
@@ -139,63 +139,19 @@ class ErrorLogger:
 if 'error_logger' not in st.session_state:
     st.session_state.error_logger = ErrorLogger()
 
-def check_gdrive_configuration() -> tuple:
-    """
-    Check if Google Drive is properly configured
-    
-    Returns:
-        Tuple of (is_configured, loader, folder_ids, error_message)
-    """
-    try:
-        from core.gdrive_loader import get_gdrive_loader, get_folder_ids
-        import os
-        
-        # Check if .env file exists
-        if not os.path.exists('.env'):
-            return False, None, None, "⚠️ .env file not found. Please create .env file with folder IDs (see .env.example)"
-        
-        # Check if credentials.json exists
-        if not os.path.exists('credentials.json'):
-            return False, None, None, "⚠️ credentials.json not found. Please download from Google Cloud Console (see README_GDRIVE_SETUP.md)"
-        
-        # Try to get loader
-        loader = get_gdrive_loader()
-        if loader is None:
-            return False, None, None, "❌ Could not initialize Google Drive loader"
-        
-        # Check folder IDs
-        folder_ids = get_folder_ids()
-        if not folder_ids['historical']:
-            return False, loader, folder_ids, "⚠️ GDRIVE_HISTORICAL_FOLDER_ID not set in .env file"
-        if not folder_ids['eod']:
-            return False, loader, folder_ids, "⚠️ GDRIVE_EOD_FOLDER_ID not set in .env file"
-        
-        return True, loader, folder_ids, None
-        
-    except Exception as e:
-        return False, None, None, f"❌ Configuration error: {str(e)}"
-
 def show_update_prompt():
     """
     Check for updates and prompt user if new data available
     Returns True if update was performed or skipped, False if check failed
     """
     try:
-        from core.gdrive_loader import get_gdrive_loader, get_folder_ids
+        from core.local_file_loader import get_local_loader
         
-        # Get loader and folder IDs
-        is_configured, loader, folder_ids, error_msg = check_gdrive_configuration()
-        
-        if not is_configured:
-            st.warning(error_msg)
-            return False
+        loader = get_local_loader()
         
         # Check for updates
         with st.spinner("Checking for Historical_Data updates..."):
-            needs_update, eod_filename, eod_date = loader.check_for_updates(
-                folder_ids['historical'],
-                folder_ids['eod']
-            )
+            needs_update, eod_filename, eod_date = loader.check_for_updates()
         
         if needs_update:
             # Show update prompt
@@ -213,7 +169,7 @@ def show_update_prompt():
             
             with col_update:
                 if st.button("🔄 Update Now", type="primary", use_container_width=True):
-                    return perform_update(loader, folder_ids)
+                    return perform_update(loader)
             
             with col_skip:
                 if st.button("⏭️ Skip This Time", use_container_width=True):
@@ -231,7 +187,7 @@ def show_update_prompt():
         st.error("❌ Could not check for updates")
         return False
 
-def perform_update(loader, folder_ids) -> bool:
+def perform_update(loader) -> bool:
     """
     Perform the Historical_Data update
     
@@ -246,10 +202,7 @@ def perform_update(loader, folder_ids) -> bool:
         status_text.text("🔄 Starting Historical_Data update...")
         
         # Perform update
-        stats = loader.update_historical_from_eod(
-            folder_ids['historical'],
-            folder_ids['eod']
-        )
+        stats = loader.update_historical_from_eod()
         
         # Show progress during update
         if stats['total_stocks'] > 0:
@@ -417,13 +370,6 @@ def create_distribution_chart(data: pd.Series, title: str, x_label: str, thresho
             fig.add_vline(x=value, line_dash="dash", line_color=color, annotation_text=label)
     
     return fig
-
-# Filtering functions and other utility functions remain the same as original...
-# (Include all the filtering functions from the original file)
-
-# Continue to Part 2...
-# File: pages/scanner_higher_hl.py
-# Part 2 of 2
 
 def apply_velocity_filter(filtered_stocks: pd.DataFrame, results_df: pd.DataFrame) -> tuple:
     """Apply VW Range Velocity percentile filter for daily momentum"""
@@ -671,6 +617,9 @@ def apply_regime_filter(filtered_stocks: pd.DataFrame) -> tuple:
     
     return filtered_stocks, info_message
 
+# File: pages/scanner_higher_hl.py
+# Part 2 of 3
+
 def show_filter_statistics(component_name: str, data: pd.Series, base_stocks: pd.DataFrame = None):
     """Show statistics for a filter component"""
     with st.expander(f"{component_name} Statistics", expanded=False):
@@ -907,7 +856,7 @@ def show_advanced_settings():
                 min_value=30, 
                 max_value=250, 
                 value=100,
-                help="Not used for Google Drive (loads all available data)"
+                help="Number of days to load (loads all available from local files)"
             )
         
         with col2:
@@ -927,14 +876,6 @@ def execute_scan_button(scan_scope, selected_stock, scan_date_type, historical_d
         st.session_state.error_logger = ErrorLogger()
         
         try:
-            # Check Google Drive configuration
-            is_configured, loader, folder_ids, error_msg = check_gdrive_configuration()
-            
-            if not is_configured:
-                st.error(error_msg)
-                st.info("📖 See README_GDRIVE_SETUP.md for setup instructions")
-                return
-            
             # Import required modules
             from core.data_fetcher import DataFetcher
             from utils.watchlist import get_active_watchlist
@@ -964,7 +905,7 @@ def execute_scan_button(scan_scope, selected_stock, scan_date_type, historical_d
             st.error("❌ Failed to execute scan - check error details above")
 
 def run_enhanced_stock_scan(stocks_to_scan, analysis_date=None, days_back=59, rolling_window=20):
-    """Execute the enhanced stock scanning process from Google Drive"""
+    """Execute the enhanced stock scanning process from local files"""
     
     error_logger = st.session_state.error_logger
     
@@ -980,7 +921,7 @@ def run_enhanced_stock_scan(stocks_to_scan, analysis_date=None, days_back=59, ro
         date_text = f"historical analysis (as of {analysis_date.strftime('%d/%m/%Y')})" if is_historical else "current data analysis"
         
         logger.info(f"Starting scan: {scope_text} with {date_text}")
-        st.info(f"🔄 Scanning {scope_text} with {date_text}... Loading from Google Drive...")
+        st.info(f"🔄 Scanning {scope_text} with {date_text}... Loading from local files...")
         
         # Initialize progress tracking
         progress_bar = st.progress(0)
@@ -991,15 +932,15 @@ def run_enhanced_stock_scan(stocks_to_scan, analysis_date=None, days_back=59, ro
         fetcher = DataFetcher(days_back=days_back)
         progress_bar.progress(0.1)
         
-        # Download stock data from Google Drive
-        status_text.text("📥 Loading stock data from Google Drive...")
+        # Download stock data from local files
+        status_text.text("📥 Loading stock data from local files...")
         stock_data = fetcher.download_stock_data(stocks_to_scan, target_date=analysis_date)
         set_global_data_fetcher(fetcher)
         progress_bar.progress(0.3)
         
         if not stock_data:
-            error_logger.log_error("Data Validation", Exception("No stock data loaded from Google Drive"))
-            st.error("❌ Failed to load stock data from Google Drive. Check error log for details.")
+            error_logger.log_error("Data Validation", Exception("No stock data loaded from local files"))
+            st.error("❌ Failed to load stock data from local files. Check error log for details.")
             return
         
         # Process stocks
@@ -1059,7 +1000,7 @@ def run_enhanced_stock_scan(stocks_to_scan, analysis_date=None, days_back=59, ro
         status_text.empty()
         
         # Show success message
-        success_message = f"🎉 Pure MPI Expansion Scan completed! Analyzed {len(results_df)} stocks successfully from Google Drive"
+        success_message = f"🎉 Pure MPI Expansion Scan completed! Analyzed {len(results_df)} stocks successfully from local files"
         if processing_errors:
             success_message += f" ({len(processing_errors)} errors - check log for details)"
         
@@ -1240,6 +1181,9 @@ def show_base_pattern_filter(results_df: pd.DataFrame) -> pd.DataFrame:
         st.info(f"Showing all {len(base_stocks)} scanned stocks")
     
     return base_stocks
+
+# File: pages/scanner_higher_hl.py
+# Part 3 of 3
 
 def display_filtered_results(filtered_stocks: pd.DataFrame, selected_base_filter: str):
     """Display the filtered results table and export options"""
@@ -1448,27 +1392,7 @@ def show():
     
     st.title("📈 CRT Higher H/L Scanner")
     st.markdown("Enhanced with **Pure MPI Expansion System** - Focus on momentum velocity")
-    st.markdown("**Data Source: Google Drive** (Historical_Data + EOD_Data)")
-    
-    # Check Google Drive configuration first
-    is_configured, loader, folder_ids, error_msg = check_gdrive_configuration()
-    
-    if not is_configured:
-        st.error(error_msg)
-        st.info("📖 **Setup Required:** See README_GDRIVE_SETUP.md for Google Drive setup instructions")
-        
-        with st.expander("🔧 Quick Setup Guide"):
-            st.markdown("""
-            **Steps to configure Google Drive:**
-            1. Download `credentials.json` from Google Cloud Console
-            2. Place `credentials.json` in app root directory
-            3. Create `.env` file with folder IDs (see `.env.example`)
-            4. Restart the application
-            5. On first run, authenticate in browser
-            
-            See `README_GDRIVE_SETUP.md` for detailed instructions.
-            """)
-        return
+    st.markdown("**Data Source: Local File System** (./data/Historical_Data + ./data/EOD_Data)")
     
     # Show update check/prompt
     st.subheader("📥 Data Management")

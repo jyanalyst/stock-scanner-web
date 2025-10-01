@@ -4,22 +4,8 @@ Stock Scanner Web Application
 Main Streamlit application with navigation for Higher H/L scanner and factor analysis
 """
 
-# File: app.py
-# Add these lines at the very top, before other imports
-from dotenv import load_dotenv
-import os
-
-# Load environment variables from .env file
-load_dotenv()
-
-# Verify they loaded (optional - for debugging)
-print(f"Historical Folder ID: {os.getenv('GDRIVE_HISTORICAL_FOLDER_ID')}")
-print(f"EOD Folder ID: {os.getenv('GDRIVE_EOD_FOLDER_ID')}")
-
-# Now continue with the rest of your imports
 import streamlit as st
 import sys
-# ... rest of your code
 
 # Page configuration
 st.set_page_config(
@@ -76,13 +62,14 @@ def show_home_page():
     - Comprehensive performance analytics and factor analysis
     
     ### Key Features:
-    - 📊 **Real-time Analysis** - Live scanning of 46 Singapore Exchange stocks
+    - 📊 **Real-time Analysis** - Live scanning of Singapore Exchange stocks
     - 📈 **Technical Analysis** - Volume-weighted range percentiles and CRT levels
     - 🎯 **Dynamic Filtering** - Velocity and pattern-specific filters
     - 📋 **TradingView Export** - Direct export to TradingView watchlists
     - 📥 **CSV Downloads** - Export filtered results for further analysis
     - 🕒 **Historical Analysis** - Scan as of any past trading date
     - 🔬 **Strategy Validation** - Quantitative factor analysis of trading signals
+    - 💾 **Local File Storage** - Fast, simple data access from local CSV files
     
     ---
     
@@ -94,7 +81,10 @@ def show_home_page():
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
-        st.metric("Stocks Tracked", "46", delta="SGX Listed")
+        if 'scan_results' in st.session_state and not st.session_state.scan_results.empty:
+            st.metric("Stocks Tracked", len(st.session_state.scan_results), delta="SGX Listed")
+        else:
+            st.metric("Stocks Tracked", "Ready", delta="SGX Listed")
     
     with col2:
         st.metric("Scanner Types", "1", delta="Higher H/L Focus")

@@ -1,7 +1,7 @@
 # File: core/data_fetcher.py
 """
-Data Fetcher Module - Google Drive Only
-Handles stock data loading from Google Drive CSV files
+Data Fetcher Module - Local File System
+Handles stock data loading from local CSV files
 All dates use Singapore format: D/M/YYYY (dayfirst=True)
 """
 
@@ -13,22 +13,21 @@ import logging
 logger = logging.getLogger(__name__)
 
 class DataFetcher:
-    """Data fetcher class for Google Drive CSV files"""
+    """Data fetcher class for local CSV files"""
     
     def __init__(self, days_back: int = 59):
         """
         Initialize data fetcher
         
         Args:
-            days_back: Number of days of historical data (used for compatibility, not strictly needed for Google Drive)
+            days_back: Number of days of historical data (compatibility parameter)
         """
         self.days_back = days_back
         self.company_names = {}
     
     def download_stock_data(self, tickers: List[str], target_date: Optional[dt.date] = None) -> Dict[str, pd.DataFrame]:
         """
-        Load stock data for multiple tickers from Google Drive Historical_Data folder
-        Also extracts and stores company names from Shortname column
+        Load stock data for multiple tickers from local Historical_Data folder
         
         Args:
             tickers: List of stock tickers (e.g., ['A17U.SG', 'C38U.SG'])
@@ -37,26 +36,15 @@ class DataFetcher:
         Returns:
             Dictionary of {ticker: DataFrame}
         """
-        from core.gdrive_loader import get_gdrive_loader, get_folder_ids
+        from core.local_file_loader import get_local_loader
         
-        loader = get_gdrive_loader()
-        if loader is None:
-            logger.error("❌ Google Drive loader not available")
-            return {}
-        
-        folder_ids = get_folder_ids()
-        historical_folder_id = folder_ids['historical']
-        
-        if not historical_folder_id:
-            logger.error("❌ Historical folder ID not configured in .env file")
-            return {}
-        
+        loader = get_local_loader()
         all_data = {}
         
         for ticker in tickers:
             try:
                 # Load historical data
-                df = loader.load_historical_data(historical_folder_id, ticker)
+                df = loader.load_historical_data(ticker)
                 
                 if df is not None and not df.empty:
                     # Filter by target_date if specified
@@ -69,8 +57,7 @@ class DataFetcher:
                     else:
                         self.company_names[ticker] = ticker.replace('.SG', '')
                     
-                    # Remove metadata columns (Code, Shortname) before returning
-                    # Keep only OHLCV data
+                    # Remove metadata columns, keep only OHLCV
                     cols_to_keep = ['Open', 'High', 'Low', 'Close', 'Volume']
                     df = df[[col for col in cols_to_keep if col in df.columns]]
                     
@@ -83,7 +70,7 @@ class DataFetcher:
                 logger.error(f"Error loading {ticker}: {e}")
                 self.company_names[ticker] = ticker.replace('.SG', '')
         
-        logger.info(f"Loaded data for {len(all_data)} stocks from Google Drive")
+        logger.info(f"Loaded data for {len(all_data)} stocks from local files")
         return all_data
     
     def get_company_name(self, ticker: str) -> str:
@@ -129,8 +116,9 @@ class DataFetcher:
         Returns:
             Dictionary of {ticker: is_valid}
         """
+        from config import MIN_DAYS_REQUIRED, MAX_DAYS_OLD
+        
         validation_results = {}
-        min_days_required = 30
         
         for ticker, df in data.items():
             if df.empty:
@@ -138,8 +126,8 @@ class DataFetcher:
                 continue
                 
             has_required_columns = all(col in df.columns for col in ['Open', 'High', 'Low', 'Close', 'Volume'])
-            has_sufficient_data = len(df) >= min_days_required
-            has_recent_data = (dt.date.today() - df.index[-1].date()).days <= 7  # Allow up to 7 days old
+            has_sufficient_data = len(df) >= MIN_DAYS_REQUIRED
+            has_recent_data = (dt.date.today() - df.index[-1].date()).days <= MAX_DAYS_OLD
             
             validation_results[ticker] = has_required_columns and has_sufficient_data and has_recent_data
         
