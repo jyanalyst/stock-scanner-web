@@ -4,8 +4,22 @@ Stock Scanner Web Application
 Main Streamlit application with navigation for Higher H/L scanner and factor analysis
 """
 
+# File: app.py
+# Add these lines at the very top, before other imports
+from dotenv import load_dotenv
+import os
+
+# Load environment variables from .env file
+load_dotenv()
+
+# Verify they loaded (optional - for debugging)
+print(f"Historical Folder ID: {os.getenv('GDRIVE_HISTORICAL_FOLDER_ID')}")
+print(f"EOD Folder ID: {os.getenv('GDRIVE_EOD_FOLDER_ID')}")
+
+# Now continue with the rest of your imports
 import streamlit as st
 import sys
+# ... rest of your code
 
 # Page configuration
 st.set_page_config(

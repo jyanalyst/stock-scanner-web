@@ -1,3 +1,4 @@
+# File: .gitignore
 # Streamlit secrets (your original line)
 .streamlit/secrets.toml
 
@@ -41,3 +42,7 @@ tmp/
 .pytest_cache/
 .coverage
 htmlcov/
+
+# Google Drive credentials
+credentials.json
+token.json
