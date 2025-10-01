@@ -1,9 +1,10 @@
 # File: pages/scanner_higher_hl.py
-# Part 1 of 4
+# Part 1 of 2
 """
-CRT Higher H/L Scanner - Optimized with Pure MPI Expansion Filtering
-Enhanced error handling and streamlined UI components
+CRT Higher H/L Scanner - Google Drive Data Source
+Enhanced with Pure MPI Expansion Filtering
 NOW USING VW_RANGE_VELOCITY FOR DAILY MOMENTUM FILTERING
+Automatically checks for Historical_Data updates on startup
 """
 
 import streamlit as st
@@ -138,6 +139,173 @@ class ErrorLogger:
 if 'error_logger' not in st.session_state:
     st.session_state.error_logger = ErrorLogger()
 
+def check_gdrive_configuration() -> tuple:
+    """
+    Check if Google Drive is properly configured
+    
+    Returns:
+        Tuple of (is_configured, loader, folder_ids, error_message)
+    """
+    try:
+        from core.gdrive_loader import get_gdrive_loader, get_folder_ids
+        import os
+        
+        # Check if .env file exists
+        if not os.path.exists('.env'):
+            return False, None, None, "⚠️ .env file not found. Please create .env file with folder IDs (see .env.example)"
+        
+        # Check if credentials.json exists
+        if not os.path.exists('credentials.json'):
+            return False, None, None, "⚠️ credentials.json not found. Please download from Google Cloud Console (see README_GDRIVE_SETUP.md)"
+        
+        # Try to get loader
+        loader = get_gdrive_loader()
+        if loader is None:
+            return False, None, None, "❌ Could not initialize Google Drive loader"
+        
+        # Check folder IDs
+        folder_ids = get_folder_ids()
+        if not folder_ids['historical']:
+            return False, loader, folder_ids, "⚠️ GDRIVE_HISTORICAL_FOLDER_ID not set in .env file"
+        if not folder_ids['eod']:
+            return False, loader, folder_ids, "⚠️ GDRIVE_EOD_FOLDER_ID not set in .env file"
+        
+        return True, loader, folder_ids, None
+        
+    except Exception as e:
+        return False, None, None, f"❌ Configuration error: {str(e)}"
+
+def show_update_prompt():
+    """
+    Check for updates and prompt user if new data available
+    Returns True if update was performed or skipped, False if check failed
+    """
+    try:
+        from core.gdrive_loader import get_gdrive_loader, get_folder_ids
+        
+        # Get loader and folder IDs
+        is_configured, loader, folder_ids, error_msg = check_gdrive_configuration()
+        
+        if not is_configured:
+            st.warning(error_msg)
+            return False
+        
+        # Check for updates
+        with st.spinner("Checking for Historical_Data updates..."):
+            needs_update, eod_filename, eod_date = loader.check_for_updates(
+                folder_ids['historical'],
+                folder_ids['eod']
+            )
+        
+        if needs_update:
+            # Show update prompt
+            st.info(f"📥 **New EOD data available!**")
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                st.metric("Latest EOD File", eod_filename)
+            with col2:
+                st.metric("Date", eod_date.strftime('%d/%m/%Y') if eod_date else 'Unknown')
+            
+            st.markdown("Historical_Data can be updated with this new data.")
+            
+            col_update, col_skip = st.columns(2)
+            
+            with col_update:
+                if st.button("🔄 Update Now", type="primary", use_container_width=True):
+                    return perform_update(loader, folder_ids)
+            
+            with col_skip:
+                if st.button("⏭️ Skip This Time", use_container_width=True):
+                    st.info("Skipped update. You can update later using the button below.")
+                    return True
+            
+            return False  # Waiting for user action
+        
+        else:
+            st.success("✅ Historical_Data is up to date!")
+            return True
+            
+    except Exception as e:
+        st.session_state.error_logger.log_error("Update Check", e)
+        st.error("❌ Could not check for updates")
+        return False
+
+def perform_update(loader, folder_ids) -> bool:
+    """
+    Perform the Historical_Data update
+    
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        # Create progress containers
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+        
+        status_text.text("🔄 Starting Historical_Data update...")
+        
+        # Perform update
+        stats = loader.update_historical_from_eod(
+            folder_ids['historical'],
+            folder_ids['eod']
+        )
+        
+        # Show progress during update
+        if stats['total_stocks'] > 0:
+            for i, detail in enumerate(stats['details']):
+                progress = (i + 1) / stats['total_stocks']
+                progress_bar.progress(progress)
+                
+                ticker = detail['ticker']
+                status = detail['status']
+                
+                if status == 'updated':
+                    status_text.text(f"✅ {ticker} - {detail['message']}")
+                elif status == 'created':
+                    status_text.text(f"🆕 {ticker} - {detail['message']}")
+                elif status == 'skipped':
+                    status_text.text(f"⏭️ {ticker} - {detail['message']}")
+                elif status == 'error':
+                    status_text.text(f"❌ {ticker} - {detail['message']}")
+                
+                time.sleep(0.1)  # Brief pause for visibility
+        
+        # Clear progress indicators
+        progress_bar.empty()
+        status_text.empty()
+        
+        # Show summary
+        st.success(f"✅ **Update Complete!**")
+        
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("Total Stocks", stats['total_stocks'])
+        with col2:
+            st.metric("Updated", stats['updated'], delta=f"+{stats['created']} created")
+        with col3:
+            st.metric("Skipped", stats['skipped'])
+        with col4:
+            st.metric("Errors", stats['errors'])
+        
+        if stats['eod_date']:
+            st.info(f"📅 Historical_Data now current through: **{stats['eod_date']}**")
+        
+        # Show errors if any
+        if stats['errors'] > 0:
+            with st.expander("⚠️ View Errors", expanded=False):
+                for detail in stats['details']:
+                    if detail['status'] == 'error':
+                        st.write(f"**{detail['ticker']}**: {detail['message']}")
+        
+        time.sleep(2)
+        return True
+        
+    except Exception as e:
+        st.session_state.error_logger.log_error("Update Execution", e)
+        st.error("❌ Update failed - check error log for details")
+        return False
+
 def get_price_format(price: float) -> str:
     """Get the appropriate price format string based on price level"""
     return "$%.3f" if price < 1.00 else "$%.2f"
@@ -250,12 +418,12 @@ def create_distribution_chart(data: pd.Series, title: str, x_label: str, thresho
     
     return fig
 
+# Filtering functions and other utility functions remain the same as original...
+# (Include all the filtering functions from the original file)
+
+# Continue to Part 2...
 # File: pages/scanner_higher_hl.py
-# Part 2 of 4
-"""
-Dynamic filtering functions - optimized and streamlined
-NOW USING VW_RANGE_VELOCITY FOR DAILY MOMENTUM
-"""
+# Part 2 of 2
 
 def apply_velocity_filter(filtered_stocks: pd.DataFrame, results_df: pd.DataFrame) -> tuple:
     """Apply VW Range Velocity percentile filter for daily momentum"""
@@ -350,13 +518,13 @@ def apply_ibs_filter(filtered_stocks: pd.DataFrame) -> tuple:
     return filtered_stocks, info_message
 
 def apply_relative_volume_filter(filtered_stocks: pd.DataFrame) -> tuple:
-    """Apply Relative Volume percentile filter (similar to IBS filtering)"""
+    """Apply Relative Volume percentile filter"""
     if filtered_stocks.empty:
         return filtered_stocks, "No stocks available"
     
     rel_volume_values = filtered_stocks['Relative_Volume']
     
-    # Percentile options (same structure as IBS filter)
+    # Percentile options
     rel_volume_percentile_options = {
         "Top 25%": 75,
         "Top 50%": 50,
@@ -580,10 +748,7 @@ def show_filter_statistics(component_name: str, data: pd.Series, base_stocks: pd
                 st.dataframe(pd.DataFrame(regime_stats_data), hide_index=True, use_container_width=True)
 
 def apply_dynamic_filters(base_stocks: pd.DataFrame, results_df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Apply dynamic filtering with optimized component structure including VW Range Velocity, Relative Volume and Market Regime
-    Returns filtered stocks
-    """
+    """Apply dynamic filtering with optimized component structure"""
     if base_stocks.empty:
         st.warning("No stocks available for filtering")
         return base_stocks
@@ -597,7 +762,7 @@ def apply_dynamic_filters(base_stocks: pd.DataFrame, results_df: pd.DataFrame) -
     filtered_stocks = base_stocks.copy()
     filter_summary = []
     
-    # COL 1: VW RANGE VELOCITY FILTER (UPDATED)
+    # COL 1: VW RANGE VELOCITY FILTER
     with col1:
         st.markdown("**VW Range Velocity Filter:**")
         filtered_stocks, velocity_data, velocity_info = apply_velocity_filter(filtered_stocks, results_df)
@@ -676,12 +841,6 @@ def apply_dynamic_filters(base_stocks: pd.DataFrame, results_df: pd.DataFrame) -
     
     return filtered_stocks
 
-# File: pages/scanner_higher_hl.py
-# Part 3 of 4 - FIXED VERSION
-"""
-Main scanning and result display functions - with DATE COMPARISON BUG FIX
-"""
-
 def show_scanning_configuration():
     """Display the scanning configuration panel"""
     st.subheader("🎯 Scanning Configuration")
@@ -708,7 +867,7 @@ def show_scanning_configuration():
                 )
             except Exception as e:
                 st.session_state.error_logger.log_error("Watchlist Loading", e)
-                selected_stock = "A17U.SI"
+                selected_stock = "A17U.SG"
         
     with col2:
         st.markdown("**📅 Analysis Date**")
@@ -726,11 +885,10 @@ def show_scanning_configuration():
                     "Analysis Date:",
                     value=default_date,
                     max_value=date.today() - timedelta(days=1),
-                    help="Choose the historical date for analysis (scanner will use most recent available trading day)"
+                    help="Choose the historical date for analysis"
                 )
                 
-                # Add informational note about trading days
-                st.caption("ℹ️ Scanner will use the most recent trading day on or before the selected date")
+                st.caption("ℹ️ Scanner will filter Historical_Data to this date")
                 
             except Exception as e:
                 st.session_state.error_logger.log_error("Date Selection", e)
@@ -741,7 +899,7 @@ def show_scanning_configuration():
 def show_advanced_settings():
     """Display advanced settings panel"""
     with st.expander("⚙️ Advanced Settings"):
-        col1, col2, col3 = st.columns(3)
+        col1, col2 = st.columns(2)
         
         with col1:
             days_back = st.number_input(
@@ -749,7 +907,7 @@ def show_advanced_settings():
                 min_value=30, 
                 max_value=250, 
                 value=100,
-                help="How many days of data to download for analysis"
+                help="Not used for Google Drive (loads all available data)"
             )
         
         with col2:
@@ -760,98 +918,23 @@ def show_advanced_settings():
                 value=20,
                 help="Rolling window for technical calculations"
             )
-        
-        with col3:
-            debug_mode = st.checkbox(
-                "Enable Debug Mode",
-                value=False,
-                help="Show detailed debug information during scanning"
-            )
     
-    return days_back, rolling_window, debug_mode
+    return days_back, rolling_window
 
-def show_debug_panel(debug_info: dict):
-    """Display comprehensive debug information"""
-    with st.expander("🔍 DEBUG INFORMATION", expanded=True):
-        st.markdown("### 📊 Data Download Information")
-        
-        # Cache information
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric("Download Timestamp", debug_info.get('download_time', 'Unknown'))
-        with col2:
-            st.metric("Stocks Downloaded", debug_info.get('stocks_downloaded', 0))
-        with col3:
-            st.metric("Download Successful", debug_info.get('successful_downloads', 0))
-        
-        # Date range information
-        st.markdown("### 📅 Date Range Analysis")
-        st.info(f"**Today's Date:** {date.today()}")
-        st.info(f"**Requested Analysis Date:** {debug_info.get('requested_date', 'N/A')}")
-        st.info(f"**Days Back Parameter:** {debug_info.get('days_back', 'N/A')}")
-        
-        # Per-stock date information
-        if 'stock_date_info' in debug_info and debug_info['stock_date_info']:
-            st.markdown("### 📈 Per-Stock Date Availability")
-            
-            stock_date_df = pd.DataFrame(debug_info['stock_date_info'])
-            st.dataframe(
-                stock_date_df,
-                use_container_width=True,
-                hide_index=True,
-                column_config={
-                    'Ticker': st.column_config.TextColumn('Ticker', width='small'),
-                    'Earliest_Date': st.column_config.TextColumn('Earliest Date', width='medium'),
-                    'Latest_Date': st.column_config.TextColumn('Latest Date', width='medium'),
-                    'Total_Days': st.column_config.NumberColumn('Total Days', width='small'),
-                    'Timezone': st.column_config.TextColumn('Timezone', width='medium'),
-                    'Selected_Date': st.column_config.TextColumn('Selected Date', width='medium'),
-                    'Date_Match': st.column_config.TextColumn('Match Status', width='medium')
-                }
-            )
-            
-            # Add download button for debug data
-            csv_data = stock_date_df.to_csv(index=False)
-            st.download_button(
-                label="📥 Download Debug Data (CSV)",
-                data=csv_data,
-                file_name=f"debug_date_analysis_{datetime.now().strftime('%Y%m%dT%H%M')}.csv",
-                mime="text/csv"
-            )
-            
-        # Timezone comparison details
-        if 'timezone_info' in debug_info:
-            st.markdown("### 🌐 Timezone Analysis")
-            tz_info = debug_info['timezone_info']
-            
-            col1, col2 = st.columns(2)
-            with col1:
-                st.write("**Requested Date Timezone:**", tz_info.get('requested_tz', 'None'))
-                st.write("**Target Date (converted):**", tz_info.get('target_date_str', 'N/A'))
-            with col2:
-                st.write("**DataFrame Index Timezone:**", tz_info.get('data_tz', 'None'))
-                st.write("**Comparison Method:**", tz_info.get('comparison_method', 'N/A'))
-        
-        # Cache diagnostics
-        if 'cache_info' in debug_info:
-            st.markdown("### 💾 Cache Diagnostics")
-            cache_info = debug_info['cache_info']
-            
-            cache_status = "🟢 ACTIVE" if cache_info.get('is_cached', False) else "🔴 FRESH DOWNLOAD"
-            st.info(f"**Cache Status:** {cache_status}")
-            
-            if cache_info.get('is_cached', False):
-                st.warning("⚠️ Data is from cache! If you expect newer data, clear cache and re-run.")
-                st.write("**Cache TTL:** 5 minutes (300 seconds)")
-                st.write("**To clear cache:** Press 'C' key or use hamburger menu → Clear cache")
-
-def execute_scan_button(scan_scope, selected_stock, scan_date_type, historical_date, 
-                       days_back, rolling_window, debug_mode):
+def execute_scan_button(scan_scope, selected_stock, scan_date_type, historical_date, days_back, rolling_window):
     """Handle scan execution button and logic"""
     if st.button("🚀 Execute Scan", type="primary", use_container_width=True):
         st.session_state.error_logger = ErrorLogger()
         
         try:
+            # Check Google Drive configuration
+            is_configured, loader, folder_ids, error_msg = check_gdrive_configuration()
+            
+            if not is_configured:
+                st.error(error_msg)
+                st.info("📖 See README_GDRIVE_SETUP.md for setup instructions")
+                return
+            
             # Import required modules
             from core.data_fetcher import DataFetcher
             from utils.watchlist import get_active_watchlist
@@ -870,8 +953,7 @@ def execute_scan_button(scan_scope, selected_stock, scan_date_type, historical_d
                 stocks_to_scan=stocks_to_scan,
                 analysis_date=analysis_date,
                 days_back=days_back,
-                rolling_window=rolling_window,
-                debug_mode=debug_mode
+                rolling_window=rolling_window
             )
             
         except ImportError as e:
@@ -881,22 +963,10 @@ def execute_scan_button(scan_scope, selected_stock, scan_date_type, historical_d
             st.session_state.error_logger.log_error("Scan Execution", e)
             st.error("❌ Failed to execute scan - check error details above")
 
-def run_enhanced_stock_scan(stocks_to_scan, analysis_date=None, days_back=59, rolling_window=20, debug_mode=False):
-    """Execute the enhanced stock scanning process with comprehensive debugging"""
+def run_enhanced_stock_scan(stocks_to_scan, analysis_date=None, days_back=59, rolling_window=20):
+    """Execute the enhanced stock scanning process from Google Drive"""
     
     error_logger = st.session_state.error_logger
-    
-    # Initialize debug info dictionary
-    debug_info = {
-        'download_time': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-        'requested_date': str(analysis_date) if analysis_date else 'Current',
-        'days_back': days_back,
-        'stock_date_info': [],
-        'timezone_info': {},
-        'cache_info': {},
-        'stocks_downloaded': 0,
-        'successful_downloads': 0
-    }
     
     try:
         from core.data_fetcher import DataFetcher, set_global_data_fetcher
@@ -907,13 +977,10 @@ def run_enhanced_stock_scan(stocks_to_scan, analysis_date=None, days_back=59, ro
         is_single_stock = len(stocks_to_scan) == 1
         
         scope_text = f"single stock ({stocks_to_scan[0]})" if is_single_stock else f"{len(stocks_to_scan)} stocks"
-        date_text = f"historical analysis (as of {analysis_date})" if is_historical else "current data analysis"
+        date_text = f"historical analysis (as of {analysis_date.strftime('%d/%m/%Y')})" if is_historical else "current data analysis"
         
         logger.info(f"Starting scan: {scope_text} with {date_text}")
-        if debug_mode:
-            st.info(f"🔄 DEBUG MODE: Scanning {scope_text} with {date_text}...")
-        else:
-            st.info(f"🔄 Scanning {scope_text} with {date_text}... Calculating Pure MPI Expansion...")
+        st.info(f"🔄 Scanning {scope_text} with {date_text}... Loading from Google Drive...")
         
         # Initialize progress tracking
         progress_bar = st.progress(0)
@@ -924,47 +991,16 @@ def run_enhanced_stock_scan(stocks_to_scan, analysis_date=None, days_back=59, ro
         fetcher = DataFetcher(days_back=days_back)
         progress_bar.progress(0.1)
         
-        # Download stock data
-        status_text.text("📥 Downloading stock data and company names...")
-        
-        if debug_mode:
-            st.warning("🔍 DEBUG: Checking if data is from cache or fresh download...")
-        
-        stock_data = fetcher.download_stock_data(stocks_to_scan)
+        # Download stock data from Google Drive
+        status_text.text("📥 Loading stock data from Google Drive...")
+        stock_data = fetcher.download_stock_data(stocks_to_scan, target_date=analysis_date)
         set_global_data_fetcher(fetcher)
         progress_bar.progress(0.3)
         
-        debug_info['stocks_downloaded'] = len(stocks_to_scan)
-        debug_info['successful_downloads'] = len(stock_data)
-        
-        # Detect if data was cached (this is approximate - actual cache detection would require modifying data_fetcher)
-        debug_info['cache_info']['is_cached'] = False  # We'll update this if we can detect it
-        
         if not stock_data:
-            error_logger.log_error("Data Validation", Exception("No stock data downloaded"))
-            st.error("❌ Failed to download stock data. Check error log for details.")
+            error_logger.log_error("Data Validation", Exception("No stock data loaded from Google Drive"))
+            st.error("❌ Failed to load stock data from Google Drive. Check error log for details.")
             return
-        
-        # DEBUG: Analyze downloaded data date ranges
-        if debug_mode:
-            status_text.text("🔍 DEBUG: Analyzing downloaded data date ranges...")
-            for ticker, df in stock_data.items():
-                if not df.empty:
-                    earliest = df.index.min()
-                    latest = df.index.max()
-                    
-                    # Get timezone info
-                    tz_info = str(df.index.tz) if hasattr(df.index, 'tz') else 'No timezone'
-                    
-                    debug_info['stock_date_info'].append({
-                        'Ticker': ticker,
-                        'Earliest_Date': earliest.strftime('%Y-%m-%d %H:%M:%S %Z'),
-                        'Latest_Date': latest.strftime('%Y-%m-%d %H:%M:%S %Z'),
-                        'Total_Days': len(df),
-                        'Timezone': tz_info,
-                        'Selected_Date': 'TBD',
-                        'Date_Match': 'TBD'
-                    })
         
         # Process stocks
         status_text.text("🔄 Calculating Pure MPI Expansion and technical analysis...")
@@ -972,8 +1008,6 @@ def run_enhanced_stock_scan(stocks_to_scan, analysis_date=None, days_back=59, ro
         
         results = []
         processing_errors = []
-        actual_dates_used = set()
-        requested_date = analysis_date
         
         for i, (ticker, df_raw) in enumerate(stock_data.items()):
             try:
@@ -984,38 +1018,9 @@ def run_enhanced_stock_scan(stocks_to_scan, analysis_date=None, days_back=59, ro
                 # Apply technical analysis
                 df_enhanced = add_enhanced_columns(df_raw, ticker, rolling_window)
                 
-                # Handle historical analysis with DEBUG
-                if is_historical:
-                    if debug_mode:
-                        analysis_row, actual_date, date_debug = _get_historical_analysis_row_debug(
-                            df_enhanced, analysis_date, ticker
-                        )
-                        
-                        # Update debug info for this stock
-                        for stock_info in debug_info['stock_date_info']:
-                            if stock_info['Ticker'] == ticker:
-                                stock_info['Selected_Date'] = date_debug.get('selected_date_str', 'None')
-                                stock_info['Date_Match'] = date_debug.get('match_status', 'Unknown')
-                        
-                        # Store timezone comparison info (from first stock)
-                        if not debug_info['timezone_info']:
-                            debug_info['timezone_info'] = date_debug.get('timezone_comparison', {})
-                    else:
-                        analysis_row, actual_date = _get_historical_analysis_row(df_enhanced, analysis_date, ticker)
-                    
-                    if analysis_row is None:
-                        continue
-                    actual_dates_used.add(actual_date.strftime('%Y-%m-%d'))
-                else:
-                    analysis_row = df_enhanced.iloc[-1]
-                    actual_date = analysis_row.name
-                    
-                    if debug_mode:
-                        # For current date scan, still track the latest date
-                        for stock_info in debug_info['stock_date_info']:
-                            if stock_info['Ticker'] == ticker:
-                                stock_info['Selected_Date'] = actual_date.strftime('%Y-%m-%d %H:%M:%S')
-                                stock_info['Date_Match'] = 'Latest Available'
+                # Get analysis row (most recent)
+                analysis_row = df_enhanced.iloc[-1]
+                actual_date = analysis_row.name
                 
                 # Collect result
                 result = _create_result_dict(analysis_row, actual_date, ticker, fetcher)
@@ -1041,15 +1046,9 @@ def run_enhanced_stock_scan(stocks_to_scan, analysis_date=None, days_back=59, ro
         st.session_state.last_scan_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         st.session_state.last_scan_config = {
             'scope': 'Single Stock' if is_single_stock else 'Full Watchlist',
-            'date': f'Historical ({analysis_date})' if is_historical else 'Current',
-            'stock_count': len(results_df),
-            'requested_date': str(requested_date) if requested_date else None,
-            'actual_dates': sorted(list(actual_dates_used)) if actual_dates_used else None
+            'date': f'Historical ({analysis_date.strftime("%d/%m/%Y")})' if is_historical else 'Current',
+            'stock_count': len(results_df)
         }
-        
-        # Store debug info in session state
-        if debug_mode:
-            st.session_state.debug_info = debug_info
         
         # Complete scan
         progress_bar.progress(1.0)
@@ -1059,27 +1058,10 @@ def run_enhanced_stock_scan(stocks_to_scan, analysis_date=None, days_back=59, ro
         progress_bar.empty()
         status_text.empty()
         
-        # Show debug panel if debug mode is enabled
-        if debug_mode:
-            show_debug_panel(debug_info)
-        
-        # Show success message with date clarification
-        success_message = f"🎉 Pure MPI Expansion Scan completed! Analyzed {len(results_df)} stocks successfully"
+        # Show success message
+        success_message = f"🎉 Pure MPI Expansion Scan completed! Analyzed {len(results_df)} stocks successfully from Google Drive"
         if processing_errors:
             success_message += f" ({len(processing_errors)} errors - check log for details)"
-        
-        # Add date mismatch warning if applicable
-        if is_historical and actual_dates_used:
-            actual_dates_list = sorted(list(actual_dates_used))
-            if len(actual_dates_list) == 1 and actual_dates_list[0] != str(requested_date):
-                st.warning(f"⚠️ Requested date: **{requested_date}** | Actual trading date used: **{actual_dates_list[0]}**\n\n"
-                          f"The scanner used the most recent available trading day. This typically happens when:\n"
-                          f"- The requested date falls on a weekend\n"
-                          f"- The requested date is a public holiday\n"
-                          f"- Market data for the requested date hasn't been published yet\n\n"
-                          f"{'🔍 Check DEBUG INFORMATION above for detailed date analysis!' if debug_mode else '💡 Enable Debug Mode to see detailed date information'}")
-            elif len(actual_dates_list) > 1:
-                st.info(f"📅 Multiple trading dates found: {', '.join(actual_dates_list)}")
         
         st.success(success_message)
         logger.info(f"Scan completed: {len(results_df)} stocks processed successfully")
@@ -1096,164 +1078,13 @@ def run_enhanced_stock_scan(stocks_to_scan, analysis_date=None, days_back=59, ro
         if 'status_text' in locals():
             status_text.empty()
 
-def _get_historical_analysis_row(df_enhanced: pd.DataFrame, analysis_date: date, ticker: str) -> tuple:
-    """
-    Get the analysis row for historical date - FIXED VERSION
-    
-    KEY FIX: Normalize all comparisons to DATE ONLY (no time component)
-    """
-    try:
-        # Convert analysis_date to pandas Timestamp for consistent handling
-        target_date = pd.Timestamp(analysis_date)
-        available_dates = df_enhanced.index
-        
-        # CRITICAL FIX: Convert all dates to DATE ONLY (strip time component)
-        # This ensures we're comparing 2025-09-29 to 2025-09-29, not datetime with time
-        target_date_only = target_date.normalize()  # Sets time to 00:00:00
-        
-        # Handle timezone - localize target if data has timezone
-        if hasattr(available_dates, 'tz') and available_dates.tz is not None:
-            if target_date_only.tz is None:
-                target_date_only = target_date_only.tz_localize(available_dates.tz)
-        else:
-            if target_date_only.tz is not None:
-                target_date_only = target_date_only.tz_localize(None)
-        
-        # Normalize available dates to date-only for comparison
-        available_dates_normalized = available_dates.normalize()
-        
-        # Find dates on or before target (using normalized dates)
-        valid_dates_mask = available_dates_normalized <= target_date_only
-        valid_dates = available_dates[valid_dates_mask]
-        
-        if len(valid_dates) == 0:
-            logger.warning(f"No data for {ticker} on or before {analysis_date}")
-            return None, None
-        
-        # Get the most recent valid date
-        analysis_row = df_enhanced.loc[valid_dates[-1]]
-        actual_date = valid_dates[-1]
-        
-        # Log if actual date differs from requested date
-        actual_date_str = actual_date.strftime('%Y-%m-%d')
-        requested_date_str = analysis_date.strftime('%Y-%m-%d')
-        if actual_date_str != requested_date_str:
-            logger.info(f"{ticker}: Using {actual_date_str} (requested: {requested_date_str})")
-        
-        return analysis_row, actual_date
-        
-    except Exception as e:
-        logger.error(f"Historical date processing failed for {ticker}: {e}")
-        return None, None
-
-def _get_historical_analysis_row_debug(df_enhanced: pd.DataFrame, analysis_date: date, ticker: str) -> tuple:
-    """
-    Get the analysis row for historical date with comprehensive debugging - FIXED VERSION
-    
-    KEY FIX: Normalize all comparisons to DATE ONLY (no time component)
-    """
-    date_debug = {
-        'timezone_comparison': {},
-        'selected_date_str': 'None',
-        'match_status': 'No Match'
-    }
-    
-    try:
-        # Convert analysis_date to pandas Timestamp for consistent handling
-        target_date = pd.Timestamp(analysis_date)
-        available_dates = df_enhanced.index
-        
-        # Store original timezone info
-        original_target_tz = str(target_date.tz) if target_date.tz is not None else 'None (naive)'
-        data_tz = str(available_dates.tz) if hasattr(available_dates, 'tz') and available_dates.tz is not None else 'None (naive)'
-        
-        logger.info(f"DEBUG {ticker}: Requested date: {analysis_date}, Target TZ: {original_target_tz}, Data TZ: {data_tz}")
-        
-        # CRITICAL FIX: Normalize to date-only (00:00:00 time)
-        target_date_only = target_date.normalize()
-        logger.info(f"DEBUG {ticker}: Target normalized: {target_date_only}")
-        
-        # Handle timezone - localize target if data has timezone
-        if hasattr(available_dates, 'tz') and available_dates.tz is not None:
-            if target_date_only.tz is None:
-                target_date_only = target_date_only.tz_localize(available_dates.tz)
-                logger.info(f"DEBUG {ticker}: Localized target to {available_dates.tz}: {target_date_only}")
-        else:
-            if target_date_only.tz is not None:
-                target_date_only = target_date_only.tz_localize(None)
-                logger.info(f"DEBUG {ticker}: Removed timezone from target: {target_date_only}")
-        
-        # Store timezone comparison details
-        date_debug['timezone_comparison'] = {
-            'requested_tz': original_target_tz,
-            'data_tz': data_tz,
-            'target_date_str': str(target_date_only),
-            'comparison_method': 'normalized_dates <= target_date (DATE ONLY)'
-        }
-        
-        # Show available dates around the target
-        logger.info(f"DEBUG {ticker}: Available dates range: {available_dates.min()} to {available_dates.max()}")
-        logger.info(f"DEBUG {ticker}: Total available dates: {len(available_dates)}")
-        
-        # Normalize available dates for comparison
-        available_dates_normalized = available_dates.normalize()
-        
-        # Find dates around target (using normalized comparison)
-        dates_before = available_dates[available_dates_normalized < target_date_only]
-        dates_on = available_dates[available_dates_normalized == target_date_only]
-        dates_after = available_dates[available_dates_normalized > target_date_only]
-        
-        logger.info(f"DEBUG {ticker}: Dates before target: {len(dates_before)}")
-        logger.info(f"DEBUG {ticker}: Dates ON target: {len(dates_on)}")
-        logger.info(f"DEBUG {ticker}: Dates after target: {len(dates_after)}")
-        
-        if len(dates_before) > 0:
-            logger.info(f"DEBUG {ticker}: Last 3 dates before target: {dates_before[-3:].tolist()}")
-        if len(dates_on) > 0:
-            logger.info(f"DEBUG {ticker}: Date ON target exists: {dates_on[0]}")
-        if len(dates_after) > 0:
-            logger.info(f"DEBUG {ticker}: First 3 dates after target: {dates_after[:3].tolist()}")
-        
-        # Find valid dates (on or before target)
-        valid_dates_mask = available_dates_normalized <= target_date_only
-        valid_dates = available_dates[valid_dates_mask]
-        
-        if len(valid_dates) == 0:
-            logger.warning(f"DEBUG {ticker}: No data for {ticker} on or before {analysis_date}")
-            date_debug['match_status'] = 'No Data On/Before Date'
-            return None, None, date_debug
-        
-        # Get the most recent valid date
-        analysis_row = df_enhanced.loc[valid_dates[-1]]
-        actual_date = valid_dates[-1]
-        
-        # Store debug info
-        actual_date_str = actual_date.strftime('%Y-%m-%d')
-        requested_date_str = analysis_date.strftime('%Y-%m-%d')
-        
-        date_debug['selected_date_str'] = actual_date.strftime('%Y-%m-%d %H:%M:%S')
-        
-        if actual_date_str == requested_date_str:
-            date_debug['match_status'] = '✅ Exact Match'
-            logger.info(f"DEBUG {ticker}: EXACT MATCH - Using {actual_date_str}")
-        else:
-            date_debug['match_status'] = f'⚠️ Fallback to {actual_date_str}'
-            logger.info(f"DEBUG {ticker}: FALLBACK - Using {actual_date_str} (requested: {requested_date_str})")
-        
-        return analysis_row, actual_date, date_debug
-        
-    except Exception as e:
-        logger.error(f"DEBUG {ticker}: Historical date processing failed: {e}")
-        date_debug['match_status'] = f'❌ Error: {str(e)}'
-        return None, None, date_debug
-
 def _create_result_dict(analysis_row: pd.Series, actual_date, ticker: str, fetcher) -> dict:
     """Create result dictionary from analysis row"""
     # Get company name
     try:
         company_name = fetcher.get_company_name(ticker)
     except Exception:
-        company_name = ticker.replace('.SI', '')
+        company_name = ticker.replace('.SG', '')
     
     # Determine price formatting
     close_price = float(analysis_row['Close'])
@@ -1288,7 +1119,7 @@ def _create_result_dict(analysis_row: pd.Series, actual_date, ticker: str, fetch
     result = {
         'Ticker': ticker,
         'Name': company_name,
-        'Analysis_Date': actual_date.strftime('%Y-%m-%d') if hasattr(actual_date, 'strftime') else str(actual_date),
+        'Analysis_Date': actual_date.strftime('%d/%m/%Y') if hasattr(actual_date, 'strftime') else str(actual_date),
         'Close': round(close_price, price_decimals),
         'High': safe_round(analysis_row['High'], price_decimals),
         'Low': safe_round(analysis_row['Low'], price_decimals),
@@ -1324,12 +1155,6 @@ def _create_result_dict(analysis_row: pd.Series, actual_date, ticker: str, fetch
     }
     
     return result
-
-# File: pages/scanner_higher_hl.py
-# Part 4 of 4 - DEBUG VERSION
-"""
-Results display and main show function - with debug enhancements
-"""
 
 def display_scan_summary(results_df: pd.DataFrame):
     """Display scan summary with Pure MPI Expansion statistics"""
@@ -1375,11 +1200,6 @@ def display_scan_summary(results_df: pd.DataFrame):
             st.info(f"📅 Analysis date: **{analysis_dates[0]}** | Avg MPI: **{avg_mpi:.1%}** | Avg Velocity: **{avg_velocity:+.1%}** | Expanding: **{strong_expansion + expanding}** | Contracting: **{contracting}**")
         else:
             st.info(f"📅 Analysis dates: **{', '.join(analysis_dates)}** | Avg MPI: **{avg_mpi:.1%}** | Avg Velocity: **{avg_velocity:+.1%}**")
-    
-    # Show debug info button if available
-    if 'debug_info' in st.session_state:
-        if st.button("🔍 Show Debug Information"):
-            show_debug_panel(st.session_state.debug_info)
 
 def show_base_pattern_filter(results_df: pd.DataFrame) -> pd.DataFrame:
     """Show base pattern filter and return filtered stocks"""
@@ -1476,7 +1296,8 @@ def show_tradingview_export(filtered_stocks: pd.DataFrame, selected_base_filter:
     """Show TradingView export section"""
     st.subheader("📋 TradingView Export (Pure MPI Expansion Filtered)")
     
-    tv_tickers = [f"SGX:{ticker.replace('.SI', '')}" for ticker in filtered_stocks['Ticker'].tolist()]
+    # Remove .SG suffix for TradingView format
+    tv_tickers = [f"SGX:{ticker.replace('.SG', '')}" for ticker in filtered_stocks['Ticker'].tolist()]
     tv_string = ','.join(tv_tickers)
     
     # Calculate Pure MPI Expansion summary for export description
@@ -1586,48 +1407,6 @@ def show_mpi_insights(results_df: pd.DataFrame):
         
         if trend_summary:
             st.dataframe(pd.DataFrame(trend_summary), hide_index=True, use_container_width=True)
-        
-        # MPI Velocity distribution chart
-        if len(results_df) > 1:
-            fig = create_mpi_velocity_chart(results_df)
-            if fig:
-                st.plotly_chart(fig, use_container_width=True)
-
-def create_mpi_velocity_chart(results_df: pd.DataFrame):
-    """Create MPI velocity distribution chart"""
-    try:
-        df_for_plot = results_df[['MPI_Velocity', 'MPI_Trend']].copy()
-        
-        color_map = {
-            'Strong Expansion': 'darkgreen',
-            'Expanding': 'green',
-            'Flat': 'gray',
-            'Mild Contraction': 'orange',
-            'Strong Contraction': 'red'
-        }
-        
-        fig = px.histogram(
-            df_for_plot,
-            x='MPI_Velocity',
-            color='MPI_Trend',
-            nbins=20,
-            title="MPI Velocity Distribution - Pure Expansion Focus",
-            labels={'MPI_Velocity': 'MPI Velocity (Expansion Rate)', 'count': 'Number of Stocks'},
-            color_discrete_map=color_map,
-            category_orders={'MPI_Trend': ['Strong Expansion', 'Expanding', 'Flat', 
-                                          'Mild Contraction', 'Strong Contraction']}
-        )
-        
-        # Add threshold lines
-        fig.add_vline(x=0.05, line_dash="dash", line_color="darkgreen", annotation_text="Strong Expansion")
-        fig.add_vline(x=0, line_dash="solid", line_color="black", annotation_text="Flat")
-        fig.add_vline(x=-0.05, line_dash="dash", line_color="red", annotation_text="Strong Contraction")
-        
-        return fig
-        
-    except Exception as e:
-        logger.error(f"Error creating MPI velocity chart: {e}")
-        return None
 
 def display_scan_results(results_df: pd.DataFrame):
     """Main function to display scanning results with Pure MPI Expansion filtering"""
@@ -1665,15 +1444,50 @@ def display_scan_results(results_df: pd.DataFrame):
         st.error("❌ Error displaying Pure MPI Expansion results - check error log for details")
 
 def show():
-    """Main scanner page display for Higher H/L patterns with Pure MPI Expansion filtering - DEBUG VERSION"""
+    """Main scanner page display for Higher H/L patterns with Pure MPI Expansion filtering"""
     
     st.title("📈 CRT Higher H/L Scanner")
-    st.markdown("Enhanced with **Pure MPI Expansion System** - Focus on momentum velocity, not absolute levels")
-    st.markdown("**Now using VW Range Velocity for daily momentum filtering**")
+    st.markdown("Enhanced with **Pure MPI Expansion System** - Focus on momentum velocity")
+    st.markdown("**Data Source: Google Drive** (Historical_Data + EOD_Data)")
     
-    # DEBUG MODE INDICATOR
-    if 'debug_info' in st.session_state:
-        st.info("🔍 **DEBUG MODE ACTIVE** - Detailed diagnostics are available")
+    # Check Google Drive configuration first
+    is_configured, loader, folder_ids, error_msg = check_gdrive_configuration()
+    
+    if not is_configured:
+        st.error(error_msg)
+        st.info("📖 **Setup Required:** See README_GDRIVE_SETUP.md for Google Drive setup instructions")
+        
+        with st.expander("🔧 Quick Setup Guide"):
+            st.markdown("""
+            **Steps to configure Google Drive:**
+            1. Download `credentials.json` from Google Cloud Console
+            2. Place `credentials.json` in app root directory
+            3. Create `.env` file with folder IDs (see `.env.example`)
+            4. Restart the application
+            5. On first run, authenticate in browser
+            
+            See `README_GDRIVE_SETUP.md` for detailed instructions.
+            """)
+        return
+    
+    # Show update check/prompt
+    st.subheader("📥 Data Management")
+    
+    if 'update_check_done' not in st.session_state:
+        st.session_state.update_check_done = False
+    
+    if not st.session_state.update_check_done:
+        update_result = show_update_prompt()
+        if update_result:
+            st.session_state.update_check_done = True
+            st.rerun()
+    else:
+        # Show manual update button
+        if st.button("🔄 Check for Updates Again"):
+            st.session_state.update_check_done = False
+            st.rerun()
+    
+    st.markdown("---")
     
     # Clear error log button
     col1, col2 = st.columns([3, 1])
@@ -1685,55 +1499,36 @@ def show():
     with col2:
         if st.button("💾 Clear Cache"):
             st.cache_data.clear()
-            st.success("Cache cleared! Re-run scan to download fresh data.")
+            st.cache_resource.clear()
+            st.success("Cache cleared!")
             st.rerun()
-    
-    # Check module availability
-    try:
-        from core.data_fetcher import DataFetcher
-        from core.technical_analysis import add_enhanced_columns
-        from utils.watchlist import get_active_watchlist
-        modules_available = True
-        logger.info("All core modules imported successfully")
-    except ImportError as e:
-        st.session_state.error_logger.log_error("Module Import", e)
-        st.error(f"❌ Import error: {e}")
-        modules_available = False
     
     # Display any existing errors
     st.session_state.error_logger.display_errors_in_streamlit()
     
-    if modules_available:
-        # Show scanning configuration
-        scan_scope, selected_stock, scan_date_type, historical_date = show_scanning_configuration()
-        
-        # Show advanced settings
-        days_back, rolling_window, debug_mode = show_advanced_settings()
-        
-        # Scan execution
-        st.subheader("🚀 Execute Scan")
-        
-        # Add debug mode information
-        if debug_mode:
-            st.info("🔍 **Debug Mode Enabled** - Detailed date and timezone information will be shown after scan")
-        
-        execute_scan_button(scan_scope, selected_stock, scan_date_type, historical_date, 
-                           days_back, rolling_window, debug_mode)
-        
-        # Display last scan info if available
-        if 'last_scan_time' in st.session_state:
-            st.info(f"📊 Last scan completed: {st.session_state.last_scan_time}")
-            
-            if 'last_scan_config' in st.session_state:
-                config = st.session_state.last_scan_config
-                st.caption(f"Scope: {config['scope']} | Date: {config['date']} | Stocks: {config['stock_count']}")
-        
-        # Display results if available
-        if 'scan_results' in st.session_state:
-            display_scan_results(st.session_state.scan_results)
+    # Show scanning configuration
+    scan_scope, selected_stock, scan_date_type, historical_date = show_scanning_configuration()
     
-    else:
-        st.warning("Cannot execute scan - required modules are not available")
+    # Show advanced settings
+    days_back, rolling_window = show_advanced_settings()
+    
+    # Scan execution
+    st.subheader("🚀 Execute Scan")
+    
+    execute_scan_button(scan_scope, selected_stock, scan_date_type, historical_date, 
+                       days_back, rolling_window)
+    
+    # Display last scan info if available
+    if 'last_scan_time' in st.session_state:
+        st.info(f"📊 Last scan completed: {st.session_state.last_scan_time}")
+        
+        if 'last_scan_config' in st.session_state:
+            config = st.session_state.last_scan_config
+            st.caption(f"Scope: {config['scope']} | Date: {config['date']} | Stocks: {config['stock_count']}")
+    
+    # Display results if available
+    if 'scan_results' in st.session_state:
+        display_scan_results(st.session_state.scan_results)
 
 if __name__ == "__main__":
     show()

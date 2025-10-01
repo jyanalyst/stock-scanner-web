@@ -1,48 +1,85 @@
 # File: utils/watchlist.py
 """
-Watchlist Management
-Contains the Singapore stock symbols with company name fetching from yfinance
+Watchlist Management - Dynamic from Google Drive EOD Data
+Automatically loads watchlist from latest EOD file
 """
 
-# Singapore Exchange stocks
-DEFAULT_WATCHLIST = [
-    'A17U.SI', 'C38U.SI', 'M44U.SI', 'ME8U.SI', 'AJBU.SI', 'J69U.SI', 'N2IU.SI', 'BUOU.SI', 'K71U.SI', 'JYEU.SI', 'HMN.SI', 'NTDU.SI', '8C8U.SI', 'AWX.SI', 'E28.SI', '558.SI', 'MZH.SI', 'BN2.SI', 'BS6.SI', '5E2.SI', 'Z74.SI', '9CI.SI', 'C52.SI', 'YF8.SI', '5LY.SI', 'G13.SI', 'OV8.SI', 'S56.SI', 'AP4.SI', '544.SI', 'G92.SI', 'Z25.SI', 'RXS.SI', 'S58.SI', 'F34.SI', 'EB5.SI', 'P8Z.SI', 'S08.SI', '1MZ.SI', '41O.SI', 'OYY.SI', 'A50.SI', 'E3B.SI', 'OU8.SI', 'LCC.SI', 'AU8U.SI', 'A04.SI', 'ER0.SI', '5WH.SI', '1E3.SI', '5TP.SI', 'P52.SI', 'QES.SI', 'CLN.SI', 'QC7.SI', 'RE4.SI', 'DU4.SI', '5WV.SI'
+import streamlit as st
+import logging
+from typing import List
+
+logger = logging.getLogger(__name__)
+
+# Minimal fallback watchlist in case Google Drive is unavailable
+FALLBACK_WATCHLIST = [
+    'A17U.SG', 'C38U.SG', 'M44U.SG', 'ME8U.SG', 'AJBU.SG', 'J69U.SG', 
+    'N2IU.SG', 'BUOU.SG', 'K71U.SG', 'JYEU.SG'
 ]
 
-def get_active_watchlist():
-    """Get the list of active stocks to scan"""
-    return DEFAULT_WATCHLIST.copy()
-
-def get_stock_name(symbol):
+@st.cache_data(ttl=3600)  # Cache for 1 hour
+def get_active_watchlist() -> List[str]:
     """
-    Get friendly name for a stock symbol
-    Use DataFetcher.get_company_name() for real company names from yfinance
+    Get the list of active stocks to scan from latest EOD file
+    
+    Returns:
+        List of ticker symbols (e.g., ['A17U.SG', 'C38U.SG', ...])
     """
     try:
-        from core.data_fetcher import get_company_name
-        return get_company_name(symbol)
-    except ImportError:
-        return symbol.replace('.SI', '')
+        from core.gdrive_loader import get_gdrive_loader, get_folder_ids
+        
+        # Get Google Drive loader
+        loader = get_gdrive_loader()
+        if loader is None:
+            logger.warning("Google Drive not configured, using fallback watchlist")
+            return FALLBACK_WATCHLIST.copy()
+        
+        # Get folder IDs
+        folder_ids = get_folder_ids()
+        eod_folder_id = folder_ids['eod']
+        
+        if not eod_folder_id:
+            logger.warning("EOD folder ID not configured, using fallback watchlist")
+            return FALLBACK_WATCHLIST.copy()
+        
+        # Load watchlist from latest EOD file
+        watchlist = loader.get_watchlist_from_eod(eod_folder_id)
+        
+        if not watchlist:
+            logger.warning("Could not load watchlist from EOD file, using fallback")
+            return FALLBACK_WATCHLIST.copy()
+        
+        logger.info(f"✅ Loaded watchlist from Google Drive: {len(watchlist)} stocks")
+        return sorted(watchlist)
+        
+    except Exception as e:
+        logger.error(f"Error loading watchlist: {e}")
+        logger.info("Using fallback watchlist")
+        return FALLBACK_WATCHLIST.copy()
 
-def add_stock_to_watchlist(symbol):
-    """Add a new stock to the watchlist"""
-    if symbol not in DEFAULT_WATCHLIST:
-        DEFAULT_WATCHLIST.append(symbol)
-        return True
-    return False
+def get_stock_name(symbol: str) -> str:
+    """
+    Get friendly name for a stock symbol
+    
+    Args:
+        symbol: Stock ticker (e.g., 'A17U.SG')
+        
+    Returns:
+        Friendly name (e.g., 'A17U')
+    """
+    return symbol.replace('.SG', '')
 
-def remove_stock_from_watchlist(symbol):
-    """Remove a stock from the watchlist"""
-    if symbol in DEFAULT_WATCHLIST:
-        DEFAULT_WATCHLIST.remove(symbol)
-        return True
-    return False
-
-def get_watchlist_info():
+def get_watchlist_info() -> dict:
     """Get information about the current watchlist"""
+    watchlist = get_active_watchlist()
+    
     return {
-        'total_stocks': len(DEFAULT_WATCHLIST),
+        'total_stocks': len(watchlist),
         'exchange': 'Singapore Exchange (SGX)',
-        'sectors': 'Mixed (REITs, Financial, Industrial, etc.)',
-        'note': 'Company names are fetched dynamically from yfinance'
+        'source': 'Google Drive EOD_Data (dynamic)',
+        'note': 'Watchlist automatically updated from latest EOD file'
     }
+
+def clear_watchlist_cache():
+    """Clear the watchlist cache to force reload"""
+    get_active_watchlist.clear()
+    logger.info("Watchlist cache cleared")
