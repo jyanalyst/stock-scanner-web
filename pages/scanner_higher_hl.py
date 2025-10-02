@@ -5,6 +5,7 @@ CRT Higher H/L Scanner - Local File System
 Enhanced with Pure MPI Expansion Filtering
 NOW USING VW_RANGE_VELOCITY FOR DAILY MOMENTUM FILTERING
 Automatically checks for Historical_Data updates on startup
+ENHANCED: Force update capability to re-process latest EOD file
 """
 
 import streamlit as st
@@ -142,6 +143,7 @@ if 'error_logger' not in st.session_state:
 def show_update_prompt():
     """
     Check for updates and prompt user if new data available
+    ENHANCED: Added Force Update option
     Returns True if update was performed or skipped, False if check failed
     """
     try:
@@ -169,17 +171,52 @@ def show_update_prompt():
             
             with col_update:
                 if st.button("🔄 Update Now", type="primary", use_container_width=True):
-                    return perform_update(loader)
+                    return perform_update(loader, force=False)
             
             with col_skip:
                 if st.button("⏭️ Skip This Time", use_container_width=True):
-                    st.info("Skipped update. You can update later using the button below.")
+                    st.info("Skipped update. You can update later using the buttons below.")
                     return True
             
             return False  # Waiting for user action
         
         else:
+            # No new updates - show current status and force update option
             st.success("✅ Historical_Data is up to date!")
+            
+            # Get latest EOD file info for force update
+            latest_eod = loader.get_latest_eod_file()
+            if latest_eod:
+                eod_date_str = latest_eod.replace('.csv', '')
+                eod_date = datetime.strptime(eod_date_str, '%d_%b_%Y')
+                
+                st.info(f"📄 Latest EOD file: **{latest_eod}** ({eod_date.strftime('%d/%m/%Y')})")
+                
+                # Show force update option - DON'T return True yet!
+                with st.expander("⚙️ Advanced: Force Re-process Latest File", expanded=False):
+                    st.warning("⚠️ **Force Update** will re-process the latest EOD file even though it's already been imported.")
+                    st.markdown("""
+                    **Use this when:**
+                    - You've manually updated the contents of the latest EOD file
+                    - You need to fix data quality issues in the current date
+                    - You want to re-import today's data after corrections
+                    
+                    **This will:**
+                    - Remove existing entries for this date from Historical_Data
+                    - Re-import all data from the latest EOD file
+                    - Preserve all other historical data
+                    """)
+                    
+                    if st.button("🔧 Force Update Latest File", type="secondary", use_container_width=True, key="force_update_button"):
+                        result = perform_update(loader, force=True)
+                        if result:
+                            st.success("Force update completed!")
+                            time.sleep(2)
+                        return result
+                
+                # Return False here to keep showing the expander
+                return False
+            
             return True
             
     except Exception as e:
@@ -187,9 +224,14 @@ def show_update_prompt():
         st.error("❌ Could not check for updates")
         return False
 
-def perform_update(loader) -> bool:
+def perform_update(loader, force: bool = False) -> bool:
     """
     Perform the Historical_Data update
+    ENHANCED: Added force parameter to bypass date checks
+    
+    Args:
+        loader: LocalFileLoader instance
+        force: If True, force re-processing of latest EOD file
     
     Returns:
         True if successful, False otherwise
@@ -199,10 +241,15 @@ def perform_update(loader) -> bool:
         progress_bar = st.progress(0)
         status_text = st.empty()
         
-        status_text.text("🔄 Starting Historical_Data update...")
+        update_type = "FORCE UPDATE" if force else "UPDATE"
+        status_text.text(f"🔄 Starting Historical_Data {update_type.lower()}...")
+        
+        # Show force update warning
+        if force:
+            st.warning(f"⚠️ **FORCE UPDATE MODE** - Re-processing latest EOD file regardless of dates")
         
         # Perform update
-        stats = loader.update_historical_from_eod()
+        stats = loader.update_historical_from_eod(force=force)
         
         # Show progress during update
         if stats['total_stocks'] > 0:
@@ -229,7 +276,10 @@ def perform_update(loader) -> bool:
         status_text.empty()
         
         # Show summary
-        st.success(f"✅ **Update Complete!**")
+        if force:
+            st.success(f"✅ **Force Update Complete!**")
+        else:
+            st.success(f"✅ **Update Complete!**")
         
         col1, col2, col3, col4 = st.columns(4)
         with col1:
@@ -242,7 +292,10 @@ def perform_update(loader) -> bool:
             st.metric("Errors", stats['errors'])
         
         if stats['eod_date']:
-            st.info(f"📅 Historical_Data now current through: **{stats['eod_date']}**")
+            date_msg = f"📅 Historical_Data now current through: **{stats['eod_date']}**"
+            if force:
+                date_msg += " **(FORCED)**"
+            st.info(date_msg)
         
         # Show errors if any
         if stats['errors'] > 0:

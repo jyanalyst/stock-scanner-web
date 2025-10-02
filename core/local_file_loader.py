@@ -1,9 +1,11 @@
 # File: core/local_file_loader.py
+# Part 1 of 2
 """
 Local File System Data Loader
 Handles reading and updating stock data from local CSV files
 All dates use Singapore format: D/M/YYYY (dayfirst=True)
 FIXED: Proper date validation, cleanup of erroneous dates, and metadata column handling
+ENHANCED: Force update capability to re-process latest EOD file
 """
 
 import os
@@ -355,10 +357,13 @@ class LocalFileLoader:
             logger.error(f"Error checking for updates: {e}")
             return False, None, None
     
-    def update_historical_from_eod(self) -> Dict[str, any]:
+    def update_historical_from_eod(self, force: bool = False) -> Dict[str, any]:
         """
         Update all Historical_Data files from latest EOD_Data file
-        FIXED: Validates dates, cleans up erroneous data, handles metadata columns
+        ENHANCED: Added force parameter to bypass date checks
+        
+        Args:
+            force: If True, update regardless of date comparisons
         
         Returns:
             Statistics dictionary
@@ -370,6 +375,7 @@ class LocalFileLoader:
             'created': 0,
             'errors': 0,
             'cleaned': 0,
+            'forced': force,
             'eod_date': None,
             'details': []
         }
@@ -391,7 +397,8 @@ class LocalFileLoader:
             eod_date_obj = datetime.strptime(latest_eod.replace('.csv', ''), '%d_%b_%Y')
             stats['eod_date'] = eod_date_str
             
-            logger.info(f"Starting update from {latest_eod} ({eod_date_str})")
+            log_msg = f"Starting {'FORCED' if force else 'normal'} update from {latest_eod} ({eod_date_str})"
+            logger.info(log_msg)
             
             # Process each stock
             tickers = eod_df['Code'].unique()
@@ -399,7 +406,7 @@ class LocalFileLoader:
             
             for ticker in tickers:
                 try:
-                    result = self._update_single_stock(ticker, eod_df, eod_date_str, eod_date_obj)
+                    result = self._update_single_stock(ticker, eod_df, eod_date_str, eod_date_obj, force=force)
                     
                     stats['details'].append(result)
                     
@@ -435,19 +442,18 @@ class LocalFileLoader:
             return stats
     
     def _update_single_stock(self, ticker: str, eod_df: pd.DataFrame, 
-                            eod_date_str: str, eod_date_obj: datetime) -> Dict:
+                            eod_date_str: str, eod_date_obj: datetime, force: bool = False) -> Dict:
         """
         Update historical data for a single stock
-        FIXED: 
-        - Handles missing Code/Shortname columns
-        - Validates and cleans up date sequences
-        - Removes erroneous future/duplicate dates
+        ENHANCED: Added force parameter to bypass date validation
+        FIXED: Handle NaN ticker values
         
         Args:
             ticker: Stock ticker (e.g., 'A17U.SG')
             eod_df: EOD DataFrame containing all stocks
             eod_date_str: Date string in D/M/YYYY format
             eod_date_obj: Date as datetime object
+            force: If True, bypass date comparison checks
             
         Returns:
             Dictionary with update result
@@ -459,8 +465,23 @@ class LocalFileLoader:
         }
         
         try:
+            # FIXED: Skip if ticker is NaN or empty
+            if pd.isna(ticker) or ticker == '' or str(ticker).lower() == 'nan':
+                result['status'] = 'skipped'
+                result['message'] = 'Invalid ticker (NaN or empty)'
+                logger.warning(f"Skipping invalid ticker: {ticker}")
+                return result
+            
             # Get ticker's row from EOD data
-            eod_row = eod_df[eod_df['Code'] == ticker].iloc[0]
+            ticker_rows = eod_df[eod_df['Code'] == ticker]
+            
+            if len(ticker_rows) == 0:
+                result['status'] = 'error'
+                result['message'] = 'Ticker not found in EOD data'
+                logger.warning(f"Ticker {ticker} not found in EOD data")
+                return result
+            
+            eod_row = ticker_rows.iloc[0]
             
             # Load existing historical data
             ticker_clean = ticker.replace('.SG', '')
@@ -495,14 +516,19 @@ class LocalFileLoader:
                 if removed_rows > 0:
                     logger.warning(f"Removed {removed_rows} row(s) with dates >= {eod_date_obj.date()} from {ticker}")
                 
-                # Check if EOD date already exists (should not happen after cleanup, but double-check)
+                # Check if EOD date already exists
                 if eod_date_obj.date() in hist_df['Date'].dt.date.values:
-                    result['status'] = 'skipped'
-                    result['message'] = 'Date already exists'
-                    return result
+                    if not force:
+                        result['status'] = 'skipped'
+                        result['message'] = 'Date already exists'
+                        return result
+                    else:
+                        # Force mode: Remove existing date entry
+                        hist_df = hist_df[hist_df['Date'].dt.date != eod_date_obj.date()]
+                        logger.info(f"FORCE: Removed existing {eod_date_obj.date()} entry from {ticker}")
                 
-                # Validate: Check if we're actually adding a newer date
-                if len(hist_df) > 0:
+                # Validate: Check if we're actually adding a newer date (skip in force mode)
+                if not force and len(hist_df) > 0:
                     last_hist_date = hist_df['Date'].max().date()
                     if eod_date_obj.date() <= last_hist_date:
                         result['status'] = 'skipped'
@@ -554,7 +580,7 @@ class LocalFileLoader:
             
             # Build status message
             result['status'] = 'updated' if file_existed else 'created'
-            result['message'] = 'Added 1 row'
+            result['message'] = 'Added 1 row' if not force else 'FORCED: Added 1 row'
             
             if file_existed:
                 if needs_metadata_columns:
@@ -611,3 +637,4 @@ def get_local_loader() -> LocalFileLoader:
         LocalFileLoader instance
     """
     return LocalFileLoader()
+
