@@ -156,16 +156,16 @@ def calculate_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
         1.0
     )
     
-    # Higher H/L pattern
+    # Higher H pattern - NEW: Only requires higher high
+    df['Higher_H'] = (df['High'] > df['High'].shift(1)).astype(int)
+    
+    # Higher H/L pattern - Existing: Requires both higher high AND higher low
     df['Higher_HL'] = (
         (df['High'] > df['High'].shift(1)) & 
         (df['Low'] > df['Low'].shift(1))
     ).astype(int)
     
     return df
-
-# File: core/technical_analysis.py
-# Add this function to the existing file (insert after calculate_technical_indicators function)
 
 def calculate_relative_volume(df: pd.DataFrame) -> pd.DataFrame:
     """
@@ -233,14 +233,6 @@ def calculate_crt_levels(df: pd.DataFrame) -> pd.DataFrame:
     
     return df
 
-# File: core/technical_analysis.py
-# Part 2 of 2
-"""
-Technical Analysis Module - Part 2
-Main enhancement function and utility functions (Buy Signal logic removed)
-"""
-
-
 def add_enhanced_columns(df_daily: pd.DataFrame, ticker: str, rolling_window: int = 20) -> pd.DataFrame:
     """
     Add enhanced columns with PURE MPI EXPANSION system, Relative Volume, and Market Regime
@@ -292,6 +284,8 @@ def add_enhanced_columns(df_daily: pd.DataFrame, ticker: str, rolling_window: in
         df['High_Rel_Volume_200'] = 0
         df['Market_Regime'] = 'Unknown'
         df['Regime_Probability'] = 0.5
+        df['Higher_H'] = 0
+        df['Higher_HL'] = 0
     
     return df
 
@@ -328,8 +322,6 @@ def validate_data_quality(df: pd.DataFrame) -> dict:
     }
     
     return validation_results
-
-# REMOVED: get_buy_signals() function - no longer needed
 
 def calculate_technical_indicators_wrapper(df: pd.DataFrame, ticker: str = 'Unknown') -> pd.DataFrame:
     """Simple wrapper for add_enhanced_columns (backward compatibility)"""
@@ -387,9 +379,6 @@ def get_mpi_trend_distribution(df: pd.DataFrame) -> pd.DataFrame:
 
 logger.info("Technical Analysis Module loaded with optimized PURE MPI EXPANSION system (Buy Signal logic removed)")
 
-# File: core/technical_analysis.py
-# Add this function after the existing functions (around line 400)
-
 def add_market_regime_analysis(df: pd.DataFrame, ticker: str) -> pd.DataFrame:
     """
     Add market regime analysis to enhanced dataframe
@@ -437,7 +426,3 @@ def add_market_regime_analysis(df: pd.DataFrame, ticker: str) -> pd.DataFrame:
         df['Regime_Probability'] = 0.5
     
     return df
-
-# Update the add_enhanced_columns function to include regime analysis
-# Find this function (around line 350) and add this line after calculate_relative_volume(df):
-# df = add_market_regime_analysis(df, ticker)

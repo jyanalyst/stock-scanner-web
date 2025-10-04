@@ -1,11 +1,13 @@
 # File: pages/scanner_higher_hl.py
-# Part 1 of 3
+# Part 1 of 4
 """
 CRT Higher H/L Scanner - Local File System
 Enhanced with Pure MPI Expansion Filtering
 NOW USING VW_RANGE_VELOCITY FOR DAILY MOMENTUM FILTERING
 Automatically checks for Historical_Data updates on startup
 ENHANCED: Force update capability to re-process latest EOD file
+UPDATED: Simplified base filter, enhanced H/L filter with Higher_H support
+UPDATED: Removed Market Regime filter, moved H/L filter to first position
 """
 
 import streamlit as st
@@ -20,32 +22,6 @@ import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 from typing import Dict, List
-
-def show_regime_filter(filtered_stocks: pd.DataFrame) -> pd.DataFrame:
-    """
-    Apply market regime filter to stocks
-    """
-    if 'Market_Regime' not in filtered_stocks.columns:
-        return filtered_stocks
-    
-    regime_options = {
-        "All Regimes": None,
-        "Low Volatility Only": "Low Volatility",
-        "High Volatility Only": "High Volatility"
-    }
-    
-    selected_regime = st.radio(
-        "Select market regime filter:",
-        list(regime_options.keys()),
-        key="regime_filter_radio",
-        help="Filter stocks by their current market regime"
-    )
-    
-    if selected_regime != "All Regimes":
-        regime_value = regime_options[selected_regime]
-        filtered_stocks = filtered_stocks[filtered_stocks['Market_Regime'] == regime_value]
-        
-    return filtered_stocks
 
 # Configure logging
 logging.basicConfig(
@@ -192,7 +168,7 @@ def show_update_prompt():
                 
                 st.info(f"📄 Latest EOD file: **{latest_eod}** ({eod_date.strftime('%d/%m/%Y')})")
                 
-                # Show force update option - DON'T return True yet!
+                # Show force update option
                 with st.expander("⚙️ Advanced: Force Re-process Latest File", expanded=False):
                     st.warning("⚠️ **Force Update** will re-process the latest EOD file even though it's already been imported.")
                     st.markdown("""
@@ -214,7 +190,6 @@ def show_update_prompt():
                             time.sleep(2)
                         return result
                 
-                # Return False here to keep showing the expander
                 return False
             
             return True
@@ -269,7 +244,7 @@ def perform_update(loader, force: bool = False) -> bool:
                 elif status == 'error':
                     status_text.text(f"❌ {ticker} - {detail['message']}")
                 
-                time.sleep(0.1)  # Brief pause for visibility
+                time.sleep(0.1)
         
         # Clear progress indicators
         progress_bar.empty()
@@ -424,8 +399,16 @@ def create_distribution_chart(data: pd.Series, title: str, x_label: str, thresho
     
     return fig
 
+# File: pages/scanner_higher_hl.py
+# COMPLETE FIXED VERSION of apply_velocity_filter
+
 def apply_velocity_filter(filtered_stocks: pd.DataFrame, results_df: pd.DataFrame) -> tuple:
-    """Apply VW Range Velocity percentile filter for daily momentum"""
+    """
+    Apply VW Range Velocity percentile filter for daily momentum
+    UPDATED: Added Custom filter option similar to IBS filter
+    FIXED: Robust error handling and guaranteed return
+    """
+    # Early return if no stocks
     if filtered_stocks.empty:
         return filtered_stocks, None, "No stocks available"
     
@@ -441,32 +424,55 @@ def apply_velocity_filter(filtered_stocks: pd.DataFrame, results_df: pd.DataFram
     # Remove zero velocities for percentile calculation
     non_zero_velocities = velocities[velocities != 0]
     
+    # Early return if no velocity data
     if len(non_zero_velocities) == 0:
         return filtered_stocks, None, "No VW Range Velocity data available"
     
-    # Percentile options
+    # Percentile options with Custom added
     percentile_options = {
         "Top 25%": 75,
         "Top 50%": 50, 
         "Top 75%": 25,
+        "Custom": "custom",
         "No Filter": None
     }
     
+    # Radio button with default index
     selected_percentile = st.radio(
         "Select velocity filter:",
         list(percentile_options.keys()),
+        index=4,  # Default to "No Filter" (5th option, index 4)
         key="vw_range_velocity_percentile_radio"
     )
     
-    # Apply filtering
-    if selected_percentile != "No Filter":
+    # Initialize info_message
+    info_message = "All velocities included"
+    
+    # Apply filtering based on selection
+    if selected_percentile == "Custom":
+        # Add custom number input for velocity threshold
+        custom_velocity_value = st.number_input(
+            "Enter minimum VW Range Velocity:",
+            min_value=-1.0,
+            max_value=1.0,
+            value=0.1,
+            step=0.01,
+            format="%.4f",
+            key="custom_velocity_input",
+            help="Filter stocks with velocity >= this value. Positive = expanding, Negative = contracting"
+        )
+        filtered_stocks = filtered_stocks[velocities >= custom_velocity_value]
+        info_message = f"VW Range Velocity ≥ {custom_velocity_value:+.4f} pp"
+        
+    elif selected_percentile in ["Top 25%", "Top 50%", "Top 75%"]:
         percentile_val = percentile_options[selected_percentile]
         threshold_value = np.percentile(non_zero_velocities, percentile_val)
         filtered_stocks = filtered_stocks[velocities >= threshold_value]
         info_message = f"VW Range Velocity ≥ {threshold_value:+.4f} pp"
-    else:
-        info_message = "All velocities included"
     
+    # else: No Filter - keep info_message as "All velocities included"
+    
+    # Always return the tuple
     return filtered_stocks, non_zero_velocities, info_message
 
 def apply_ibs_filter(filtered_stocks: pd.DataFrame) -> tuple:
@@ -564,29 +570,45 @@ def apply_relative_volume_filter(filtered_stocks: pd.DataFrame) -> tuple:
     
     return filtered_stocks, info_message
 
+# File: pages/scanner_higher_hl.py
+# Part 2 of 4
+
 def apply_higher_hl_filter(filtered_stocks: pd.DataFrame, base_filter_type: str) -> tuple:
-    """Apply Higher H/L pattern filter if needed"""
-    if base_filter_type in ["Valid CRT + Higher H/L", "Higher H/L Only"]:
-        return filtered_stocks, "No Filter", "Filter not needed - already applied"
-    
-    higher_hl_options = {
-        "Higher H/L Only": 1,
-        "No Filter": None
+    """
+    Apply Higher H/L pattern filter - UPDATED with Higher_H support
+    Now offers three options: Higher H/L Only, Higher H Only, No Filter
+    """
+    # Filter options with descriptions
+    hl_filter_options = {
+        "Higher H/L Only": "Both higher high AND higher low (HHL)",
+        "Higher H Only": "Any higher high (HH or HHL)",
+        "No Filter": "All patterns"
     }
     
-    selected_higher_hl = st.radio(
+    st.markdown("**Higher H/L Filter:**")
+    
+    selected_hl_filter = st.radio(
         "Select Higher H/L filter:",
-        list(higher_hl_options.keys()),
-        key="higher_hl_pattern_radio"
+        list(hl_filter_options.keys()),
+        key="higher_hl_pattern_radio",
+        help="Filter by higher high and/or higher low patterns"
     )
     
-    if selected_higher_hl != "No Filter":
+    # Apply filtering based on selection
+    if selected_hl_filter == "Higher H/L Only":
+        # Only stocks with both higher high AND higher low
         filtered_stocks = filtered_stocks[filtered_stocks['Higher_HL'] == 1]
-        info_message = "Only showing Higher High/Low patterns"
-    else:
-        info_message = "All patterns included"
+        info_message = f"Higher H/L Only (HHL) - {len(filtered_stocks)} stocks"
+        
+    elif selected_hl_filter == "Higher H Only":
+        # Stocks with higher high (includes both HH and HHL)
+        filtered_stocks = filtered_stocks[filtered_stocks['Higher_H'] == 1]
+        info_message = f"Higher H Only (HH + HHL) - {len(filtered_stocks)} stocks"
+        
+    else:  # No Filter
+        info_message = f"All patterns - {len(filtered_stocks)} stocks"
     
-    return filtered_stocks, selected_higher_hl, info_message
+    return filtered_stocks, selected_hl_filter, info_message
 
 def apply_mpi_filter(filtered_stocks: pd.DataFrame) -> tuple:
     """Apply MPI expansion trend filter"""
@@ -631,50 +653,8 @@ def apply_mpi_filter(filtered_stocks: pd.DataFrame) -> tuple:
     
     return filtered_stocks, selected_trends, info_message
 
-def apply_regime_filter(filtered_stocks: pd.DataFrame) -> tuple:
-    """Apply market regime filter"""
-    if filtered_stocks.empty:
-        return filtered_stocks, "No stocks available"
-    
-    if 'Market_Regime' not in filtered_stocks.columns:
-        return filtered_stocks, "Regime data not available"
-    
-    regime_options = {
-        "All Regimes": None,
-        "Low Volatility Only": "Low Volatility",
-        "High Volatility Only": "High Volatility",
-        "No Filter": "none"
-    }
-    
-    selected_regime_option = st.radio(
-        "Select regime filter:",
-        list(regime_options.keys()),
-        key="regime_filter_radio",
-        help="Filter by market volatility regime"
-    )
-    
-    # Apply filtering
-    if selected_regime_option == "Low Volatility Only":
-        filtered_stocks = filtered_stocks[filtered_stocks['Market_Regime'] == "Low Volatility"]
-        info_message = f"Low volatility regime only ({len(filtered_stocks)} stocks)"
-    elif selected_regime_option == "High Volatility Only":
-        filtered_stocks = filtered_stocks[filtered_stocks['Market_Regime'] == "High Volatility"]
-        info_message = f"High volatility regime only ({len(filtered_stocks)} stocks)"
-    elif selected_regime_option == "No Filter":
-        info_message = "All regimes included"
-    else:  # All Regimes
-        regime_counts = filtered_stocks['Market_Regime'].value_counts()
-        low_vol = regime_counts.get('Low Volatility', 0)
-        high_vol = regime_counts.get('High Volatility', 0)
-        info_message = f"Low: {low_vol}, High: {high_vol}"
-    
-    return filtered_stocks, info_message
-
-# File: pages/scanner_higher_hl.py
-# Part 2 of 3
-
 def show_filter_statistics(component_name: str, data: pd.Series, base_stocks: pd.DataFrame = None):
-    """Show statistics for a filter component"""
+    """Show statistics for a filter component - UPDATED: Removed Market Regime section"""
     with st.expander(f"{component_name} Statistics", expanded=False):
         if component_name == "VW Range Velocity" and len(data) > 0:
             stats_df = create_filter_statistics_dataframe(data, component_name)
@@ -689,21 +669,34 @@ def show_filter_statistics(component_name: str, data: pd.Series, base_stocks: pd
             st.dataframe(stats_df, hide_index=True, use_container_width=True)
             
         elif component_name == "Higher H/L" and base_stocks is not None:
+            # Show statistics for both Higher_H and Higher_HL
+            higher_h_count = (base_stocks['Higher_H'] == 1).sum()
             higher_hl_count = (base_stocks['Higher_HL'] == 1).sum()
+            hh_only_count = ((base_stocks['Higher_H'] == 1) & (base_stocks['Higher_HL'] == 0)).sum()
             total_count = len(base_stocks)
-            higher_hl_pct = (higher_hl_count / total_count * 100) if total_count > 0 else 0
             
             hl_stats = pd.DataFrame({
-                "Pattern": ["Higher H/L", "Not Higher H/L", "Total"],
+                "Pattern": ["HHL (H/L)", "HH Only", "Total Higher H", "Neither", "Total"],
                 "Count": [
                     f"{higher_hl_count}",
-                    f"{total_count - higher_hl_count}",
+                    f"{hh_only_count}",
+                    f"{higher_h_count}",
+                    f"{total_count - higher_h_count}",
                     f"{total_count}"
                 ],
                 "Percentage": [
-                    f"{higher_hl_pct:.1f}%",
-                    f"{100 - higher_hl_pct:.1f}%",
+                    f"{higher_hl_count/total_count*100:.1f}%",
+                    f"{hh_only_count/total_count*100:.1f}%",
+                    f"{higher_h_count/total_count*100:.1f}%",
+                    f"{(total_count - higher_h_count)/total_count*100:.1f}%",
                     "100.0%"
+                ],
+                "Description": [
+                    "Both higher high AND higher low",
+                    "Higher high only (not higher low)",
+                    "Any higher high (HH + HHL)",
+                    "No higher high pattern",
+                    "All stocks"
                 ]
             })
             st.dataframe(hl_stats, hide_index=True, use_container_width=True)
@@ -731,41 +724,35 @@ def show_filter_statistics(component_name: str, data: pd.Series, base_stocks: pd
             if trend_stats_data:
                 st.dataframe(pd.DataFrame(trend_stats_data), hide_index=True, use_container_width=True)
 
-        elif component_name == "Market Regime" and base_stocks is not None and 'Market_Regime' in base_stocks.columns:
-            regime_counts = base_stocks['Market_Regime'].value_counts()
-            
-            regime_stats_data = []
-            for regime, count in regime_counts.items():
-                regime_stocks = base_stocks[base_stocks['Market_Regime'] == regime]
-                avg_probability = regime_stocks['Regime_Probability'].mean() if 'Regime_Probability' in regime_stocks.columns else 0
-                
-                regime_stats_data.append({
-                    "Market Regime": regime,
-                    "Count": count,
-                    "Percentage": f"{count/len(base_stocks)*100:.1f}%",
-                    "Avg Probability": f"{avg_probability:.1%}"
-                })
-            
-            if regime_stats_data:
-                st.dataframe(pd.DataFrame(regime_stats_data), hide_index=True, use_container_width=True)
-
 def apply_dynamic_filters(base_stocks: pd.DataFrame, results_df: pd.DataFrame) -> pd.DataFrame:
-    """Apply dynamic filtering with optimized component structure"""
+    """
+    Apply dynamic filtering with optimized component structure
+    UPDATED: Removed Market Regime filter, moved H/L filter to first position
+    """
     if base_stocks.empty:
         st.warning("No stocks available for filtering")
         return base_stocks
     
     st.subheader("🎯 Dynamic Filtering")
     
-    # Create SIX columns for filters
-    col1, col2, col3, col4, col5, col6 = st.columns(6)
+    # UPDATED: Create FIVE columns for filters (removed regime, reordered)
+    col1, col2, col3, col4, col5 = st.columns(5)
     
     # Initialize filtered stocks
     filtered_stocks = base_stocks.copy()
     filter_summary = []
     
-    # COL 1: VW RANGE VELOCITY FILTER
+    # COL 1: HIGHER H/L FILTER - MOVED TO FIRST POSITION
     with col1:
+        filtered_stocks, selected_hl_filter, hl_info = apply_higher_hl_filter(filtered_stocks, st.session_state.get('base_filter_type', 'All Stocks'))
+        st.info(hl_info)
+        
+        show_filter_statistics("Higher H/L", None, base_stocks)
+        if selected_hl_filter != "No Filter":
+            filter_summary.append(f"H/L: {selected_hl_filter}")
+    
+    # COL 2: VW RANGE VELOCITY FILTER
+    with col2:
         st.markdown("**VW Range Velocity Filter:**")
         filtered_stocks, velocity_data, velocity_info = apply_velocity_filter(filtered_stocks, results_df)
         st.info(velocity_info)
@@ -775,8 +762,8 @@ def apply_dynamic_filters(base_stocks: pd.DataFrame, results_df: pd.DataFrame) -
             if "≥" in velocity_info:
                 filter_summary.append("VW Range Velocity filtered")
     
-    # COL 2: IBS FILTER
-    with col2:
+    # COL 3: IBS FILTER
+    with col3:
         st.markdown("**IBS Filter:**")
         filtered_stocks, ibs_info = apply_ibs_filter(filtered_stocks)
         st.info(ibs_info)
@@ -786,8 +773,8 @@ def apply_dynamic_filters(base_stocks: pd.DataFrame, results_df: pd.DataFrame) -
             if "≥" in ibs_info:
                 filter_summary.append("IBS filtered")
     
-    # COL 3: RELATIVE VOLUME FILTER
-    with col3:
+    # COL 4: RELATIVE VOLUME FILTER
+    with col4:
         st.markdown("**Relative Volume Filter:**")
         filtered_stocks, rel_volume_info = apply_relative_volume_filter(filtered_stocks)
         st.info(rel_volume_info)
@@ -796,22 +783,6 @@ def apply_dynamic_filters(base_stocks: pd.DataFrame, results_df: pd.DataFrame) -
             show_filter_statistics("Relative Volume", filtered_stocks['Relative_Volume'])
             if "≥" in rel_volume_info:
                 filter_summary.append("Relative Volume filtered")
-    
-    # COL 4: HIGHER H/L FILTER
-    with col4:
-        base_filter_type = st.session_state.get('base_filter_type', 'All Stocks')
-        
-        if base_filter_type not in ["Valid CRT + Higher H/L", "Higher H/L Only"]:
-            st.markdown("**Higher H/L Filter:**")
-            filtered_stocks, selected_higher_hl, hl_info = apply_higher_hl_filter(filtered_stocks, base_filter_type)
-            st.info(hl_info)
-            
-            show_filter_statistics("Higher H/L", None, base_stocks)
-            if selected_higher_hl != "No Filter":
-                filter_summary.append("Higher H/L only")
-        else:
-            st.markdown("**Additional Filters:**")
-            st.info("Higher H/L filter not needed - already filtered by base selection")
     
     # COL 5: MPI EXPANSION FILTER
     with col5:
@@ -824,16 +795,6 @@ def apply_dynamic_filters(base_stocks: pd.DataFrame, results_df: pd.DataFrame) -
             filter_summary.append(f"MPI: {len(selected_trends)} trends")
         elif "disabled" in mpi_info:
             filter_summary.append("MPI: Disabled")
-    
-    # COL 6: MARKET REGIME FILTER
-    with col6:
-        st.markdown("**Market Regime Filter:**")
-        filtered_stocks, regime_info = apply_regime_filter(filtered_stocks)
-        st.info(regime_info)
-        
-        show_filter_statistics("Market Regime", None, base_stocks)
-        if "filtered" in regime_info:
-            filter_summary.append("Regime filtered")
     
     # Show combined filter summary
     if filter_summary:
@@ -1072,8 +1033,11 @@ def run_enhanced_stock_scan(stocks_to_scan, analysis_date=None, days_back=59, ro
         if 'status_text' in locals():
             status_text.empty()
 
+# File: pages/scanner_higher_hl.py
+# Part 3 of 4
+
 def _create_result_dict(analysis_row: pd.Series, actual_date, ticker: str, fetcher) -> dict:
-    """Create result dictionary from analysis row"""
+    """Create result dictionary from analysis row - UPDATED with Higher_H and HL_Pattern"""
     # Get company name
     try:
         company_name = fetcher.get_company_name(ticker)
@@ -1109,6 +1073,18 @@ def _create_result_dict(analysis_row: pd.Series, actual_date, ticker: str, fetch
     except:
         mpi_trend_info = {'emoji': '❓', 'description': 'Unknown'}
     
+    # Get Higher_H and Higher_HL values and create HL_Pattern
+    higher_h = safe_int(analysis_row.get('Higher_H', 0))
+    higher_hl = safe_int(analysis_row.get('Higher_HL', 0))
+    
+    # Create HL_Pattern display value
+    if higher_hl == 1:
+        hl_pattern = "HHL"
+    elif higher_h == 1:
+        hl_pattern = "HH"
+    else:
+        hl_pattern = "-"
+    
     # Create result dictionary
     result = {
         'Ticker': ticker,
@@ -1119,7 +1095,12 @@ def _create_result_dict(analysis_row: pd.Series, actual_date, ticker: str, fetch
         'Low': safe_round(analysis_row['Low'], price_decimals),
         'IBS': round(float(analysis_row['IBS']), 3) if not pd.isna(analysis_row['IBS']) else 0,
         'Valid_CRT': safe_int(analysis_row.get('Valid_CRT', 0)),
-        'Higher_HL': safe_int(analysis_row.get('Higher_HL', 0)),
+        
+        # Add Higher_H and HL_Pattern
+        'Higher_H': higher_h,
+        'Higher_HL': higher_hl,
+        'HL_Pattern': hl_pattern,
+        
         'CRT_Velocity': round(float(analysis_row.get('CRT_Qualifying_Velocity', 0)), 4) if not pd.isna(analysis_row.get('CRT_Qualifying_Velocity', 0)) else 0,
         'VW_Range_Velocity': round(float(analysis_row.get('VW_Range_Velocity', 0)), 4) if not pd.isna(analysis_row.get('VW_Range_Velocity', 0)) else 0,
         'Weekly_Open': safe_round(analysis_row.get('Weekly_Open', 0), price_decimals),
@@ -1141,7 +1122,7 @@ def _create_result_dict(analysis_row: pd.Series, actual_date, ticker: str, fetch
         'High_Rel_Volume_150': safe_int(analysis_row.get('High_Rel_Volume_150', 0)),
         'High_Rel_Volume_200': safe_int(analysis_row.get('High_Rel_Volume_200', 0)),
         
-        # Market Regime columns
+        # Market Regime columns - KEEP IN DATA but won't display
         'Market_Regime': str(analysis_row.get('Market_Regime', 'Unknown')),
         'Regime_Probability': round(float(analysis_row.get('Regime_Probability', 0.5)), 3) if not pd.isna(analysis_row.get('Regime_Probability', 0.5)) else 0.5,
         
@@ -1151,13 +1132,17 @@ def _create_result_dict(analysis_row: pd.Series, actual_date, ticker: str, fetch
     return result
 
 def display_scan_summary(results_df: pd.DataFrame):
-    """Display scan summary with Pure MPI Expansion statistics"""
+    """Display scan summary with Pure MPI Expansion statistics - UPDATED with Higher_H"""
     st.subheader("📊 Scan Summary with Pure MPI Expansion Analysis")
     
     total_stocks = len(results_df)
+    
+    # Calculate Higher_H and Higher_HL counts
+    higher_h_count = len(results_df[results_df['Higher_H'] == 1])
     higher_hl_count = len(results_df[results_df['Higher_HL'] == 1])
+    hh_only_count = len(results_df[(results_df['Higher_H'] == 1) & (results_df['Higher_HL'] == 0)])
+    
     valid_crt_count = len(results_df[results_df['Valid_CRT'] == 1])
-    higher_hl_with_crt = len(results_df[(results_df['Higher_HL'] == 1) & (results_df['Valid_CRT'] == 1)])
     
     # Pure MPI Expansion statistics
     if 'MPI_Trend' in results_df.columns:
@@ -1177,39 +1162,38 @@ def display_scan_summary(results_df: pd.DataFrame):
     with col1:
         st.metric("Total Analyzed", total_stocks)
     with col2:
-        st.metric("Higher H/L", higher_hl_count, delta=f"{higher_hl_count/total_stocks*100:.1f}%")
+        st.metric("Higher H", higher_h_count, delta=f"{higher_h_count/total_stocks*100:.1f}%")
     with col3:
-        st.metric("Valid CRT", valid_crt_count)
+        st.metric("HHL", higher_hl_count, delta=f"Both H & L")
     with col4:
-        st.metric("Both Patterns", higher_hl_with_crt)
+        st.metric("Valid CRT", valid_crt_count)
     with col5:
         st.metric("🚀 Strong Exp", strong_expansion, delta=f"≥5% velocity")
     with col6:
         st.metric("📈 Expanding", strong_expansion + expanding, delta=f">0% velocity")
     
-    # Analysis date info
+    # Analysis date info with H/L pattern breakdown
     if len(results_df) > 0:
         analysis_dates = results_df['Analysis_Date'].unique()
         if len(analysis_dates) == 1:
-            st.info(f"📅 Analysis date: **{analysis_dates[0]}** | Avg MPI: **{avg_mpi:.1%}** | Avg Velocity: **{avg_velocity:+.1%}** | Expanding: **{strong_expansion + expanding}** | Contracting: **{contracting}**")
+            st.info(f"📅 Analysis date: **{analysis_dates[0]}** | Higher H: **{higher_h_count}** (HHL: **{higher_hl_count}**, HH only: **{hh_only_count}**) | Avg MPI: **{avg_mpi:.1%}** | Avg Velocity: **{avg_velocity:+.1%}**")
         else:
-            st.info(f"📅 Analysis dates: **{', '.join(analysis_dates)}** | Avg MPI: **{avg_mpi:.1%}** | Avg Velocity: **{avg_velocity:+.1%}**")
+            st.info(f"📅 Analysis dates: **{', '.join(analysis_dates)}** | Higher H: **{higher_h_count}** | Avg MPI: **{avg_mpi:.1%}** | Avg Velocity: **{avg_velocity:+.1%}**")
 
 def show_base_pattern_filter(results_df: pd.DataFrame) -> pd.DataFrame:
-    """Show base pattern filter and return filtered stocks"""
+    """Show base pattern filter - SIMPLIFIED to only Valid CRT and All Stocks"""
     st.subheader("🎯 Pattern Analysis")
     
+    # Only 2 base filter options
     base_filter_options = {
-        "Valid CRT + Higher H/L": "Stocks with both Valid CRT AND Higher H/L patterns",
         "Valid CRT Only": "All stocks with Valid CRT (Monday range expansion)",
-        "Higher H/L Only": "All stocks with Higher High AND Higher Low patterns",
         "All Stocks": "Complete scan results without pattern filtering"
     }
     
     selected_base_filter = st.radio(
         "Select base pattern filter:",
         list(base_filter_options.keys()),
-        help="Choose which pattern combination to analyze",
+        help="Choose base filtering criteria",
         key="base_filter_radio"
     )
     
@@ -1217,17 +1201,9 @@ def show_base_pattern_filter(results_df: pd.DataFrame) -> pd.DataFrame:
     st.session_state.base_filter_type = selected_base_filter
     
     # Apply base filter
-    if selected_base_filter == "Valid CRT + Higher H/L":
-        base_stocks = results_df[(results_df['Valid_CRT'] == 1) & (results_df['Higher_HL'] == 1)].copy()
-        st.info(f"Showing {len(base_stocks)} stocks with both Valid CRT and Higher H/L patterns")
-    
-    elif selected_base_filter == "Valid CRT Only":
+    if selected_base_filter == "Valid CRT Only":
         base_stocks = results_df[results_df['Valid_CRT'] == 1].copy()
         st.info(f"Showing {len(base_stocks)} stocks with Valid CRT (Monday range expansion)")
-    
-    elif selected_base_filter == "Higher H/L Only":
-        base_stocks = results_df[results_df['Higher_HL'] == 1].copy()
-        st.info(f"Showing {len(base_stocks)} stocks with Higher High AND Higher Low patterns")
     
     else:  # All Stocks
         base_stocks = results_df.copy()
@@ -1235,36 +1211,34 @@ def show_base_pattern_filter(results_df: pd.DataFrame) -> pd.DataFrame:
     
     return base_stocks
 
-# File: pages/scanner_higher_hl.py
-# Part 3 of 3
-
 def display_filtered_results(filtered_stocks: pd.DataFrame, selected_base_filter: str):
-    """Display the filtered results table and export options"""
+    """
+    Display the filtered results table and export options
+    UPDATED: Removed Market_Regime and Regime_Probability, moved HL_Pattern to prominent position
+    """
     st.subheader(f"📋 Pure MPI Expansion Results ({len(filtered_stocks)} stocks)")
     
     if len(filtered_stocks) == 0:
         st.warning("No stocks match the current filter criteria")
         return
     
-    # Define display columns (Date added, MPI and MPI_Velocity removed)
-    display_cols = ['Analysis_Date', 'Ticker', 'Name', 'Close', 'CRT_High', 'CRT_Low',
-                   'VW_Range_Velocity', 'IBS', 'Relative_Volume', 'Higher_HL', 
-                   'MPI_Trend_Emoji', 'MPI_Visual',
-                   'Market_Regime', 'Regime_Probability']
+    # UPDATED: Define display columns - HL_Pattern moved after Close, regime columns removed
+    display_cols = ['Analysis_Date', 'Ticker', 'Name', 'Close',
+                    'CRT_High', 'CRT_Low', 'HL_Pattern',
+                    'VW_Range_Velocity', 'IBS', 'Relative_Volume',
+                    'MPI_Trend_Emoji', 'MPI_Visual']
     
-    # Create column configuration
+    # UPDATED: Create column configuration without regime columns
     base_column_config = {
         'Analysis_Date': st.column_config.TextColumn('Date', width='small'),
         'Ticker': st.column_config.TextColumn('Ticker', width='small'),
         'Name': st.column_config.TextColumn('Company Name', width='medium'),
+        'HL_Pattern': st.column_config.TextColumn('H/L', width='small', help='HHL=Both H&L, HH=Higher H only, -=Neither'),
         'VW_Range_Velocity': st.column_config.NumberColumn('Range Vel', format='%+.4f', help='Daily range expansion velocity'),
         'IBS': st.column_config.NumberColumn('IBS', format='%.3f'),
         'Relative_Volume': st.column_config.NumberColumn('Rel Vol', format='%.1f%%', help='Relative Volume vs 14-day average'),
-        'Higher_HL': st.column_config.NumberColumn('H/L', width='small'),
         'MPI_Trend_Emoji': st.column_config.TextColumn('📊', width='small', help='MPI Expansion Trend'),
-        'MPI_Visual': st.column_config.TextColumn('MPI Visual', width='medium', help='Visual MPI representation'),
-        'Market_Regime': st.column_config.TextColumn('Regime', help='Market volatility regime'),
-        'Regime_Probability': st.column_config.NumberColumn('Regime Prob', format='%.1%', help='Regime confidence')
+        'MPI_Visual': st.column_config.TextColumn('MPI Visual', width='medium', help='Visual MPI representation')
     }
     
     # Apply dynamic price formatting
@@ -1324,12 +1298,17 @@ def show_tradingview_export(filtered_stocks: pd.DataFrame, selected_base_filter:
     )
 
 def show_full_results_table(results_df: pd.DataFrame):
-    """Show the full results table in an expander"""
+    """
+    Show the full results table in an expander
+    UPDATED: Removed regime columns, reordered with HL_Pattern prominent
+    """
     with st.expander("📋 Full Pure MPI Expansion Analysis Results", expanded=False):
         try:
+            # UPDATED: Include HL_Pattern early, remove regime columns
             full_results_cols = [
-                'Analysis_Date', 'Ticker', 'Name', 'Close', 'CRT_High', 'CRT_Low',
-                'VW_Range_Velocity', 'IBS', 'Higher_HL', 'Valid_CRT', 
+                'Analysis_Date', 'Ticker', 'Name', 'Close',
+                'CRT_High', 'CRT_Low', 'HL_Pattern',
+                'VW_Range_Velocity', 'IBS', 'Valid_CRT', 
                 'MPI_Trend_Emoji', 'MPI_Trend', 'MPI', 'MPI_Velocity', 'MPI_Visual'
             ]
             
@@ -1337,9 +1316,9 @@ def show_full_results_table(results_df: pd.DataFrame):
                 'Analysis_Date': st.column_config.TextColumn('Date', width='small'),
                 'Ticker': st.column_config.TextColumn('Ticker', width='small'),
                 'Name': st.column_config.TextColumn('Company Name', width='medium'),
+                'HL_Pattern': st.column_config.TextColumn('H/L', width='small', help='HHL=Both, HH=High only, -=Neither'),
                 'VW_Range_Velocity': st.column_config.NumberColumn('Range Vel', format='%+.4f'),
                 'IBS': st.column_config.NumberColumn('IBS', format='%.3f'),
-                'Higher_HL': st.column_config.NumberColumn('H/L', width='small'),
                 'Valid_CRT': st.column_config.NumberColumn('CRT', width='small'),
                 'MPI_Trend_Emoji': st.column_config.TextColumn('📊', width='small'),
                 'MPI_Trend': st.column_config.TextColumn('MPI Trend', width='medium'),
@@ -1440,6 +1419,9 @@ def display_scan_results(results_df: pd.DataFrame):
         st.session_state.error_logger.log_error("Results Display", e)
         st.error("❌ Error displaying Pure MPI Expansion results - check error log for details")
 
+# File: pages/scanner_higher_hl.py
+# Part 4 of 4
+
 def show():
     """Main scanner page display for Higher H/L patterns with Pure MPI Expansion filtering"""
     
@@ -1509,3 +1491,4 @@ def show():
 
 if __name__ == "__main__":
     show()
+
