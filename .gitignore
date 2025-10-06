@@ -2,9 +2,10 @@
 # Streamlit secrets
 .streamlit/secrets.toml
 
-# Stock Scanner Data Files (can be large)
-data/Historical_Data/*.csv
-data/EOD_Data/*.csv
+# Stock Scanner Data Files - COMMENTED OUT to allow CSV files in Git
+# Uncomment these lines if you want to exclude CSV files again
+# data/Historical_Data/*.csv
+# data/EOD_Data/*.csv
 
 # Keep folder structure
 !data/Historical_Data/.gitkeep
