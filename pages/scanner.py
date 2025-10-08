@@ -1,14 +1,14 @@
-# File: pages/scanner_higher_hl.py
-# Part 1 of 3
+# File: pages/scanner.py (renamed from scanner_higher_hl.py)
+# Part 1 of 4
 """
-CRT Higher H/L Scanner - Local File System
-Enhanced with Pure MPI Expansion Filtering
+Stock Scanner - Local File System
+Enhanced with Pure MPI Expansion Filtering and Analyst Report Integration
 NOW USING VW_RANGE_VELOCITY FOR DAILY MOMENTUM FILTERING
 Automatically checks for Historical_Data updates on startup
 ENHANCED: Force update capability to re-process latest EOD file
 UPDATED: Simplified base filter, enhanced H/L filter with Higher_H support
-UPDATED: Removed Market Regime filter, moved H/L filter to first position
 UPDATED: Custom filters now support both Minimum and Maximum filtering
+NEW: Integrated with Analyst Reports for sentiment analysis
 """
 
 import streamlit as st
@@ -31,6 +31,17 @@ logging.basicConfig(
     handlers=[logging.StreamHandler(sys.stdout)]
 )
 logger = logging.getLogger(__name__)
+
+# Import analyst report utilities
+from utils.analyst_reports import (
+    get_cached_reports,
+    clear_reports_cache,
+    merge_reports_with_scan_results,
+    get_report_history,
+    format_sentiment_emoji,
+    format_report_age,
+    get_sentiment_trend_description
+)
 
 class ErrorLogger:
     """Centralized error logging and display for debugging"""
@@ -329,6 +340,9 @@ def get_mpi_expansion_description(trend: str) -> str:
     }
     return descriptions.get(trend, 'Unknown')
 
+# File: pages/scanner.py
+# Part 2 of 4
+
 def apply_mpi_expansion_filter(base_stocks: pd.DataFrame, selected_trends: List[str]) -> pd.DataFrame:
     """Apply pure MPI expansion-based filtering with smart sorting"""
     if base_stocks.empty or 'MPI_Trend' not in base_stocks.columns:
@@ -399,9 +413,6 @@ def create_distribution_chart(data: pd.Series, title: str, x_label: str, thresho
             fig.add_vline(x=value, line_dash="dash", line_color=color, annotation_text=label)
     
     return fig
-
-# File: pages/scanner_higher_hl.py
-# Part 2 of 3
 
 def apply_velocity_filter(filtered_stocks: pd.DataFrame, results_df: pd.DataFrame) -> tuple:
     """
@@ -733,7 +744,7 @@ def apply_mpi_filter(filtered_stocks: pd.DataFrame) -> tuple:
     return filtered_stocks, selected_trends, info_message
 
 def show_filter_statistics(component_name: str, data: pd.Series, base_stocks: pd.DataFrame = None):
-    """Show statistics for a filter component - UPDATED: Removed Market Regime section"""
+    """Show statistics for a filter component"""
     with st.expander(f"{component_name} Statistics", expanded=False):
         if component_name == "VW Range Velocity" and len(data) > 0:
             stats_df = create_filter_statistics_dataframe(data, component_name)
@@ -802,6 +813,9 @@ def show_filter_statistics(component_name: str, data: pd.Series, base_stocks: pd
             
             if trend_stats_data:
                 st.dataframe(pd.DataFrame(trend_stats_data), hide_index=True, use_container_width=True)
+
+# File: pages/scanner.py
+# Part 3 of 4
 
 def apply_dynamic_filters(base_stocks: pd.DataFrame, results_df: pd.DataFrame) -> pd.DataFrame:
     """
@@ -882,9 +896,6 @@ def apply_dynamic_filters(base_stocks: pd.DataFrame, results_df: pd.DataFrame) -
         st.info(f"No additional filters applied → {len(filtered_stocks)} stocks")
     
     return filtered_stocks
-
-# File: pages/scanner_higher_hl.py
-# Part 3 of 3
 
 def show_scanning_configuration():
     """Display the scanning configuration panel"""
@@ -1064,7 +1075,7 @@ def run_enhanced_stock_scan(stocks_to_scan, analysis_date=None, days_back=59, ro
                 results.append(result)
                 
                 # Update progress
-                progress = 0.4 + (0.5 * (i + 1) / len(stock_data))
+                progress = 0.4 + (0.4 * (i + 1) / len(stock_data))
                 progress_bar.progress(progress)
                 
             except Exception as e:
@@ -1074,9 +1085,27 @@ def run_enhanced_stock_scan(stocks_to_scan, analysis_date=None, days_back=59, ro
         
         # Finalize results
         status_text.text("📊 Preparing Pure MPI Expansion results...")
-        progress_bar.progress(0.9)
+        progress_bar.progress(0.8)
         
         results_df = pd.DataFrame(results)
+        
+        # NEW: Load and merge analyst reports
+        status_text.text("📊 Loading analyst reports...")
+        progress_bar.progress(0.85)
+        
+        try:
+            all_reports, latest_reports = get_cached_reports()
+            
+            if not latest_reports.empty:
+                results_df = merge_reports_with_scan_results(results_df, latest_reports)
+                matches = results_df['sentiment_score'].notna().sum() if 'sentiment_score' in results_df.columns else 0
+                logger.info(f"Merged analyst reports: {matches} matches out of {len(results_df)} stocks")
+                status_text.text(f"📊 Analyst reports: {matches} matches found")
+            else:
+                logger.info("No analyst reports available")
+                
+        except Exception as e:
+            error_logger.log_warning("Analyst Reports", f"Could not load analyst reports: {e}")
         
         # Store results in session state
         st.session_state.scan_results = results_df
@@ -1210,8 +1239,11 @@ def _create_result_dict(analysis_row: pd.Series, actual_date, ticker: str, fetch
     
     return result
 
+# File: pages/scanner.py
+# Part 4 of 4 (Final Part)
+
 def display_scan_summary(results_df: pd.DataFrame):
-    """Display scan summary with Pure MPI Expansion statistics - UPDATED with Higher_H"""
+    """Display scan summary with Pure MPI Expansion statistics - UPDATED with Higher_H and Analyst Reports"""
     st.subheader("📊 Scan Summary with Pure MPI Expansion Analysis")
     
     total_stocks = len(results_df)
@@ -1258,6 +1290,28 @@ def display_scan_summary(results_df: pd.DataFrame):
             st.info(f"📅 Analysis date: **{analysis_dates[0]}** | Higher H: **{higher_h_count}** (HHL: **{higher_hl_count}**, HH only: **{hh_only_count}**) | Avg MPI: **{avg_mpi:.1%}** | Avg Velocity: **{avg_velocity:+.1%}**")
         else:
             st.info(f"📅 Analysis dates: **{', '.join(analysis_dates)}** | Higher H: **{higher_h_count}** | Avg MPI: **{avg_mpi:.1%}** | Avg Velocity: **{avg_velocity:+.1%}**")
+    
+    # NEW: Analyst report statistics
+    if 'sentiment_score' in results_df.columns:
+        with_reports = results_df['sentiment_score'].notna().sum()
+        if with_reports > 0:
+            avg_sentiment = results_df[results_df['sentiment_score'].notna()]['sentiment_score'].mean()
+            positive = (results_df['sentiment_label'] == 'positive').sum()
+            negative = (results_df['sentiment_label'] == 'negative').sum()
+            neutral = (results_df['sentiment_label'] == 'neutral').sum()
+            
+            st.markdown("#### 📊 Analyst Reports Coverage")
+            col1, col2, col3, col4, col5 = st.columns(5)
+            with col1:
+                st.metric("Stocks with Reports", with_reports, delta=f"{with_reports/total_stocks*100:.0f}% coverage")
+            with col2:
+                st.metric("Avg Sentiment", f"{avg_sentiment:.2f}", delta="Range: -1 to +1")
+            with col3:
+                st.metric("📈 Positive", positive, delta="Bullish")
+            with col4:
+                st.metric("➖ Neutral", neutral, delta="Neutral")
+            with col5:
+                st.metric("📉 Negative", negative, delta="Bearish")
 
 def show_base_pattern_filter(results_df: pd.DataFrame) -> pd.DataFrame:
     """Show base pattern filter - SIMPLIFIED to only Valid CRT and All Stocks"""
@@ -1293,7 +1347,7 @@ def show_base_pattern_filter(results_df: pd.DataFrame) -> pd.DataFrame:
 def display_filtered_results(filtered_stocks: pd.DataFrame, selected_base_filter: str):
     """
     Display the filtered results table and export options
-    UPDATED: Removed Market_Regime and Regime_Probability, moved HL_Pattern to prominent position
+    UPDATED: Added analyst report columns (Sentiment, Report Date, Reports)
     """
     st.subheader(f"📋 Pure MPI Expansion Results ({len(filtered_stocks)} stocks)")
     
@@ -1301,12 +1355,35 @@ def display_filtered_results(filtered_stocks: pd.DataFrame, selected_base_filter
         st.warning("No stocks match the current filter criteria")
         return
     
-    # UPDATED: Define display columns - HL_Pattern moved after Close, regime columns removed
+    # Prepare analyst report display columns if data exists
+    if 'sentiment_score' in filtered_stocks.columns:
+        filtered_stocks['Sentiment_Display'] = filtered_stocks.apply(
+            lambda row: f"{format_sentiment_emoji(row['sentiment_label'])} {row['sentiment_score']:.2f}" 
+            if pd.notna(row['sentiment_score']) else '—',
+            axis=1
+        )
+        filtered_stocks['Report_Date_Display'] = filtered_stocks.apply(
+            lambda row: row['report_date'].strftime('%b %d') 
+            if pd.notna(row['report_date']) else '—',
+            axis=1
+        )
+        filtered_stocks['Report_Count_Display'] = filtered_stocks.apply(
+            lambda row: f"{int(row['report_count'])} 📊" 
+            if pd.notna(row['report_count']) and row['report_count'] > 1 
+            else ('1 📊' if pd.notna(row['report_count']) else '—'),
+            axis=1
+        )
+    
+    # Define display columns with analyst data
     display_cols = ['Analysis_Date', 'Ticker', 'Name', 'HL_Pattern',
                     'VW_Range_Velocity', 'IBS', 'Relative_Volume',
                     'MPI_Trend_Emoji', 'MPI_Visual']
     
-    # UPDATED: Create column configuration without regime columns
+    # Add analyst columns if available
+    if 'sentiment_score' in filtered_stocks.columns:
+        display_cols.extend(['Sentiment_Display', 'Report_Date_Display', 'Report_Count_Display'])
+    
+    # Create column configuration
     base_column_config = {
         'Analysis_Date': st.column_config.TextColumn('Date', width='small'),
         'Ticker': st.column_config.TextColumn('Ticker', width='small'),
@@ -1316,7 +1393,10 @@ def display_filtered_results(filtered_stocks: pd.DataFrame, selected_base_filter
         'IBS': st.column_config.NumberColumn('IBS', format='%.3f'),
         'Relative_Volume': st.column_config.NumberColumn('Rel Vol', format='%.1f%%', help='Relative Volume vs 14-day average'),
         'MPI_Trend_Emoji': st.column_config.TextColumn('📊', width='small', help='MPI Expansion Trend'),
-        'MPI_Visual': st.column_config.TextColumn('MPI Visual', width='medium', help='Visual MPI representation')
+        'MPI_Visual': st.column_config.TextColumn('MPI Visual', width='medium', help='Visual MPI representation'),
+        'Sentiment_Display': st.column_config.TextColumn('Sentiment', width='small', help='Analyst sentiment score'),
+        'Report_Date_Display': st.column_config.TextColumn('Report', width='small', help='Report date'),
+        'Report_Count_Display': st.column_config.TextColumn('Reports', width='small', help='Number of reports')
     }
     
     # Apply dynamic price formatting
@@ -1378,17 +1458,21 @@ def show_tradingview_export(filtered_stocks: pd.DataFrame, selected_base_filter:
 def show_full_results_table(results_df: pd.DataFrame):
     """
     Show the full results table in an expander
-    UPDATED: Removed regime columns, reordered with HL_Pattern prominent
+    UPDATED: Added analyst report columns
     """
     with st.expander("📋 Full Pure MPI Expansion Analysis Results", expanded=False):
         try:
-            # UPDATED: Include HL_Pattern early, remove regime columns
+            # Include analyst columns if available
             full_results_cols = [
                 'Analysis_Date', 'Ticker', 'Name', 'Close',
                 'CRT_High', 'CRT_Low', 'HL_Pattern',
                 'VW_Range_Velocity', 'IBS', 'Valid_CRT', 
                 'MPI_Trend_Emoji', 'MPI_Trend', 'MPI', 'MPI_Velocity', 'MPI_Visual'
             ]
+            
+            # Add analyst columns if present
+            if 'Sentiment_Display' in results_df.columns:
+                full_results_cols.extend(['Sentiment_Display', 'Report_Date_Display', 'Report_Count_Display'])
             
             base_full_results_config = {
                 'Analysis_Date': st.column_config.TextColumn('Date', width='small'),
@@ -1402,7 +1486,10 @@ def show_full_results_table(results_df: pd.DataFrame):
                 'MPI_Trend': st.column_config.TextColumn('MPI Trend', width='medium'),
                 'MPI': st.column_config.NumberColumn('MPI', format='%.1%'),
                 'MPI_Velocity': st.column_config.NumberColumn('MPI Velocity', format='%+.1%'),
-                'MPI_Visual': st.column_config.TextColumn('MPI Visual', width='medium')
+                'MPI_Visual': st.column_config.TextColumn('MPI Visual', width='medium'),
+                'Sentiment_Display': st.column_config.TextColumn('Sentiment', width='small'),
+                'Report_Date_Display': st.column_config.TextColumn('Report', width='small'),
+                'Report_Count_Display': st.column_config.TextColumn('Reports', width='small')
             }
             
             # Apply dynamic formatting and filter columns
@@ -1462,8 +1549,131 @@ def show_mpi_insights(results_df: pd.DataFrame):
         if trend_summary:
             st.dataframe(pd.DataFrame(trend_summary), hide_index=True, use_container_width=True)
 
+def display_detailed_analyst_reports(results_df: pd.DataFrame):
+    """
+    NEW: Display detailed analyst reports for stocks with coverage
+    Shows all reports at bottom after main table
+    """
+    # Check if analyst data exists
+    if 'sentiment_score' not in results_df.columns:
+        return
+    
+    # Filter to stocks with reports
+    stocks_with_reports = results_df[results_df['sentiment_score'].notna()].copy()
+    
+    if len(stocks_with_reports) == 0:
+        return
+    
+    st.markdown("---")
+    st.subheader(f"📊 Detailed Analyst Reports ({len(stocks_with_reports)} stocks)")
+    st.markdown("*Complete analyst coverage details with catalysts, risks, and report history*")
+    
+    # Get all reports for history lookup
+    try:
+        all_reports, _ = get_cached_reports()
+    except:
+        all_reports = pd.DataFrame()
+    
+    # Display each stock's report
+    for idx, row in stocks_with_reports.iterrows():
+        ticker = row['Ticker']
+        ticker_clean = ticker.replace('.SG', '')
+        company_name = row['Name']
+        
+        # Create report header
+        st.markdown(f"### {ticker_clean} - {company_name}")
+        
+        # Latest report details
+        sentiment_emoji = format_sentiment_emoji(row['sentiment_label'])
+        sentiment_score = row['sentiment_score']
+        sentiment_label = row['sentiment_label']
+        report_date = row['report_date']
+        report_age = row.get('report_age_days', 0)
+        
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("📅 Report Date", report_date.strftime('%b %d, %Y') if pd.notna(report_date) else 'N/A',
+                     delta=format_report_age(report_age))
+        with col2:
+            st.metric(f"{sentiment_emoji} Sentiment", f"{sentiment_score:.2f}",
+                     delta=sentiment_label.title())
+        with col3:
+            if pd.notna(row.get('analyst_firm')):
+                st.metric("🏢 Analyst Firm", row['analyst_firm'])
+            else:
+                st.metric("🏢 Analyst Firm", "N/A")
+        with col4:
+            if pd.notna(row.get('upside_pct')):
+                upside = row['upside_pct']
+                st.metric("🎯 Upside to Target", f"{upside:+.1f}%")
+            else:
+                st.metric("🎯 Target", "N/A")
+        
+        # Price information
+        if pd.notna(row.get('price_target')) and pd.notna(row.get('price_at_report')):
+            col_a, col_b, col_c = st.columns(3)
+            with col_a:
+                st.write(f"**Current Price:** ${row['Close']:.3f}" if row['Close'] < 1 else f"**Current Price:** ${row['Close']:.2f}")
+            with col_b:
+                st.write(f"**Target Price:** ${row['price_target']:.3f}" if row['price_target'] < 1 else f"**Target Price:** ${row['price_target']:.2f}")
+            with col_c:
+                st.write(f"**Price at Report:** ${row['price_at_report']:.3f}" if row['price_at_report'] < 1 else f"**Price at Report:** ${row['price_at_report']:.2f}")
+        
+        # Catalysts and Risks
+        col_left, col_right = st.columns(2)
+        
+        with col_left:
+            catalysts = row.get('key_catalysts', [])
+            if catalysts and len(catalysts) > 0:
+                st.markdown(f"**💡 Key Catalysts ({len(catalysts)}):**")
+                for i, catalyst in enumerate(catalysts, 1):
+                    st.write(f"{i}. {catalyst}")
+            else:
+                st.markdown("**💡 Key Catalysts:** None listed")
+        
+        with col_right:
+            risks = row.get('key_risks', [])
+            if risks and len(risks) > 0:
+                st.markdown(f"**⚠️ Key Risks ({len(risks)}):**")
+                for i, risk in enumerate(risks, 1):
+                    st.write(f"{i}. {risk}")
+            else:
+                st.markdown("**⚠️ Key Risks:** None listed")
+        
+        # Report history if multiple reports exist
+        report_count = row.get('report_count', 1)
+        if report_count > 1 and not all_reports.empty:
+            history = get_report_history(all_reports, ticker)
+            
+            if len(history) > 1:
+                st.markdown(f"**📈 Report History ({len(history)} reports):**")
+                
+                history_data = []
+                for _, hist_row in history.iterrows():
+                    hist_date = hist_row['report_date']
+                    hist_sentiment = hist_row['sentiment_score']
+                    hist_label = hist_row['sentiment_label']
+                    hist_emoji = format_sentiment_emoji(hist_label)
+                    hist_age = hist_row.get('report_age_days', 0)
+                    
+                    history_data.append({
+                        'Date': hist_date.strftime('%b %d, %Y'),
+                        'Age': format_report_age(hist_age),
+                        'Sentiment': f"{hist_emoji} {hist_sentiment:.2f}",
+                        'Label': hist_label.title()
+                    })
+                
+                history_df = pd.DataFrame(history_data)
+                st.dataframe(history_df, hide_index=True, use_container_width=True)
+                
+                # Show sentiment trend
+                trend = get_sentiment_trend_description(history)
+                st.info(f"**Sentiment Trend:** {trend}")
+        
+        st.markdown("---")
+
 def display_scan_results(results_df: pd.DataFrame):
-    """Main function to display scanning results with Pure MPI Expansion filtering"""
+    """Main function to display scanning results with Pure MPI Expansion filtering and Analyst Reports"""
     
     if results_df.empty:
         st.warning("No results to display.")
@@ -1491,6 +1701,9 @@ def display_scan_results(results_df: pd.DataFrame):
         # Show MPI insights
         show_mpi_insights(results_df)
         
+        # NEW: Show detailed analyst reports
+        display_detailed_analyst_reports(results_df)
+        
         logger.info(f"Successfully displayed results for {len(results_df)} stocks")
         
     except Exception as e:
@@ -1498,11 +1711,12 @@ def display_scan_results(results_df: pd.DataFrame):
         st.error("❌ Error displaying Pure MPI Expansion results - check error log for details")
 
 def show():
-    """Main scanner page display for Higher H/L patterns with Pure MPI Expansion filtering"""
+    """Main scanner page display with Pure MPI Expansion filtering and Analyst Report integration"""
     
-    st.title("📈 CRT Higher H/L Scanner")
-    st.markdown("Enhanced with **Pure MPI Expansion System** - Focus on momentum velocity")
-    st.markdown("**Data Source: Local File System** (./data/Historical_Data + ./data/EOD_Data)")
+    st.title("📈 Stock Scanner")
+    st.markdown("Enhanced with **Pure MPI Expansion System** and **Analyst Report Integration**")
+    st.markdown("**Data Source: Local File System** (./data/Historical_Data + ./data/EOD_Data + ./data/analyst_reports)")
+    
     # Show update check/prompt
     st.subheader("📥 Data Management")
     
@@ -1522,18 +1736,17 @@ def show():
     
     st.markdown("---")
     
-    # Clear error log button
-    col1, col2 = st.columns([3, 1])
+    # Clear error log and refresh reports buttons
+    col1, col2 = st.columns(2)
     with col1:
         if st.button("🗑️ Clear Error Log"):
             st.session_state.error_logger = ErrorLogger()
             st.success("Error log cleared!")
             st.rerun()
     with col2:
-        if st.button("💾 Clear Cache"):
-            st.cache_data.clear()
-            st.cache_resource.clear()
-            st.success("Cache cleared!")
+        if st.button("🔄 Refresh Reports"):
+            clear_reports_cache()
+            st.success("Analyst reports cache cleared - reports will reload on next scan")
             st.rerun()
     
     # Display any existing errors
@@ -1565,3 +1778,4 @@ def show():
 
 if __name__ == "__main__":
     show()
+

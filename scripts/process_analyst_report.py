@@ -1,6 +1,10 @@
+# File: scripts/process_analyst_report.py
 """
 Process analyst report PDFs and extract key information using FinBERT sentiment analysis.
 Run this in Codespace after uploading PDFs.
+
+FILENAME CONVENTION: {DATE}_{ANALYST}_{STOCK_CODE}.pdf
+Example: 20251001_MapleCom_N2IU.pdf → Extracts "N2IU"
 """
 import json
 import re
@@ -34,6 +38,61 @@ model = AutoModelForSequenceClassification.from_pretrained("ProsusAI/finbert")
 print("✓ FinBERT loaded\n")
 
 
+def extract_ticker_from_filename(filename):
+    """
+    Extract stock ticker from filename
+    
+    Expected format: {DATE}_{ANALYST}_{TICKER}.pdf
+    Examples:
+        20251001_MapleCom_N2IU.pdf -> N2IU
+        20251003_CGS_A17U.pdf -> A17U
+        20251006_N2IU.pdf -> N2IU (works without analyst)
+        N2IU.pdf -> N2IU (fallback: just ticker.pdf)
+    
+    Returns:
+        tuple: (base_ticker, sgx_ticker) e.g., ("N2IU", "N2IU.SG")
+        None if filename doesn't match any pattern
+    """
+    # Pattern 1: Extract last segment before .pdf (after underscore)
+    # Matches: 20251001_MapleCom_N2IU.pdf -> N2IU
+    pattern_with_underscore = r'_([A-Z0-9]+)\.pdf$'
+    
+    match = re.search(pattern_with_underscore, filename)
+    if match:
+        base_ticker = match.group(1)
+        sgx_ticker = f"{base_ticker}.SG"
+        return base_ticker, sgx_ticker
+    
+    # Pattern 2: Fallback for simple format (just TICKER.pdf)
+    # Matches: N2IU.pdf -> N2IU
+    pattern_simple = r'^([A-Z0-9]+)\.pdf$'
+    
+    match = re.match(pattern_simple, filename)
+    if match:
+        base_ticker = match.group(1)
+        sgx_ticker = f"{base_ticker}.SG"
+        return base_ticker, sgx_ticker
+    
+    # No match found
+    return None
+
+
+def validate_ticker_in_watchlist(sgx_ticker):
+    """
+    Validate if ticker exists in scanner's watchlist
+    
+    Returns:
+        bool: True if ticker found in watchlist
+    """
+    try:
+        from utils.watchlist import get_active_watchlist
+        watchlist = get_active_watchlist()
+        return sgx_ticker in watchlist
+    except Exception as e:
+        print(f"  ⚠️  Could not validate ticker against watchlist: {e}")
+        return False
+
+
 def extract_text_from_pdf(pdf_path):
     """Extract all text from PDF"""
     try:
@@ -51,25 +110,6 @@ def extract_text_from_pdf(pdf_path):
 def extract_metadata(text):
     """Extract key metadata using regex patterns"""
     metadata = {}
-    
-    # Extract ticker (pattern: "SANLI SP" or similar)
-    ticker_patterns = [
-        r'([A-Z]{2,6})\s+SP\b',  # Singapore stocks
-        r'([A-Z]{2,6})\.SI',      # Yahoo format
-        r'Bloomberg[:\s]+([A-Z]{2,6})\s+SP',
-    ]
-    for pattern in ticker_patterns:
-        match = re.search(pattern, text[:3000])
-        if match:
-            ticker_code = match.group(1)
-            metadata['ticker'] = f"{ticker_code} SP"
-            break
-    
-    # Extract company name
-    name_pattern = r'((?:[A-Z][a-z]+\s+){1,4}(?:Ltd|Limited|Corp|Corporation|Inc|Group|Holdings|Pte|Co)\.?)'
-    name_match = re.search(name_pattern, text[:2000])
-    if name_match:
-        metadata['company'] = name_match.group(1).strip()
     
     # Extract recommendation (ADD, HOLD, REDUCE, BUY, SELL)
     rec_patterns = [
@@ -251,6 +291,32 @@ def process_report(pdf_path):
     """Main processing function"""
     print(f"Processing: {pdf_path.name}")
     
+    # Extract ticker from filename
+    ticker_result = extract_ticker_from_filename(pdf_path.name)
+    
+    if not ticker_result:
+        raise ValueError(
+            f"Could not extract stock code from filename: {pdf_path.name}\n"
+            f"Expected format: {{DATE}}_{{ANALYST}}_{{STOCK_CODE}}.pdf\n"
+            f"Examples:\n"
+            f"  ✓ 20251001_MapleCom_N2IU.pdf\n"
+            f"  ✓ 20251003_CGS_A17U.pdf\n"
+            f"  ✓ 20251006_N2IU.pdf\n"
+            f"  ✓ N2IU.pdf\n"
+            f"  ✗ 20251001_MapleCom.pdf (missing stock code)\n"
+            f"  ✗ analyst_report.pdf (missing stock code)"
+        )
+    
+    base_ticker, sgx_ticker = ticker_result
+    print(f"  Extracted ticker: {base_ticker} → {sgx_ticker}")
+    
+    # Validate against watchlist
+    if validate_ticker_in_watchlist(sgx_ticker):
+        print(f"  ✓ Ticker found in scanner watchlist")
+    else:
+        print(f"  ⚠️  WARNING: {sgx_ticker} not found in scanner watchlist")
+        print(f"     This report may not match any stocks in your scanner")
+    
     # Extract text
     text = extract_text_from_pdf(pdf_path)
     if not text:
@@ -260,7 +326,6 @@ def process_report(pdf_path):
     
     # Extract metadata
     metadata = extract_metadata(text)
-    print(f"  Ticker: {metadata.get('ticker', 'N/A')}")
     print(f"  Recommendation: {metadata.get('recommendation', 'N/A')}")
     
     # Extract executive summary
@@ -283,7 +348,14 @@ def process_report(pdf_path):
     
     # Build output JSON
     output = {
+        # Ticker information (both formats)
+        "ticker": base_ticker,          # Display ticker (e.g., "N2IU")
+        "ticker_sgx": sgx_ticker,       # SGX ticker for scanner matching (e.g., "N2IU.SG")
+        
+        # Metadata from PDF
         **metadata,
+        
+        # Processing metadata
         "upload_date": datetime.now().isoformat(),
         "sentiment_score": round(sentiment_score, 2),
         "sentiment_label": sentiment_label,
@@ -295,10 +367,9 @@ def process_report(pdf_path):
         "pdf_filename": pdf_path.name
     }
     
-    # Generate output filename
-    ticker_clean = metadata.get('ticker', 'UNKNOWN').replace(' ', '_').replace('.', '_')
+    # Generate output filename using base ticker
     report_date = metadata.get('report_date', datetime.now().strftime('%Y-%m-%d'))
-    output_filename = f"{ticker_clean}_{report_date}.json"
+    output_filename = f"{base_ticker}_{report_date}.json"
     
     return output, output_filename
 
@@ -316,12 +387,21 @@ def main():
     if not pdf_files:
         print(f"No PDF files found in: {ANALYST_PDF_DIR}")
         print("\nPlease upload analyst report PDFs to this folder.")
+        print("\nFILENAME CONVENTION: {DATE}_{ANALYST}_{STOCK_CODE}.pdf")
+        print("Examples:")
+        print("  ✓ 20251001_MapleCom_N2IU.pdf")
+        print("  ✓ 20251003_CGS_A17U.pdf")
+        print("  ✓ 20251006_N2IU.pdf (analyst name optional)")
+        print("  ✓ N2IU.pdf (minimal format)")
+        print("  ✗ 20251001_MapleCom.pdf (missing stock code)")
+        print("  ✗ analyst_report.pdf (missing stock code)")
         return
     
     print(f"Found {len(pdf_files)} PDF(s) to process\n")
     
     processed = 0
     failed = 0
+    failed_details = []
     
     for pdf_file in pdf_files:
         try:
@@ -336,15 +416,29 @@ def main():
             processed += 1
             
         except Exception as e:
-            print(f"  ✗ Error processing {pdf_file.name}: {e}\n")
+            error_msg = str(e).split('\n')[0]  # Get first line of error
+            print(f"  ✗ Error: {error_msg}\n")
             failed += 1
+            failed_details.append({
+                'filename': pdf_file.name,
+                'error': error_msg
+            })
     
     print("=" * 60)
     print(f"SUMMARY: {processed} processed, {failed} failed")
     print("=" * 60)
     
+    if failed > 0:
+        print("\n⚠️  FAILED FILES:")
+        for detail in failed_details:
+            print(f"  • {detail['filename']}")
+            print(f"    Reason: {detail['error']}")
+        print("\nPlease rename these files to include stock code at the end:")
+        print("  Format: {DATE}_{ANALYST}_{STOCK_CODE}.pdf")
+        print("  Example: 20251001_MapleCom_N2IU.pdf")
+    
     if processed > 0:
-        print(f"\nJSON files saved to: {ANALYST_REPORTS_DIR}")
+        print(f"\n✓ JSON files saved to: {ANALYST_REPORTS_DIR}")
         print("You can now view these in the scanner!")
 
 

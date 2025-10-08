@@ -9,8 +9,8 @@ gatherUsageStats = false
 serverAddress = "0.0.0.0"
 
 [theme]
-primaryColor = "#FF4B4B"
-backgroundColor = "#0E1117"
-secondaryBackgroundColor = "#262730"
-textColor = "#FAFAFA"
+primaryColor = "#3B82F6"           # Bright blue (accent color)
+backgroundColor = "#1E293B"         # Slate gray (main background)
+secondaryBackgroundColor = "#334155" # Lighter slate (cards/panels)
+textColor = "#E2E8F0"              # Soft white (main text)
 font = "sans serif"
