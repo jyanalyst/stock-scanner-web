@@ -1,7 +1,7 @@
 # File: app.py
 """
 Stock Scanner Web Application
-Main Streamlit application with navigation for Higher H/L scanner and factor analysis
+Main Streamlit application with navigation for Scanner and factor analysis
 """
 
 import streamlit as st
@@ -45,21 +45,28 @@ def show_home_page():
     st.markdown("""
     ## Welcome to Stock Scanner Pro! 🚀
     
-    Your sophisticated stock scanning application with CRT (Candle Range Theory) analysis.
+    Your sophisticated stock scanning application with CRT (Candle Range Theory) analysis and Analyst Report Integration.
     
     ### Available Features:
     
-    #### 📈 **CRT Higher H/L Scanner**
+    #### 📈 **Stock Scanner**
     - Focuses on stocks showing Higher High AND Higher Low patterns
     - Identifies trending momentum with expanding range
     - Best for trend continuation plays
     - Flexible filtering for Valid CRT and/or Higher H/L patterns
+    - **NEW:** Integrated analyst sentiment analysis
     
     #### 🔬 **Factor Analysis**
     - Validate technical analysis effectiveness with historical data
     - Analyze success rates of MPI trends, IBS levels, and pattern combinations
     - Smart incremental processing with file upload/download workflow
     - Comprehensive performance analytics and factor analysis
+    
+    #### 📊 **Analyst Reports** (NEW)
+    - Automated PDF processing with FinBERT sentiment analysis
+    - Display analyst sentiment alongside technical indicators
+    - Track multiple reports per stock with history
+    - View catalysts, risks, and price targets
     
     ### Key Features:
     - 📊 **Real-time Analysis** - Live scanning of Singapore Exchange stocks
@@ -70,6 +77,7 @@ def show_home_page():
     - 🕒 **Historical Analysis** - Scan as of any past trading date
     - 🔬 **Strategy Validation** - Quantitative factor analysis of trading signals
     - 💾 **Local File Storage** - Fast, simple data access from local CSV files
+    - 📊 **Sentiment Analysis** - AI-powered analyst report processing (NEW)
     
     ---
     
@@ -96,7 +104,14 @@ def show_home_page():
             st.metric("Last Scan", "Ready", delta="Click to start")
     
     with col4:
-        st.metric("System Status", "Ready", delta="Fully operational")
+        # Check if analyst reports exist
+        try:
+            from utils.analyst_reports import get_cached_reports
+            _, latest_reports = get_cached_reports()
+            report_count = len(latest_reports) if not latest_reports.empty else 0
+            st.metric("Analyst Reports", report_count, delta="Active")
+        except:
+            st.metric("System Status", "Ready", delta="Operational")
 
 def show_sidebar_stats():
     """Show quick stats in sidebar"""
@@ -112,6 +127,12 @@ def show_sidebar_stats():
         st.sidebar.metric("Stocks Scanned", total_stocks)
         st.sidebar.metric("Valid CRT", valid_crt)
         st.sidebar.metric("Higher H/L", higher_hl)
+        
+        # Show analyst coverage if available
+        if 'sentiment_score' in results.columns:
+            with_reports = results['sentiment_score'].notna().sum()
+            if with_reports > 0:
+                st.sidebar.metric("Analyst Coverage", with_reports)
     
     # Show factor analysis stats if available
     if 'factor_analysis_summary' in st.session_state:
@@ -129,7 +150,7 @@ def main():
     # Navigation options
     pages = {
         "🏠 Home": "home",
-        "📈 CRT Higher H/L": "higher_hl",
+        "📈 Scanner": "scanner",
         "🔬 Factor Analysis": "factor_analysis",
         "📊 Historical Analysis": "historical", 
         "📋 Watchlist Manager": "watchlist",
@@ -152,13 +173,13 @@ def main():
     if page_value == "home":
         show_home_page()
     
-    elif page_value == "higher_hl":
+    elif page_value == "scanner":
         try:
-            from pages import scanner_higher_hl
-            scanner_higher_hl.show()
+            from pages import scanner
+            scanner.show()
         except ImportError as e:
             st.error(f"Scanner module not found: {e}")
-            st.info("This scanner focuses on stocks with Higher High AND Higher Low patterns.")
+            st.info("This scanner focuses on stocks with Higher High AND Higher Low patterns, with integrated analyst sentiment analysis.")
     
     elif page_value == "factor_analysis":
         try:
@@ -196,6 +217,7 @@ def main():
         - Email notification settings
         - Alert thresholds
         - Data source configuration
+        - Analyst report processing settings
         """)
 
 if __name__ == "__main__":
