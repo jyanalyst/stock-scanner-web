@@ -1,4 +1,4 @@
-# File: requirements.txt
+# Existing dependencies (your current setup)
 streamlit
 pandas
 numpy
@@ -9,3 +9,8 @@ python-dotenv
 APScheduler
 scikit-learn
 requests
+
+# NEW: For analyst report processing
+PyPDF2
+transformers
+torch

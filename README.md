@@ -1,11 +1,14 @@
-# File: README_LOCAL_SETUP.md
-# Local File System Setup Guide for Stock Scanner
-
-This guide explains how to set up and use the Stock Scanner with local file storage.
+# Stock Scanner - Codespace Setup
 
 ## Quick Start
 
-### 1. Create Data Folders
+### First Time Setup
 
-Create the required folder structure in your application root:
+1. **Create Codespace:**
+   - Go to GitHub repository
+   - Click `Code` → `Codespaces` → `Create codespace on main`
+   - Wait ~30 seconds for environment to build
+
+2. **Install Dependencies:**
 ```bash
+   pip install -r requirements.txt

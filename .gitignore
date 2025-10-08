@@ -1,57 +1,64 @@
-# File: .gitignore
-# Streamlit secrets
-.streamlit/secrets.toml
+# ===== DATA FILES (stored in Codespace, not git) =====
+data/
+analyst_reports/
+analyst_reports_pdf/
 
-# Stock Scanner Data Files - COMMENTED OUT to allow CSV files in Git
-# Uncomment these lines if you want to exclude CSV files again
-# data/Historical_Data/*.csv
-# data/EOD_Data/*.csv
+# Stock data
+*.csv
 
-# Keep folder structure
-!data/Historical_Data/.gitkeep
-!data/EOD_Data/.gitkeep
+# Analyst reports (keep code, exclude data)
+data/*.json
 
-# Python cache files
+# Database files
+*.db
+*.sqlite
+*.db-journal
+
+# ===== PYTHON =====
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
-
-# Virtual environments
-.env
-.venv
-env/
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+.venv/
 venv/
 ENV/
+env/
 
-# OS specific files
-.DS_Store
-Thumbs.db
-.DS_Store?
-._*
-
-# IDE files
+# ===== IDE =====
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
 
-# Log files
-*.log
-logs/
+# ===== OS =====
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
 
-# Temporary files
-*.tmp
-*.temp
-temp/
-tmp/
+# ===== STREAMLIT =====
+.streamlit/secrets.toml
 
-# Testing files
-.pytest_cache/
-.coverage
-htmlcov/
-
-# Old Google Drive credentials (no longer needed)
-credentials.json
-token.json
+# ===== BACKUPS =====
+*.zip
+backups/
