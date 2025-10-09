@@ -1,3 +1,4 @@
+# File: utils/paths.py
 """
 Path utilities for data directories in Codespace environment
 Integrates with existing config.py structure
@@ -40,21 +41,35 @@ def get_eod_data_dir():
 
 
 def get_analyst_reports_dir():
-    """Get analyst reports JSON directory (NEW)"""
+    """Get analyst reports JSON directory"""
     reports_dir = get_data_dir() / "analyst_reports"
     reports_dir.mkdir(parents=True, exist_ok=True)
     return reports_dir
 
 
 def get_analyst_pdf_dir():
-    """Get analyst reports PDF directory (NEW)"""
+    """Get analyst reports PDF directory"""
     pdf_dir = get_data_dir() / "analyst_reports_pdf"
     pdf_dir.mkdir(parents=True, exist_ok=True)
     return pdf_dir
 
 
+def get_earnings_reports_dir():
+    """Get earnings reports JSON directory (NEW)"""
+    reports_dir = get_data_dir() / "earnings_reports"
+    reports_dir.mkdir(parents=True, exist_ok=True)
+    return reports_dir
+
+
+def get_earnings_pdf_dir():
+    """Get earnings reports PDF directory (NEW)"""
+    pdf_dir = get_data_dir() / "earnings_reports_pdf"
+    pdf_dir.mkdir(parents=True, exist_ok=True)
+    return pdf_dir
+
+
 def get_backup_dir():
-    """Get backup directory (NEW)"""
+    """Get backup directory"""
     backup_dir = Path("backups")
     backup_dir.mkdir(parents=True, exist_ok=True)
     return backup_dir
@@ -64,9 +79,11 @@ def get_backup_dir():
 DATA_DIR = get_data_dir()
 STOCK_DATA_DIR = get_stock_data_dir()  # Your existing Historical_Data
 EOD_DATA_DIR = get_eod_data_dir()      # Your existing EOD_Data
-ANALYST_REPORTS_DIR = get_analyst_reports_dir()  # NEW
-ANALYST_PDF_DIR = get_analyst_pdf_dir()          # NEW
-BACKUP_DIR = get_backup_dir()                    # NEW
+ANALYST_REPORTS_DIR = get_analyst_reports_dir()
+ANALYST_PDF_DIR = get_analyst_pdf_dir()
+EARNINGS_REPORTS_DIR = get_earnings_reports_dir()  # NEW
+EARNINGS_PDF_DIR = get_earnings_pdf_dir()          # NEW
+BACKUP_DIR = get_backup_dir()
 
 
 if __name__ == "__main__":
@@ -79,6 +96,8 @@ if __name__ == "__main__":
     print(f"EOD_Data: {EOD_DATA_DIR.absolute()}")
     print(f"Analyst reports (JSON): {ANALYST_REPORTS_DIR.absolute()}")
     print(f"Analyst reports (PDF): {ANALYST_PDF_DIR.absolute()}")
+    print(f"Earnings reports (JSON): {EARNINGS_REPORTS_DIR.absolute()}")
+    print(f"Earnings reports (PDF): {EARNINGS_PDF_DIR.absolute()}")
     print(f"Backups: {BACKUP_DIR.absolute()}")
     print("\n✓ All paths configured correctly")
     print("=" * 60)
