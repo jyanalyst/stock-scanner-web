@@ -1,4 +1,5 @@
-# Existing dependencies (your current setup)
+# File: requirements.txt
+# Core dependencies (UPDATED - removed ML packages)
 streamlit
 pandas
 numpy
@@ -10,7 +11,5 @@ APScheduler
 scikit-learn
 requests
 
-# NEW: For analyst report processing
+# Analyst report processing (UPDATED - removed transformers and torch)
 PyPDF2
-transformers
-torch
