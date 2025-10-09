@@ -1,4 +1,4 @@
-# File: pages/scanner.py (renamed from scanner_higher_hl.py)
+# File: pages/scanner.py
 # Part 1 of 4
 """
 Stock Scanner - Local File System
@@ -9,6 +9,7 @@ ENHANCED: Force update capability to re-process latest EOD file
 UPDATED: Simplified base filter, enhanced H/L filter with Higher_H support
 UPDATED: Custom filters now support both Minimum and Maximum filtering
 NEW: Integrated with Analyst Reports for sentiment analysis
+REMOVED: Market Regime analysis (ML code removed)
 """
 
 import streamlit as st
@@ -820,7 +821,7 @@ def show_filter_statistics(component_name: str, data: pd.Series, base_stocks: pd
 def apply_dynamic_filters(base_stocks: pd.DataFrame, results_df: pd.DataFrame) -> pd.DataFrame:
     """
     Apply dynamic filtering with optimized component structure
-    UPDATED: Removed Market Regime filter, moved H/L filter to first position
+    REMOVED: Market Regime filter (ML code removed)
     """
     if base_stocks.empty:
         st.warning("No stocks available for filtering")
@@ -828,14 +829,14 @@ def apply_dynamic_filters(base_stocks: pd.DataFrame, results_df: pd.DataFrame) -
     
     st.subheader("🎯 Dynamic Filtering")
     
-    # UPDATED: Create FIVE columns for filters (removed regime, reordered)
+    # Create FIVE columns for filters (regime removed)
     col1, col2, col3, col4, col5 = st.columns(5)
     
     # Initialize filtered stocks
     filtered_stocks = base_stocks.copy()
     filter_summary = []
     
-    # COL 1: HIGHER H/L FILTER - MOVED TO FIRST POSITION
+    # COL 1: HIGHER H/L FILTER
     with col1:
         filtered_stocks, selected_hl_filter, hl_info = apply_higher_hl_filter(filtered_stocks, st.session_state.get('base_filter_type', 'All Stocks'))
         st.info(hl_info)
@@ -1145,7 +1146,10 @@ def run_enhanced_stock_scan(stocks_to_scan, analysis_date=None, days_back=59, ro
             status_text.empty()
 
 def _create_result_dict(analysis_row: pd.Series, actual_date, ticker: str, fetcher) -> dict:
-    """Create result dictionary from analysis row - UPDATED with Higher_H and HL_Pattern"""
+    """
+    Create result dictionary from analysis row
+    REMOVED: Market_Regime and Regime_Probability columns
+    """
     # Get company name
     try:
         company_name = fetcher.get_company_name(ticker)
@@ -1193,7 +1197,7 @@ def _create_result_dict(analysis_row: pd.Series, actual_date, ticker: str, fetch
     else:
         hl_pattern = "-"
     
-    # Create result dictionary
+    # Create result dictionary (REMOVED Market_Regime columns)
     result = {
         'Ticker': ticker,
         'Name': company_name,
@@ -1230,10 +1234,6 @@ def _create_result_dict(analysis_row: pd.Series, actual_date, ticker: str, fetch
         'High_Rel_Volume_150': safe_int(analysis_row.get('High_Rel_Volume_150', 0)),
         'High_Rel_Volume_200': safe_int(analysis_row.get('High_Rel_Volume_200', 0)),
         
-        # Market Regime columns - KEEP IN DATA but won't display
-        'Market_Regime': str(analysis_row.get('Market_Regime', 'Unknown')),
-        'Regime_Probability': round(float(analysis_row.get('Regime_Probability', 0.5)), 3) if not pd.isna(analysis_row.get('Regime_Probability', 0.5)) else 0.5,
-        
         'Price_Decimals': price_decimals
     }
     
@@ -1243,7 +1243,10 @@ def _create_result_dict(analysis_row: pd.Series, actual_date, ticker: str, fetch
 # Part 4 of 4 (Final Part)
 
 def display_scan_summary(results_df: pd.DataFrame):
-    """Display scan summary with Pure MPI Expansion statistics - UPDATED with Higher_H and Analyst Reports"""
+    """
+    Display scan summary with Pure MPI Expansion statistics
+    REMOVED: Market regime statistics
+    """
     st.subheader("📊 Scan Summary with Pure MPI Expansion Analysis")
     
     total_stocks = len(results_df)
@@ -1778,4 +1781,4 @@ def show():
 
 if __name__ == "__main__":
     show()
-
+            

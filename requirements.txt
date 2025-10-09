@@ -1,5 +1,5 @@
 # File: requirements.txt
-# Core dependencies (UPDATED - removed ML packages)
+# Core dependencies (UPDATED - scikit-learn can be removed if not used elsewhere)
 streamlit
 pandas
 numpy
@@ -8,8 +8,7 @@ plotly
 altair
 python-dotenv
 APScheduler
-scikit-learn
 requests
 
-# Analyst report processing (UPDATED - removed transformers and torch)
+# Analyst report processing (minimal dependencies)
 PyPDF2
