@@ -12,3 +12,6 @@
 2. **Install Dependencies:**
 ```bash
    pip install -r requirements.txt
+
+# Run the import script
+python scripts/import_analyst_txt.py
