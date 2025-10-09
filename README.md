@@ -15,3 +15,4 @@
 
 # Run the import script
 python scripts/import_analyst_txt.py
+python scripts/import_earnings_txt.py

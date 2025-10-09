@@ -5,6 +5,8 @@ Filename format: YYYYMMDD_CompanyAbbrev_Period_Ticker.txt
 Example: 20220420_MCT_2HFY2122_N2IU.txt
 Each .txt file should contain a JSON object with earnings report data
 Successfully processed files are automatically moved to processed/ subfolder
+
+UPDATED: Now supports adaptive structure for REITs, Business Trusts, and Normal Companies
 """
 import json
 from pathlib import Path
@@ -100,20 +102,32 @@ def parse_filename(filename: str) -> dict:
 
 def validate_json_data(data: dict, filename_info: dict) -> tuple:
     """
-    Validate JSON data against filename
+    Validate JSON data against filename and company type
     
     Returns:
         (is_valid, error_message)
     """
-    # Check required fields
-    required_fields = [
+    # Check company_type field exists
+    if 'company_type' not in data:
+        return False, "Missing required field: company_type"
+    
+    company_type = data['company_type']
+    
+    # Validate company_type values
+    valid_company_types = ['reit', 'business_trust', 'normal']
+    if company_type not in valid_company_types:
+        return False, f"company_type must be one of {valid_company_types}, got: {company_type}"
+    
+    # Universal required fields (all company types)
+    universal_required = [
         'ticker', 'ticker_sgx', 'report_date', 'report_type', 'fiscal_year',
         'revenue', 'eps', 'guidance_tone'
     ]
-    missing_fields = [f for f in required_fields if f not in data]
     
+    # Check universal fields
+    missing_fields = [f for f in universal_required if f not in data]
     if missing_fields:
-        return False, f"Missing required fields: {missing_fields}"
+        return False, f"Missing required universal fields: {missing_fields}"
     
     # Validate ticker matches filename
     if data['ticker'] != filename_info['ticker']:
@@ -124,9 +138,7 @@ def validate_json_data(data: dict, filename_info: dict) -> tuple:
         return False, f"Date mismatch: JSON has '{data['report_date']}' but filename has '{filename_info['date']}'"
     
     # Validate report type matches filename (allow some flexibility)
-    # Both Q1, H1, FY etc. are valid
     if data['report_type'] != filename_info['report_type']:
-        # Give a warning but allow if it's a reasonable variation
         print(f"  ⚠️  Report type differs: JSON has '{data['report_type']}', filename suggests '{filename_info['report_type']}'")
         print(f"      Proceeding with JSON value: '{data['report_type']}'")
     
@@ -141,6 +153,33 @@ def validate_json_data(data: dict, filename_info: dict) -> tuple:
     valid_guidance = ['positive', 'neutral', 'negative']
     if data['guidance_tone'] not in valid_guidance:
         return False, f"guidance_tone must be one of {valid_guidance}, got: {data['guidance_tone']}"
+    
+    # Type-specific validation
+    if company_type in ['reit', 'business_trust']:
+        # REIT/Business Trust specific fields that should exist
+        reit_fields = ['dpu', 'net_property_income', 'gearing_ratio']
+        missing_reit = [f for f in reit_fields if f not in data]
+        if missing_reit:
+            return False, f"Missing REIT-specific fields: {missing_reit}"
+        
+        # Normal company fields should be null for REITs
+        normal_fields_should_be_null = ['gross_margin', 'operating_margin', 'net_margin']
+        for field in normal_fields_should_be_null:
+            if field in data and data[field] is not None:
+                print(f"  ⚠️  Warning: {field} should be null for REIT/Business Trust, but has value: {data[field]}")
+    
+    elif company_type == 'normal':
+        # Normal company specific fields that should exist
+        normal_fields = ['gross_margin', 'operating_margin', 'net_margin', 'net_profit']
+        missing_normal = [f for f in normal_fields if f not in data]
+        if missing_normal:
+            return False, f"Missing normal company fields: {missing_normal}"
+        
+        # REIT fields should be null for normal companies
+        reit_fields_should_be_null = ['dpu', 'net_property_income', 'gearing_ratio', 'nav_per_unit']
+        for field in reit_fields_should_be_null:
+            if field in data and data[field] is not None:
+                print(f"  ⚠️  Warning: {field} should be null for normal company, but has value: {data[field]}")
     
     return True, None
 
@@ -193,7 +232,7 @@ def import_txt_file(txt_path: Path):
         print(f"    Check your JSON syntax")
         return False
     
-    # Validate data against filename
+    # Validate data against filename and company type
     is_valid, error_msg = validate_json_data(data, filename_info)
     
     if not is_valid:
@@ -226,17 +265,44 @@ def import_txt_file(txt_path: Path):
         json.dump(data, f, indent=2, ensure_ascii=False)
     
     print(f"  ✓ Saved: {output_filename}")
-    print(f"  Report Type: {report_type} | Guidance: {data['guidance_tone'].upper()}")
+    print(f"  Company Type: {data['company_type'].upper()} | Report Type: {report_type} | Guidance: {data['guidance_tone'].upper()}")
     
-    # Show key metrics
-    revenue_change = data.get('revenue_yoy_change')
-    eps_change = data.get('eps_yoy_change')
-    if revenue_change is not None:
-        print(f"  Revenue YoY: {revenue_change:+.1f}%", end="")
+    # Show key metrics based on company type
+    company_type = data['company_type']
+    
+    if company_type in ['reit', 'business_trust']:
+        # REIT metrics
+        dpu = data.get('dpu')
+        dpu_change = data.get('dpu_yoy_change')
+        gearing = data.get('gearing_ratio')
+        
+        print(f"  REIT Metrics:")
+        if dpu is not None:
+            print(f"    • DPU: {dpu:.2f} cents", end="")
+            if dpu_change is not None:
+                print(f" (YoY: {dpu_change:+.1f}%)")
+            else:
+                print()
+        
+        if gearing is not None:
+            print(f"    • Gearing: {gearing:.1f}%")
+        
+        revenue_change = data.get('revenue_yoy_change')
+        if revenue_change is not None:
+            print(f"    • Revenue YoY: {revenue_change:+.1f}%")
+    
+    else:  # Normal company
+        revenue_change = data.get('revenue_yoy_change')
+        eps_change = data.get('eps_yoy_change')
+        net_margin = data.get('net_margin')
+        
+        print(f"  Company Metrics:")
+        if revenue_change is not None:
+            print(f"    • Revenue YoY: {revenue_change:+.1f}%")
         if eps_change is not None:
-            print(f" | EPS YoY: {eps_change:+.1f}%")
-        else:
-            print()
+            print(f"    • EPS YoY: {eps_change:+.1f}%")
+        if net_margin is not None:
+            print(f"    • Net Margin: {net_margin:.1f}%")
     
     return True
 
@@ -255,7 +321,8 @@ def move_to_processed(txt_path: Path, processed_dir: Path) -> bool:
 def main():
     """Import all .txt files from earnings_reports_pdf folder"""
     print("=" * 60)
-    print("CLAUDE EARNINGS REPORT IMPORTER")
+    print("CLAUDE EARNINGS REPORT IMPORTER (ADAPTIVE)")
+    print("Supports: REITs, Business Trusts, and Normal Companies")
     print("=" * 60)
     print()
     
@@ -280,10 +347,24 @@ def main():
     moved = 0
     failed_files = []
     
+    # Track company types processed
+    company_type_counts = {'reit': 0, 'business_trust': 0, 'normal': 0}
+    
     for txt_file in txt_files:
         try:
             if import_txt_file(txt_file):
                 processed += 1
+                
+                # Track company type (read the JSON to get company_type)
+                try:
+                    with open(EARNINGS_REPORTS_DIR / txt_file.name.replace('.txt', '.json'), 'r') as f:
+                        data = json.load(f)
+                        company_type = data.get('company_type', 'unknown')
+                        if company_type in company_type_counts:
+                            company_type_counts[company_type] += 1
+                except:
+                    pass
+                
                 if move_to_processed(txt_file, processed_dir):
                     print(f"  📁 Moved to: processed/{txt_file.name}")
                     moved += 1
@@ -302,6 +383,16 @@ def main():
     print(f"SUMMARY: {processed} imported, {failed} failed")
     print("=" * 60)
     
+    # Show company type breakdown
+    if processed > 0:
+        print(f"\n📊 Company Type Breakdown:")
+        if company_type_counts['reit'] > 0:
+            print(f"  • REITs: {company_type_counts['reit']}")
+        if company_type_counts['business_trust'] > 0:
+            print(f"  • Business Trusts: {company_type_counts['business_trust']}")
+        if company_type_counts['normal'] > 0:
+            print(f"  • Normal Companies: {company_type_counts['normal']}")
+    
     if moved > 0:
         print(f"\n✓ Automatically moved {moved} file(s) to: {processed_dir}")
     
@@ -309,9 +400,17 @@ def main():
         print(f"\n⚠️  {failed} FAILED FILE(S):")
         for filename in failed_files:
             print(f"  • {filename}")
+        print("\nCommon issues:")
+        print("  1. Filename not in format: YYYYMMDD_CompanyAbbrev_Period_Ticker.txt")
+        print("  2. JSON ticker/date doesn't match filename")
+        print("  3. Missing company_type field or invalid value")
+        print("  4. REIT missing REIT-specific fields (dpu, gearing_ratio, etc.)")
+        print("  5. Normal company missing company-specific fields (margins, net_profit)")
+        print("  6. File not saved with UTF-8 encoding")
     
     if processed > 0:
         print(f"\n✓ JSON files saved to: {EARNINGS_REPORTS_DIR}")
+        print("✓ Using CLAUDE ADAPTIVE ANALYSIS (REITs + Normal Companies)")
         print("\nYou can now view these in the scanner!")
 
 

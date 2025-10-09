@@ -25,31 +25,7 @@ def load_all_earnings_reports() -> pd.DataFrame:
     Load all earnings report JSONs into a DataFrame
     
     Returns:
-        DataFrame with columns:
-        - ticker: Display ticker (e.g., "A17U")
-        - ticker_sgx: SGX format (e.g., "A17U.SG")
-        - report_date: Date of earnings report
-        - report_type: "Q1", "Q2", "Q3", "Q4", or "FY"
-        - fiscal_year: e.g., "FY2024"
-        - revenue: Revenue figure
-        - revenue_yoy_change: Year-over-year % change
-        - revenue_qoq_change: Quarter-over-quarter % change (if applicable)
-        - gross_margin: Gross profit margin %
-        - operating_margin: Operating profit margin %
-        - net_margin: Net profit margin %
-        - eps: Earnings per share
-        - eps_yoy_change: EPS year-over-year % change
-        - operating_cash_flow: Operating cash flow
-        - free_cash_flow: Free cash flow
-        - total_debt: Total debt
-        - net_debt: Net debt (total debt - cash)
-        - debt_to_equity: Debt-to-equity ratio
-        - guidance_tone: "positive", "neutral", "negative"
-        - key_highlights: List of positive points
-        - concerns: List of concerns/risks
-        - mgmt_commentary_summary: Summary of management commentary
-        - report_age_days: Days since report date
-        - pdf_filename: Original PDF name
+        DataFrame with all earnings data including company_type field
     """
     reports_dir = get_earnings_reports_dir()
     
@@ -134,7 +110,7 @@ def get_earnings_history(all_reports_df: pd.DataFrame, ticker_sgx: str) -> pd.Da
     
     Args:
         all_reports_df: DataFrame with all reports
-        ticker_sgx: Ticker in SGX format (e.g., "A17U.SG")
+        ticker_sgx: Ticker in SGX format (e.g., "N2IU.SG")
         
     Returns:
         DataFrame with all earnings reports for this ticker
@@ -190,6 +166,31 @@ def format_currency(value: float, currency: str = "SGD") -> str:
         return f"{currency} {value/1_000:.1f}K"
     else:
         return f"{currency} {value:.0f}"
+
+
+def format_report_age(age_days: int) -> str:
+    """
+    Format report age in human-readable form
+    
+    Returns:
+        String like "7 days old" or "3 months old"
+        Adds warning emoji if >120 days (4 months)
+    """
+    if age_days is None:
+        return "Unknown age"
+    
+    if age_days == 0:
+        return "Today"
+    elif age_days == 1:
+        return "1 day old"
+    elif age_days < 30:
+        return f"{age_days} days old"
+    elif age_days < 120:
+        months = age_days // 30
+        return f"{months} month{'s' if months > 1 else ''} old"
+    else:
+        months = age_days // 30
+        return f"⚠️ {months} months old"
 
 
 def get_earnings_trend_description(history_df: pd.DataFrame) -> str:
