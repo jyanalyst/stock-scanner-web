@@ -1,15 +1,16 @@
-```python
 # File: scripts/import_analyst_txt.py
 """
 Import analyst report data from Claude-generated .txt files
 Filename format: YYYYMMDD_Company_Ticker.txt
 Each .txt file should contain a JSON object with analyst report data
+Successfully processed files are automatically moved to processed/ subfolder
 """
 import json
 from pathlib import Path
 from datetime import datetime
 import sys
 import re
+import shutil
 
 sys.path.append(str(Path(__file__).parent.parent))
 from utils.paths import ANALYST_REPORTS_DIR, ANALYST_PDF_DIR
@@ -180,12 +181,32 @@ def import_txt_file(txt_path: Path):
     return True
 
 
+def move_to_processed(txt_path: Path, processed_dir: Path) -> bool:
+    """
+    Move processed .txt file to processed subfolder
+    
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        destination = processed_dir / txt_path.name
+        shutil.move(str(txt_path), str(destination))
+        return True
+    except Exception as e:
+        print(f"  ⚠️  Warning: Could not move to processed folder - {e}")
+        return False
+
+
 def main():
     """Import all .txt files from analyst_reports_pdf folder"""
     print("=" * 60)
     print("CLAUDE ANALYST REPORT IMPORTER")
     print("=" * 60)
     print()
+    
+    # Create processed subfolder if it doesn't exist
+    processed_dir = ANALYST_PDF_DIR / "processed"
+    processed_dir.mkdir(exist_ok=True)
     
     # Look for .txt files in PDF directory
     txt_files = list(ANALYST_PDF_DIR.glob("*.txt"))
@@ -202,27 +223,37 @@ def main():
     
     processed = 0
     failed = 0
+    moved = 0
     failed_files = []
     
     for txt_file in txt_files:
         try:
             if import_txt_file(txt_file):
                 processed += 1
+                # Automatically move to processed folder
+                if move_to_processed(txt_file, processed_dir):
+                    print(f"  📁 Moved to: processed/{txt_file.name}")
+                    moved += 1
             else:
                 failed += 1
                 failed_files.append(txt_file.name)
+                print(f"  📌 Kept in main folder for retry")
         except Exception as e:
             print(f"  ✗ Unexpected error: {e}")
             failed += 1
             failed_files.append(txt_file.name)
+            print(f"  📌 Kept in main folder for retry")
         print()
     
     print("=" * 60)
     print(f"SUMMARY: {processed} imported, {failed} failed")
     print("=" * 60)
     
+    if moved > 0:
+        print(f"\n✓ Automatically moved {moved} file(s) to: {processed_dir}")
+    
     if failed > 0:
-        print("\n⚠️  FAILED FILES:")
+        print(f"\n⚠️  {failed} FAILED FILE(S) - kept in main folder for retry:")
         for filename in failed_files:
             print(f"  • {filename}")
         print("\nCommon issues:")
@@ -230,15 +261,12 @@ def main():
         print("  2. JSON ticker/date doesn't match filename")
         print("  3. File not saved with UTF-8 encoding")
         print("  4. Invalid JSON syntax")
+        print("\nFix the issues and run the script again to retry.")
     
     if processed > 0:
         print(f"\n✓ JSON files saved to: {ANALYST_REPORTS_DIR}")
         print("✓ Using CLAUDE ANALYSIS sentiment scores")
         print("\nYou can now view these in the scanner!")
-        
-        print("\n📝 Optional: Move processed .txt files to avoid re-importing:")
-        print(f"  mkdir -p {ANALYST_PDF_DIR}/processed")
-        print(f"  mv {ANALYST_PDF_DIR}/*.txt {ANALYST_PDF_DIR}/processed/")
 
 
 if __name__ == "__main__":
