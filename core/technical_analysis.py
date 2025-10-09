@@ -235,7 +235,8 @@ def calculate_crt_levels(df: pd.DataFrame) -> pd.DataFrame:
 
 def add_enhanced_columns(df_daily: pd.DataFrame, ticker: str, rolling_window: int = 20) -> pd.DataFrame:
     """
-    Add enhanced columns with PURE MPI EXPANSION system, Relative Volume, and Market Regime
+    Add enhanced columns with PURE MPI EXPANSION system and Relative Volume
+    REMOVED: Market Regime analysis
     
     Args:
         df_daily: Raw OHLCV data from yfinance
@@ -243,7 +244,7 @@ def add_enhanced_columns(df_daily: pd.DataFrame, ticker: str, rolling_window: in
         rolling_window: Window for moving averages (kept for backward compatibility)
     
     Returns:
-        DataFrame with MPI-enhanced technical analysis columns, Relative Volume, and Market Regime
+        DataFrame with MPI-enhanced technical analysis columns and Relative Volume
     """
     
     df = df_daily.copy()
@@ -259,15 +260,11 @@ def add_enhanced_columns(df_daily: pd.DataFrame, ticker: str, rolling_window: in
         df = calculate_mpi_expansion(df)
         df = calculate_relative_volume(df)
         
-        # NEW: Add market regime analysis
-        df = add_market_regime_analysis(df, ticker)
-        
-        # Log successful calculation
+        # Log successful calculation (REMOVED regime info)
         logger.info(f"{ticker}: Enhanced analysis completed successfully")
         logger.info(f"{ticker}: Latest MPI: {df['MPI'].iloc[-1]:.1%}, "
                    f"Velocity: {df['MPI_Velocity'].iloc[-1]:+.3f}, "
-                   f"Trend: {df['MPI_Trend'].iloc[-1]}, "
-                   f"Regime: {df['Market_Regime'].iloc[-1]}")
+                   f"Trend: {df['MPI_Trend'].iloc[-1]}")
         logger.info(f"{ticker}: Latest Relative Volume: {df['Relative_Volume'].iloc[-1]:.0f}%")
         
     except Exception as e:
@@ -282,8 +279,6 @@ def add_enhanced_columns(df_daily: pd.DataFrame, ticker: str, rolling_window: in
         df['Relative_Volume'] = 100.0
         df['High_Rel_Volume_150'] = 0
         df['High_Rel_Volume_200'] = 0
-        df['Market_Regime'] = 'Unknown'
-        df['Regime_Probability'] = 0.5
         df['Higher_H'] = 0
         df['Higher_HL'] = 0
     
@@ -377,52 +372,4 @@ def get_mpi_trend_distribution(df: pd.DataFrame) -> pd.DataFrame:
     
     return pd.DataFrame(trends)
 
-logger.info("Technical Analysis Module loaded with optimized PURE MPI EXPANSION system (Buy Signal logic removed)")
-
-def add_market_regime_analysis(df: pd.DataFrame, ticker: str) -> pd.DataFrame:
-    """
-    Add market regime analysis to enhanced dataframe
-    
-    Args:
-        df: DataFrame with technical analysis
-        ticker: Stock ticker
-        
-    Returns:
-        DataFrame with regime analysis added
-    """
-    try:
-        from core.market_regime import MarketRegimeDetector
-        
-        # Initialize detector
-        detector = MarketRegimeDetector(n_regimes=2)
-        
-        # Fit on historical data
-        detector.fit(df)
-        
-        # Get regime predictions
-        regime_data = detector.predict_regime(df)
-        
-        # Add regime data to main dataframe
-        df['Market_Regime'] = 'Unknown'
-        df['Regime_Probability'] = 0.0
-        
-        # Align indices and add regime data
-        for idx in regime_data.index:
-            if idx in df.index:
-                regime_idx = int(regime_data.loc[idx, 'regime'])
-                df.loc[idx, 'Market_Regime'] = regime_data.loc[idx, 'regime_label']
-                df.loc[idx, 'Regime_Probability'] = regime_data.loc[idx, f'prob_regime_{regime_idx}']
-        
-        # Forward fill for any missing values
-        df['Market_Regime'] = df['Market_Regime'].ffill()
-        df['Regime_Probability'] = df['Regime_Probability'].ffill()
-        
-        logger.info(f"{ticker}: Market regime analysis completed")
-        
-    except Exception as e:
-        logger.warning(f"{ticker}: Market regime analysis failed: {e}")
-        # Add default values
-        df['Market_Regime'] = 'Unknown'
-        df['Regime_Probability'] = 0.5
-    
-    return df
+logger.info("Technical Analysis Module loaded with optimized PURE MPI EXPANSION system (Market Regime removed)")
