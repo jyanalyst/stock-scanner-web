@@ -1150,7 +1150,7 @@ def run_enhanced_stock_scan(stocks_to_scan, analysis_date=None, days_back=59, ro
                 processing_errors.append(f"{ticker}: {str(e)}")
                 continue
         
-        status_text.text("📊 Preparing Pure MPI Expansion results...")
+        status_text.text("📊 Preparing Filtered results...")
         progress_bar.progress(0.8)
         
         results_df = pd.DataFrame(results)
@@ -1482,7 +1482,7 @@ def show_base_pattern_filter(results_df: pd.DataFrame) -> pd.DataFrame:
 
 def display_filtered_results(filtered_stocks: pd.DataFrame, selected_base_filter: str):
     """Display the filtered results table and export options"""
-    st.subheader(f"📋 Pure MPI Expansion Results ({len(filtered_stocks)} stocks)")
+    st.subheader(f"📋 Filtered Results ({len(filtered_stocks)} stocks)")
     
     if len(filtered_stocks) == 0:
         st.warning("No stocks match the current filter criteria")
@@ -1539,7 +1539,7 @@ def display_filtered_results(filtered_stocks: pd.DataFrame, selected_base_filter
 
 def show_tradingview_export(filtered_stocks: pd.DataFrame, selected_base_filter: str):
     """Show TradingView export section"""
-    st.subheader("📋 TradingView Export (Pure MPI Expansion Filtered)")
+    st.subheader("📋 TradingView Export (Filtered)")
     
     tv_tickers = [f"SGX:{ticker.replace('.SG', '')}" for ticker in filtered_stocks['Ticker'].tolist()]
     tv_string = ','.join(tv_tickers)
@@ -1570,7 +1570,7 @@ def show_tradingview_export(filtered_stocks: pd.DataFrame, selected_base_filter:
 
 def show_full_results_table(results_df: pd.DataFrame):
     """Show the full results table in an expander"""
-    with st.expander("📋 Full Pure MPI Expansion Analysis Results", expanded=False):
+    with st.expander("📋 Full Analysis Results", expanded=False):
         try:
             full_results_cols = [
                 'Analysis_Date', 'Ticker', 'Name', 'Close',
@@ -1622,11 +1622,11 @@ def show_full_results_table(results_df: pd.DataFrame):
             st.session_state.error_logger.log_error("Full Results Display", e)
 
 def show_mpi_insights(results_df: pd.DataFrame):
-    """Show Pure MPI Expansion insights"""
+    """Show MPI Insights insights"""
     if 'MPI_Trend' not in results_df.columns:
         return
         
-    with st.expander("📈 Pure MPI Expansion Insights", expanded=False):
+    with st.expander("📈 MPI Insights Insights", expanded=False):
         trend_summary = []
         trend_counts = results_df['MPI_Trend'].value_counts()
         
@@ -1666,8 +1666,8 @@ def show_mpi_insights(results_df: pd.DataFrame):
 
 def display_detailed_analyst_reports(results_df: pd.DataFrame):
     """
-    Display detailed analyst reports for stocks with coverage
-    Shows all reports at bottom after main table
+    Display detailed analyst reports with dropdown selection
+    Shows selected stock's detailed information
     """
     if 'sentiment_score' not in results_df.columns:
         return
@@ -1681,23 +1681,43 @@ def display_detailed_analyst_reports(results_df: pd.DataFrame):
     st.subheader(f"📊 Detailed Analyst Reports ({len(stocks_with_reports)} stocks)")
     st.markdown("*Complete analyst coverage details with catalysts, risks, and report history*")
     
-    try:
-        all_reports, _ = get_cached_reports()
-    except:
-        all_reports = pd.DataFrame()
-    
+    # Create dropdown for stock selection
+    stock_options = []
     for idx, row in stocks_with_reports.iterrows():
-        ticker = row['Ticker']
-        ticker_clean = ticker.replace('.SG', '')
+        ticker_clean = row['Ticker'].replace('.SG', '')
         company_name = row['Name']
+        stock_options.append(f"{ticker_clean} - {company_name}")
+    
+    selected_stock_display = st.selectbox(
+        "Select a stock to view detailed analyst report:",
+        options=stock_options,
+        key="analyst_report_selectbox"
+    )
+    
+    if selected_stock_display:
+        # Extract ticker from selection
+        selected_ticker_clean = selected_stock_display.split(' - ')[0]
+        selected_ticker = f"{selected_ticker_clean}.SG"
+        
+        # Find the selected stock's data
+        selected_row = stocks_with_reports[stocks_with_reports['Ticker'] == selected_ticker].iloc[0]
+        
+        try:
+            all_reports, _ = get_cached_reports()
+        except:
+            all_reports = pd.DataFrame()
+        
+        ticker = selected_row['Ticker']
+        ticker_clean = ticker.replace('.SG', '')
+        company_name = selected_row['Name']
         
         st.markdown(f"### {ticker_clean} - {company_name}")
         
-        sentiment_emoji = format_sentiment_emoji(row['sentiment_label'])
-        sentiment_score = row['sentiment_score']
-        sentiment_label = row['sentiment_label']
-        report_date = row['report_date']
-        report_age = row.get('report_age_days', 0)
+        sentiment_emoji = format_sentiment_emoji(selected_row['sentiment_label'])
+        sentiment_score = selected_row['sentiment_score']
+        sentiment_label = selected_row['sentiment_label']
+        report_date = selected_row['report_date']
+        report_age = selected_row.get('report_age_days', 0)
         
         col1, col2, col3, col4 = st.columns(4)
         with col1:
@@ -1707,30 +1727,30 @@ def display_detailed_analyst_reports(results_df: pd.DataFrame):
             st.metric(f"{sentiment_emoji} Sentiment", f"{sentiment_score:.2f}",
                      delta=sentiment_label.title())
         with col3:
-            if pd.notna(row.get('analyst_firm')):
-                st.metric("🏢 Analyst Firm", row['analyst_firm'])
+            if pd.notna(selected_row.get('analyst_firm')):
+                st.metric("🏢 Analyst Firm", selected_row['analyst_firm'])
             else:
                 st.metric("🏢 Analyst Firm", "N/A")
         with col4:
-            if pd.notna(row.get('upside_pct')):
-                upside = row['upside_pct']
+            if pd.notna(selected_row.get('upside_pct')):
+                upside = selected_row['upside_pct']
                 st.metric("🎯 Upside to Target", f"{upside:+.1f}%")
             else:
                 st.metric("🎯 Target", "N/A")
         
-        if pd.notna(row.get('price_target')) and pd.notna(row.get('price_at_report')):
+        if pd.notna(selected_row.get('price_target')) and pd.notna(selected_row.get('price_at_report')):
             col_a, col_b, col_c = st.columns(3)
             with col_a:
-                st.write(f"**Current Price:** ${row['Close']:.3f}" if row['Close'] < 1 else f"**Current Price:** ${row['Close']:.2f}")
+                st.write(f"**Current Price:** ${selected_row['Close']:.3f}" if selected_row['Close'] < 1 else f"**Current Price:** ${selected_row['Close']:.2f}")
             with col_b:
-                st.write(f"**Target Price:** ${row['price_target']:.3f}" if row['price_target'] < 1 else f"**Target Price:** ${row['price_target']:.2f}")
+                st.write(f"**Target Price:** ${selected_row['price_target']:.3f}" if selected_row['price_target'] < 1 else f"**Target Price:** ${selected_row['price_target']:.2f}")
             with col_c:
-                st.write(f"**Price at Report:** ${row['price_at_report']:.3f}" if row['price_at_report'] < 1 else f"**Price at Report:** ${row['price_at_report']:.2f}")
+                st.write(f"**Price at Report:** ${selected_row['price_at_report']:.3f}" if selected_row['price_at_report'] < 1 else f"**Price at Report:** ${selected_row['price_at_report']:.2f}")
         
         col_left, col_right = st.columns(2)
         
         with col_left:
-            catalysts = row.get('key_catalysts', [])
+            catalysts = selected_row.get('key_catalysts', [])
             if catalysts and len(catalysts) > 0:
                 st.markdown(f"**💡 Key Catalysts ({len(catalysts)}):**")
                 for i, catalyst in enumerate(catalysts, 1):
@@ -1739,7 +1759,7 @@ def display_detailed_analyst_reports(results_df: pd.DataFrame):
                 st.markdown("**💡 Key Catalysts:** None listed")
         
         with col_right:
-            risks = row.get('key_risks', [])
+            risks = selected_row.get('key_risks', [])
             if risks and len(risks) > 0:
                 st.markdown(f"**⚠️ Key Risks ({len(risks)}):**")
                 for i, risk in enumerate(risks, 1):
@@ -1747,7 +1767,7 @@ def display_detailed_analyst_reports(results_df: pd.DataFrame):
             else:
                 st.markdown("**⚠️ Key Risks:** None listed")
         
-        report_count = row.get('report_count', 1)
+        report_count = selected_row.get('report_count', 1)
         if report_count > 1 and not all_reports.empty:
             history = get_report_history(all_reports, ticker)
             
@@ -1774,13 +1794,11 @@ def display_detailed_analyst_reports(results_df: pd.DataFrame):
                 
                 trend = get_sentiment_trend_description(history)
                 st.info(f"**Sentiment Trend:** {trend}")
-        
-        st.markdown("---")
 
 def display_detailed_earnings_reports(results_df: pd.DataFrame):
     """
-    Display detailed earnings reports for stocks with coverage
-    Shows all earnings reports at bottom after analyst reports
+    Display detailed earnings reports with dropdown selection
+    Shows selected stock's detailed information
     """
     if 'revenue' not in results_df.columns:
         return
@@ -1794,25 +1812,46 @@ def display_detailed_earnings_reports(results_df: pd.DataFrame):
     st.subheader(f"💰 Detailed Earnings Reports ({len(stocks_with_earnings)} stocks)")
     st.markdown("*Complete earnings coverage with financial metrics, guidance, and report history*")
     
-    try:
-        all_earnings, _ = get_cached_earnings()
-    except:
-        all_earnings = pd.DataFrame()
-    
+    # Create dropdown for stock selection
+    stock_options = []
     for idx, row in stocks_with_earnings.iterrows():
-        ticker = row['Ticker']
-        ticker_clean = ticker.replace('.SG', '')
+        ticker_clean = row['Ticker'].replace('.SG', '')
         company_name = row['Name']
         company_type = row.get('company_type', 'normal')
+        stock_options.append(f"{ticker_clean} - {company_name} ({company_type.upper()})")
+    
+    selected_stock_display = st.selectbox(
+        "Select a stock to view detailed earnings report:",
+        options=stock_options,
+        key="earnings_report_selectbox"
+    )
+    
+    if selected_stock_display:
+        # Extract ticker from selection
+        selected_ticker_clean = selected_stock_display.split(' - ')[0]
+        selected_ticker = f"{selected_ticker_clean}.SG"
         
-        report_type = row.get('report_type', 'N/A')
-        fiscal_year = row.get('fiscal_year', 'N/A')
+        # Find the selected stock's data
+        selected_row = stocks_with_earnings[stocks_with_earnings['Ticker'] == selected_ticker].iloc[0]
+        
+        try:
+            all_earnings, _ = get_cached_earnings()
+        except:
+            all_earnings = pd.DataFrame()
+        
+        ticker = selected_row['Ticker']
+        ticker_clean = ticker.replace('.SG', '')
+        company_name = selected_row['Name']
+        company_type = selected_row.get('company_type', 'normal')
+        
+        report_type = selected_row.get('report_type', 'N/A')
+        fiscal_year = selected_row.get('fiscal_year', 'N/A')
         st.markdown(f"### {ticker_clean} - {company_name}")
         st.markdown(f"**{report_type} {fiscal_year} Results** | Company Type: {company_type.upper()}")
         
-        report_date = row.get('report_date')
-        report_age = row.get('report_age_days', 0)
-        guidance_tone = row.get('guidance_tone', 'neutral')
+        report_date = selected_row.get('report_date')
+        report_age = selected_row.get('report_age_days', 0)
+        guidance_tone = selected_row.get('guidance_tone', 'neutral')
         guidance_emoji = format_guidance_emoji(guidance_tone)
         
         col1, col2, col3, col4 = st.columns(4)
@@ -1823,20 +1862,20 @@ def display_detailed_earnings_reports(results_df: pd.DataFrame):
         with col2:
             st.metric(f"{guidance_emoji} Guidance", guidance_tone.title())
         with col3:
-            revenue_yoy = row.get('revenue_yoy_change')
+            revenue_yoy = selected_row.get('revenue_yoy_change')
             if pd.notna(revenue_yoy):
                 st.metric("Revenue YoY", format_percentage_change(revenue_yoy))
             else:
                 st.metric("Revenue YoY", "N/A")
         with col4:
             if company_type in ['reit', 'business_trust']:
-                dpu_yoy = row.get('dpu_yoy_change')
+                dpu_yoy = selected_row.get('dpu_yoy_change')
                 if pd.notna(dpu_yoy):
                     st.metric("DPU YoY", format_percentage_change(dpu_yoy))
                 else:
                     st.metric("DPU YoY", "N/A")
             else:
-                eps_yoy = row.get('eps_yoy_change')
+                eps_yoy = selected_row.get('eps_yoy_change')
                 if pd.notna(eps_yoy):
                     st.metric("EPS YoY", format_percentage_change(eps_yoy))
                 else:
@@ -1848,52 +1887,52 @@ def display_detailed_earnings_reports(results_df: pd.DataFrame):
             col_a, col_b, col_c, col_d = st.columns(4)
             
             with col_a:
-                dpu = row.get('dpu')
+                dpu = selected_row.get('dpu')
                 if pd.notna(dpu):
                     st.write(f"**DPU:** {dpu:.2f} cents")
                 else:
                     st.write("**DPU:** N/A")
                 
-                npi = row.get('net_property_income')
+                npi = selected_row.get('net_property_income')
                 if pd.notna(npi):
                     st.write(f"**Net Property Income:** {format_currency(npi)}")
                 else:
                     st.write("**Net Property Income:** N/A")
             
             with col_b:
-                gearing = row.get('gearing_ratio')
+                gearing = selected_row.get('gearing_ratio')
                 if pd.notna(gearing):
                     st.write(f"**Gearing Ratio:** {gearing:.1f}%")
                 else:
                     st.write("**Gearing Ratio:** N/A")
                 
-                occupancy = row.get('portfolio_occupancy')
+                occupancy = selected_row.get('portfolio_occupancy')
                 if pd.notna(occupancy):
                     st.write(f"**Portfolio Occupancy:** {occupancy:.1f}%")
                 else:
                     st.write("**Portfolio Occupancy:** N/A")
             
             with col_c:
-                nav = row.get('nav_per_unit')
+                nav = selected_row.get('nav_per_unit')
                 if pd.notna(nav):
                     st.write(f"**NAV per Unit:** ${nav:.2f}")
                 else:
                     st.write("**NAV per Unit:** N/A")
                 
-                interest_coverage = row.get('interest_coverage_ratio')
+                interest_coverage = selected_row.get('interest_coverage_ratio')
                 if pd.notna(interest_coverage):
                     st.write(f"**Interest Coverage:** {interest_coverage:.1f}x")
                 else:
                     st.write("**Interest Coverage:** N/A")
             
             with col_d:
-                revenue = row.get('revenue')
+                revenue = selected_row.get('revenue')
                 if pd.notna(revenue):
                     st.write(f"**Revenue:** {format_currency(revenue)}")
                 else:
                     st.write("**Revenue:** N/A")
                 
-                property_margin = row.get('property_operating_margin')
+                property_margin = selected_row.get('property_operating_margin')
                 if pd.notna(property_margin):
                     st.write(f"**Property Op Margin:** {property_margin:.1f}%")
                 else:
@@ -1903,52 +1942,52 @@ def display_detailed_earnings_reports(results_df: pd.DataFrame):
             col_a, col_b, col_c, col_d = st.columns(4)
             
             with col_a:
-                revenue = row.get('revenue')
+                revenue = selected_row.get('revenue')
                 if pd.notna(revenue):
                     st.write(f"**Revenue:** {format_currency(revenue)}")
                 else:
                     st.write("**Revenue:** N/A")
                 
-                net_profit = row.get('net_profit')
+                net_profit = selected_row.get('net_profit')
                 if pd.notna(net_profit):
                     st.write(f"**Net Profit:** {format_currency(net_profit)}")
                 else:
                     st.write("**Net Profit:** N/A")
             
             with col_b:
-                eps = row.get('eps')
+                eps = selected_row.get('eps')
                 if pd.notna(eps):
                     st.write(f"**EPS:** ${eps:.2f}")
                 else:
                     st.write("**EPS:** N/A")
                 
-                gross_margin = row.get('gross_margin')
+                gross_margin = selected_row.get('gross_margin')
                 if pd.notna(gross_margin):
                     st.write(f"**Gross Margin:** {gross_margin:.1f}%")
                 else:
                     st.write("**Gross Margin:** N/A")
             
             with col_c:
-                operating_margin = row.get('operating_margin')
+                operating_margin = selected_row.get('operating_margin')
                 if pd.notna(operating_margin):
                     st.write(f"**Operating Margin:** {operating_margin:.1f}%")
                 else:
                     st.write("**Operating Margin:** N/A")
                 
-                net_margin = row.get('net_margin')
+                net_margin = selected_row.get('net_margin')
                 if pd.notna(net_margin):
                     st.write(f"**Net Margin:** {net_margin:.1f}%")
                 else:
                     st.write("**Net Margin:** N/A")
             
             with col_d:
-                debt_to_equity = row.get('debt_to_equity')
+                debt_to_equity = selected_row.get('debt_to_equity')
                 if pd.notna(debt_to_equity):
                     st.write(f"**Debt-to-Equity:** {debt_to_equity:.2f}")
                 else:
                     st.write("**Debt-to-Equity:** N/A")
                 
-                fcf = row.get('free_cash_flow')
+                fcf = selected_row.get('free_cash_flow')
                 if pd.notna(fcf):
                     st.write(f"**Free Cash Flow:** {format_currency(fcf)}")
                 else:
@@ -1957,7 +1996,7 @@ def display_detailed_earnings_reports(results_df: pd.DataFrame):
         col_left, col_right = st.columns(2)
         
         with col_left:
-            highlights = row.get('key_highlights', [])
+            highlights = selected_row.get('key_highlights', [])
             if highlights and len(highlights) > 0:
                 st.markdown(f"**💡 Key Highlights ({len(highlights)}):**")
                 for i, highlight in enumerate(highlights, 1):
@@ -1966,7 +2005,7 @@ def display_detailed_earnings_reports(results_df: pd.DataFrame):
                 st.markdown("**💡 Key Highlights:** None listed")
         
         with col_right:
-            concerns = row.get('concerns', [])
+            concerns = selected_row.get('concerns', [])
             if concerns and len(concerns) > 0:
                 st.markdown(f"**⚠️ Concerns ({len(concerns)}):**")
                 for i, concern in enumerate(concerns, 1):
@@ -1974,12 +2013,12 @@ def display_detailed_earnings_reports(results_df: pd.DataFrame):
             else:
                 st.markdown("**⚠️ Concerns:** None listed")
         
-        mgmt_commentary = row.get('mgmt_commentary_summary')
+        mgmt_commentary = selected_row.get('mgmt_commentary_summary')
         if pd.notna(mgmt_commentary) and mgmt_commentary:
             st.markdown("**💬 Management Commentary:**")
             st.info(mgmt_commentary)
         
-        report_count = row.get('report_count', 1)
+        report_count = selected_row.get('report_count', 1)
         if report_count > 1 and not all_earnings.empty:
             history = get_earnings_history(all_earnings, ticker)
             
@@ -2006,8 +2045,6 @@ def display_detailed_earnings_reports(results_df: pd.DataFrame):
                 
                 trend = get_earnings_trend_description(history)
                 st.info(f"**Earnings Trend:** {trend}")
-        
-        st.markdown("---")
 
 def display_scan_results(results_df: pd.DataFrame):
     """Main function to display scanning results with all features"""
@@ -2030,7 +2067,7 @@ def display_scan_results(results_df: pd.DataFrame):
         show_full_results_table(results_df)
         show_mpi_insights(results_df)
         
-        # CRITICAL: These functions display the detailed sections
+        # CRITICAL: These functions now display with dropdown selection
         display_detailed_analyst_reports(results_df)
         display_detailed_earnings_reports(results_df)
         
@@ -2044,7 +2081,7 @@ def show():
     """Main scanner page display with all features"""
     
     st.title("📈 Stock Scanner")
-    st.markdown("Enhanced with **Pure MPI Expansion System**, **Analyst Report Integration**, **Earnings Report Integration**, and **yfinance Download**")
+    st.markdown("Enhanced with **Pure MPI Expansion System**, **Analyst Report Integration**, and **Earnings Report Integration**")
     st.markdown("**Data Source: Local File System** (./data/Historical_Data + ./data/EOD_Data + yfinance API)")
     
     st.subheader("📥 Data Management")
