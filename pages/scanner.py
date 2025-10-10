@@ -1,5 +1,6 @@
-# File: pages/scanner.py
-# Part 1 of 3
+# File: pages/scanner.py - COMPLETE VERSION WITH YFINANCE + DETAILED REPORTS
+# Replace your entire scanner.py with this complete version
+
 """
 Stock Scanner - Local File System
 Enhanced with Pure MPI Expansion Filtering, Analyst Report Integration, and Earnings Report Integration
@@ -11,6 +12,7 @@ UPDATED: Simplified base filter, enhanced H/L filter with Higher_H support
 UPDATED: Custom filters now support both Minimum and Maximum filtering
 NEW: Integrated with Analyst Reports for sentiment analysis
 NEW: Integrated with Earnings Reports for fundamental analysis
+NEW: Detailed analyst and earnings report sections at bottom
 REMOVED: Market Regime analysis (ML code removed)
 """
 
@@ -143,6 +145,9 @@ class ErrorLogger:
 # Initialize global error logger
 if 'error_logger' not in st.session_state:
     st.session_state.error_logger = ErrorLogger()
+
+# File: pages/scanner.py - Part 2 of 6
+# Update prompts and helper functions
 
 def show_update_prompt():
     """
@@ -305,13 +310,6 @@ def perform_eod_update(loader, force: bool = False) -> bool:
     """
     Perform the Historical_Data update from EOD file
     ENHANCED: Added force parameter to bypass date checks
-    
-    Args:
-        loader: LocalFileLoader instance
-        force: If True, force re-processing of latest EOD file
-    
-    Returns:
-        True if successful, False otherwise
     """
     try:
         # Create progress containers
@@ -392,14 +390,6 @@ def perform_eod_update(loader, force: bool = False) -> bool:
 def perform_yfinance_download(loader, start_date: date, end_date: date) -> bool:
     """
     NEW: Perform yfinance download to fill date gaps
-    
-    Args:
-        loader: LocalFileLoader instance
-        start_date: Start of missing date range
-        end_date: End of missing date range
-    
-    Returns:
-        True if successful, False otherwise
     """
     try:
         # Create progress containers
@@ -470,9 +460,6 @@ def perform_yfinance_download(loader, start_date: date, end_date: date) -> bool:
         st.session_state.error_logger.log_error("yfinance Download Execution", e)
         st.error("❌ yfinance download failed - check error log for details")
         return False
-    
-# File: pages/scanner.py
-# Part 2 of 3
 
 def get_price_format(price: float) -> str:
     """Get the appropriate price format string based on price level"""
@@ -514,6 +501,9 @@ def get_mpi_expansion_description(trend: str) -> str:
         'Strong Contraction': 'Momentum declining'
     }
     return descriptions.get(trend, 'Unknown')
+
+# File: pages/scanner.py - Part 3 of 6
+# Filter functions
 
 def apply_mpi_expansion_filter(base_stocks: pd.DataFrame, selected_trends: List[str]) -> pd.DataFrame:
     """Apply pure MPI expansion-based filtering with smart sorting"""
@@ -568,31 +558,8 @@ def create_filter_statistics_dataframe(data: pd.Series, metric_name: str) -> pd.
     }
     return pd.DataFrame(stats_data)
 
-def create_distribution_chart(data: pd.Series, title: str, x_label: str, threshold_lines: dict = None):
-    """Create standardized distribution charts"""
-    if len(data) == 0:
-        return None
-    
-    fig = px.histogram(
-        x=data,
-        nbins=20,
-        title=title,
-        labels={'x': x_label, 'y': 'Count'}
-    )
-    
-    if threshold_lines:
-        for label, (value, color) in threshold_lines.items():
-            fig.add_vline(x=value, line_dash="dash", line_color=color, annotation_text=label)
-    
-    return fig
-
 def apply_velocity_filter(filtered_stocks: pd.DataFrame, results_df: pd.DataFrame) -> tuple:
-    """
-    Apply VW Range Velocity percentile filter for daily momentum
-    UPDATED: Added Minimum/Maximum custom filter option
-    FIXED: Robust error handling and guaranteed return
-    """
-    # Early return if no stocks
+    """Apply VW Range Velocity percentile filter for daily momentum"""
     if filtered_stocks.empty:
         return filtered_stocks, None, "No stocks available"
     
@@ -608,11 +575,10 @@ def apply_velocity_filter(filtered_stocks: pd.DataFrame, results_df: pd.DataFram
     # Remove zero velocities for percentile calculation
     non_zero_velocities = velocities[velocities != 0]
     
-    # Early return if no velocity data
     if len(non_zero_velocities) == 0:
         return filtered_stocks, None, "No VW Range Velocity data available"
     
-    # Percentile options with Custom added
+    # Percentile options
     percentile_options = {
         "Top 25%": 75,
         "Top 50%": 50, 
@@ -621,20 +587,16 @@ def apply_velocity_filter(filtered_stocks: pd.DataFrame, results_df: pd.DataFram
         "No Filter": None
     }
     
-    # Radio button with default index
     selected_percentile = st.radio(
         "Select velocity filter:",
         list(percentile_options.keys()),
-        index=4,  # Default to "No Filter" (5th option, index 4)
+        index=4,
         key="vw_range_velocity_percentile_radio"
     )
     
-    # Initialize info_message
     info_message = "All velocities included"
     
-    # Apply filtering based on selection
     if selected_percentile == "Custom":
-        # Add min/max radio button
         filter_type = st.radio(
             "Filter by:",
             ["Minimum", "Maximum"],
@@ -643,7 +605,6 @@ def apply_velocity_filter(filtered_stocks: pd.DataFrame, results_df: pd.DataFram
         )
         
         if filter_type == "Minimum":
-            # Minimum filter
             custom_velocity_value = st.number_input(
                 "Enter minimum VW Range Velocity:",
                 min_value=-1.0,
@@ -652,13 +613,11 @@ def apply_velocity_filter(filtered_stocks: pd.DataFrame, results_df: pd.DataFram
                 step=0.01,
                 format="%.4f",
                 key="custom_velocity_min_input",
-                help="Filter stocks with velocity >= this value. Positive = expanding, Negative = contracting"
+                help="Filter stocks with velocity >= this value"
             )
             filtered_stocks = filtered_stocks[velocities >= custom_velocity_value]
             info_message = f"VW Range Velocity ≥ {custom_velocity_value:+.4f} pp"
-            
-        else:  # Maximum
-            # Maximum filter
+        else:
             custom_velocity_value = st.number_input(
                 "Enter maximum VW Range Velocity:",
                 min_value=-1.0,
@@ -667,7 +626,7 @@ def apply_velocity_filter(filtered_stocks: pd.DataFrame, results_df: pd.DataFram
                 step=0.01,
                 format="%.4f",
                 key="custom_velocity_max_input",
-                help="Filter stocks with velocity <= this value. Use 0.0 for flat/contracting stocks"
+                help="Filter stocks with velocity <= this value"
             )
             filtered_stocks = filtered_stocks[velocities <= custom_velocity_value]
             info_message = f"VW Range Velocity ≤ {custom_velocity_value:+.4f} pp"
@@ -678,22 +637,15 @@ def apply_velocity_filter(filtered_stocks: pd.DataFrame, results_df: pd.DataFram
         filtered_stocks = filtered_stocks[velocities >= threshold_value]
         info_message = f"VW Range Velocity ≥ {threshold_value:+.4f} pp"
     
-    # else: No Filter - keep info_message as "All velocities included"
-    
-    # Always return the tuple
     return filtered_stocks, non_zero_velocities, info_message
 
 def apply_ibs_filter(filtered_stocks: pd.DataFrame) -> tuple:
-    """
-    Apply IBS percentile filter
-    UPDATED: Added Minimum/Maximum custom filter option
-    """
+    """Apply IBS percentile filter"""
     if filtered_stocks.empty:
         return filtered_stocks, "No stocks available"
     
     ibs_values = filtered_stocks['IBS']
     
-    # Percentile options
     ibs_percentile_options = {
         "Top 25%": 75,
         "Top 50%": 50,
@@ -708,9 +660,7 @@ def apply_ibs_filter(filtered_stocks: pd.DataFrame) -> tuple:
         key="ibs_percentile_radio"
     )
     
-    # Apply filtering
     if selected_ibs_option == "Custom":
-        # Add min/max radio button
         filter_type = st.radio(
             "Filter by:",
             ["Minimum", "Maximum"],
@@ -719,7 +669,6 @@ def apply_ibs_filter(filtered_stocks: pd.DataFrame) -> tuple:
         )
         
         if filter_type == "Minimum":
-            # Minimum filter
             custom_ibs_value = st.number_input(
                 "Enter minimum IBS value:",
                 min_value=0.0,
@@ -727,14 +676,11 @@ def apply_ibs_filter(filtered_stocks: pd.DataFrame) -> tuple:
                 value=0.3,
                 step=0.05,
                 format="%.2f",
-                key="custom_ibs_min_input",
-                help="Filter stocks with IBS >= this value. Higher = closed near high"
+                key="custom_ibs_min_input"
             )
             filtered_stocks = filtered_stocks[filtered_stocks['IBS'] >= custom_ibs_value]
             info_message = f"IBS ≥ {custom_ibs_value:.2f}"
-            
-        else:  # Maximum
-            # Maximum filter
+        else:
             custom_ibs_value = st.number_input(
                 "Enter maximum IBS value:",
                 min_value=0.0,
@@ -742,8 +688,7 @@ def apply_ibs_filter(filtered_stocks: pd.DataFrame) -> tuple:
                 value=0.3,
                 step=0.05,
                 format="%.2f",
-                key="custom_ibs_max_input",
-                help="Filter stocks with IBS <= this value. Lower = closed near low"
+                key="custom_ibs_max_input"
             )
             filtered_stocks = filtered_stocks[filtered_stocks['IBS'] <= custom_ibs_value]
             info_message = f"IBS ≤ {custom_ibs_value:.2f}"
@@ -753,23 +698,18 @@ def apply_ibs_filter(filtered_stocks: pd.DataFrame) -> tuple:
         threshold_value = np.percentile(ibs_values, percentile_val)
         filtered_stocks = filtered_stocks[filtered_stocks['IBS'] >= threshold_value]
         info_message = f"IBS ≥ {threshold_value:.3f} ({selected_ibs_option})"
-        
     else:
         info_message = "All IBS values included"
     
     return filtered_stocks, info_message
 
 def apply_relative_volume_filter(filtered_stocks: pd.DataFrame) -> tuple:
-    """
-    Apply Relative Volume percentile filter
-    UPDATED: Added Minimum/Maximum custom filter option
-    """
+    """Apply Relative Volume percentile filter"""
     if filtered_stocks.empty:
         return filtered_stocks, "No stocks available"
     
     rel_volume_values = filtered_stocks['Relative_Volume']
     
-    # Percentile options
     rel_volume_percentile_options = {
         "Top 25%": 75,
         "Top 50%": 50,
@@ -784,9 +724,7 @@ def apply_relative_volume_filter(filtered_stocks: pd.DataFrame) -> tuple:
         key="rel_volume_percentile_radio"
     )
     
-    # Apply filtering
     if selected_rel_volume_option == "Custom":
-        # Add min/max radio button
         filter_type = st.radio(
             "Filter by:",
             ["Minimum", "Maximum"],
@@ -795,7 +733,6 @@ def apply_relative_volume_filter(filtered_stocks: pd.DataFrame) -> tuple:
         )
         
         if filter_type == "Minimum":
-            # Minimum filter
             custom_rel_volume_value = st.number_input(
                 "Enter minimum Relative Volume %:",
                 min_value=50.0,
@@ -803,14 +740,11 @@ def apply_relative_volume_filter(filtered_stocks: pd.DataFrame) -> tuple:
                 value=100.0,
                 step=10.0,
                 format="%.1f",
-                key="custom_rel_volume_min_input",
-                help="100% = average volume, 200% = double average volume"
+                key="custom_rel_volume_min_input"
             )
             filtered_stocks = filtered_stocks[filtered_stocks['Relative_Volume'] >= custom_rel_volume_value]
             info_message = f"Rel Volume ≥ {custom_rel_volume_value:.1f}%"
-            
-        else:  # Maximum
-            # Maximum filter
+        else:
             custom_rel_volume_value = st.number_input(
                 "Enter maximum Relative Volume %:",
                 min_value=50.0,
@@ -818,8 +752,7 @@ def apply_relative_volume_filter(filtered_stocks: pd.DataFrame) -> tuple:
                 value=100.0,
                 step=10.0,
                 format="%.1f",
-                key="custom_rel_volume_max_input",
-                help="Filter stocks with volume <= this value. 100% = filter out high volume stocks"
+                key="custom_rel_volume_max_input"
             )
             filtered_stocks = filtered_stocks[filtered_stocks['Relative_Volume'] <= custom_rel_volume_value]
             info_message = f"Rel Volume ≤ {custom_rel_volume_value:.1f}%"
@@ -829,18 +762,13 @@ def apply_relative_volume_filter(filtered_stocks: pd.DataFrame) -> tuple:
         threshold_value = np.percentile(rel_volume_values, percentile_val)
         filtered_stocks = filtered_stocks[filtered_stocks['Relative_Volume'] >= threshold_value]
         info_message = f"Rel Volume ≥ {threshold_value:.1f}% ({selected_rel_volume_option})"
-        
     else:
         info_message = "All Relative Volume levels included"
     
     return filtered_stocks, info_message
 
 def apply_higher_hl_filter(filtered_stocks: pd.DataFrame, base_filter_type: str) -> tuple:
-    """
-    Apply Higher H/L pattern filter - UPDATED with Higher_H support
-    Now offers three options: Higher H/L Only, Higher H Only, No Filter
-    """
-    # Filter options with descriptions
+    """Apply Higher H/L pattern filter"""
     hl_filter_options = {
         "Higher H/L Only": "Both higher high AND higher low (HHL)",
         "Higher H Only": "Any higher high (HH or HHL)",
@@ -852,22 +780,16 @@ def apply_higher_hl_filter(filtered_stocks: pd.DataFrame, base_filter_type: str)
     selected_hl_filter = st.radio(
         "Select Higher H/L filter:",
         list(hl_filter_options.keys()),
-        key="higher_hl_pattern_radio",
-        help="Filter by higher high and/or higher low patterns"
+        key="higher_hl_pattern_radio"
     )
     
-    # Apply filtering based on selection
     if selected_hl_filter == "Higher H/L Only":
-        # Only stocks with both higher high AND higher low
         filtered_stocks = filtered_stocks[filtered_stocks['Higher_HL'] == 1]
         info_message = f"Higher H/L Only (HHL) - {len(filtered_stocks)} stocks"
-        
     elif selected_hl_filter == "Higher H Only":
-        # Stocks with higher high (includes both HH and HHL)
         filtered_stocks = filtered_stocks[filtered_stocks['Higher_H'] == 1]
         info_message = f"Higher H Only (HH + HHL) - {len(filtered_stocks)} stocks"
-        
-    else:  # No Filter
+    else:
         info_message = f"All patterns - {len(filtered_stocks)} stocks"
     
     return filtered_stocks, selected_hl_filter, info_message
@@ -878,20 +800,17 @@ def apply_mpi_filter(filtered_stocks: pd.DataFrame) -> tuple:
         st.warning("MPI expansion filtering not available - MPI_Trend data missing")
         return filtered_stocks, [], "MPI data unavailable"
     
-    # Toggle to enable/disable MPI filtering
     use_mpi_filter = st.checkbox("Enable MPI Filtering", value=True, key="mpi_filter_toggle")
     
     if not use_mpi_filter:
         return filtered_stocks, [], "MPI filter disabled"
     
-    # MPI Expansion trend options
     trend_options = [
         "📈 Expanding",
         "➖ Flat",
         "📉 Contracting"
     ]
     
-    # Multi-select checkboxes for expansion trends
     st.markdown("Select momentum trends:")
     selected_trends = []
     
@@ -905,7 +824,6 @@ def apply_mpi_filter(filtered_stocks: pd.DataFrame) -> tuple:
         if st.checkbox(trend, key=f"mpi_trend_checkbox_{i}"):
             selected_trends.append(trend_mapping[trend])
     
-    # Apply MPI trend filtering
     if selected_trends:
         filtered_stocks = apply_mpi_expansion_filter(filtered_stocks, selected_trends)
         display_names = [k for k, v in trend_mapping.items() if v in selected_trends]
@@ -918,20 +836,19 @@ def apply_mpi_filter(filtered_stocks: pd.DataFrame) -> tuple:
 def show_filter_statistics(component_name: str, data: pd.Series, base_stocks: pd.DataFrame = None):
     """Show statistics for a filter component"""
     with st.expander(f"{component_name} Statistics", expanded=False):
-        if component_name == "VW Range Velocity" and len(data) > 0:
+        if component_name == "VW Range Velocity" and data is not None and len(data) > 0:
             stats_df = create_filter_statistics_dataframe(data, component_name)
             st.dataframe(stats_df, hide_index=True, use_container_width=True)
             
-        elif component_name == "IBS" and len(data) > 0:
+        elif component_name == "IBS" and data is not None and len(data) > 0:
             stats_df = create_filter_statistics_dataframe(data, component_name)
             st.dataframe(stats_df, hide_index=True, use_container_width=True)
             
-        elif component_name == "Relative Volume" and len(data) > 0:
+        elif component_name == "Relative Volume" and data is not None and len(data) > 0:
             stats_df = create_filter_statistics_dataframe(data, component_name)
             st.dataframe(stats_df, hide_index=True, use_container_width=True)
             
         elif component_name == "Higher H/L" and base_stocks is not None:
-            # Show statistics for both Higher_H and Higher_HL
             higher_h_count = (base_stocks['Higher_H'] == 1).sum()
             higher_hl_count = (base_stocks['Higher_HL'] == 1).sum()
             hh_only_count = ((base_stocks['Higher_H'] == 1) & (base_stocks['Higher_HL'] == 0)).sum()
@@ -987,20 +904,15 @@ def show_filter_statistics(component_name: str, data: pd.Series, base_stocks: pd
                 st.dataframe(pd.DataFrame(trend_stats_data), hide_index=True, use_container_width=True)
 
 def apply_dynamic_filters(base_stocks: pd.DataFrame, results_df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Apply dynamic filtering with optimized component structure
-    REMOVED: Market Regime filter (ML code removed)
-    """
+    """Apply dynamic filtering with optimized component structure"""
     if base_stocks.empty:
         st.warning("No stocks available for filtering")
         return base_stocks
     
     st.subheader("🎯 Dynamic Filtering")
     
-    # Create FIVE columns for filters (regime removed)
     col1, col2, col3, col4, col5 = st.columns(5)
     
-    # Initialize filtered stocks
     filtered_stocks = base_stocks.copy()
     filter_summary = []
     
@@ -1008,7 +920,6 @@ def apply_dynamic_filters(base_stocks: pd.DataFrame, results_df: pd.DataFrame) -
     with col1:
         filtered_stocks, selected_hl_filter, hl_info = apply_higher_hl_filter(filtered_stocks, st.session_state.get('base_filter_type', 'All Stocks'))
         st.info(hl_info)
-        
         show_filter_statistics("Higher H/L", None, base_stocks)
         if selected_hl_filter != "No Filter":
             filter_summary.append(f"H/L: {selected_hl_filter}")
@@ -1018,7 +929,6 @@ def apply_dynamic_filters(base_stocks: pd.DataFrame, results_df: pd.DataFrame) -
         st.markdown("**VW Range Velocity Filter:**")
         filtered_stocks, velocity_data, velocity_info = apply_velocity_filter(filtered_stocks, results_df)
         st.info(velocity_info)
-        
         if velocity_data is not None and len(velocity_data) > 0:
             show_filter_statistics("VW Range Velocity", velocity_data)
             if "≥" in velocity_info or "≤" in velocity_info:
@@ -1029,7 +939,6 @@ def apply_dynamic_filters(base_stocks: pd.DataFrame, results_df: pd.DataFrame) -
         st.markdown("**IBS Filter:**")
         filtered_stocks, ibs_info = apply_ibs_filter(filtered_stocks)
         st.info(ibs_info)
-        
         if len(filtered_stocks) > 0:
             show_filter_statistics("IBS", filtered_stocks['IBS'])
             if "≥" in ibs_info or "≤" in ibs_info:
@@ -1040,7 +949,6 @@ def apply_dynamic_filters(base_stocks: pd.DataFrame, results_df: pd.DataFrame) -
         st.markdown("**Relative Volume Filter:**")
         filtered_stocks, rel_volume_info = apply_relative_volume_filter(filtered_stocks)
         st.info(rel_volume_info)
-        
         if len(filtered_stocks) > 0:
             show_filter_statistics("Relative Volume", filtered_stocks['Relative_Volume'])
             if "≥" in rel_volume_info or "≤" in rel_volume_info:
@@ -1051,14 +959,12 @@ def apply_dynamic_filters(base_stocks: pd.DataFrame, results_df: pd.DataFrame) -
         st.markdown("**MPI Expansion Filter:**")
         filtered_stocks, selected_trends, mpi_info = apply_mpi_filter(filtered_stocks)
         st.info(mpi_info)
-        
         show_filter_statistics("MPI Trend", None, base_stocks)
         if selected_trends:
             filter_summary.append(f"MPI: {len(selected_trends)} trends")
         elif "disabled" in mpi_info:
             filter_summary.append("MPI: Disabled")
     
-    # Show combined filter summary
     if filter_summary:
         st.success(f"Active filters: {' + '.join(filter_summary)} → {len(filtered_stocks)} stocks")
     else:
@@ -1066,8 +972,8 @@ def apply_dynamic_filters(base_stocks: pd.DataFrame, results_df: pd.DataFrame) -
     
     return filtered_stocks
 
-# File: pages/scanner.py
-# Part 3 of 3
+# File: pages/scanner.py - Part 4 of 6
+# Scan configuration and execution with corrected display column creation
 
 def show_scanning_configuration():
     """Display the scanning configuration panel"""
@@ -1155,20 +1061,16 @@ def execute_scan_button(scan_scope, selected_stock, scan_date_type, historical_d
         st.session_state.error_logger = ErrorLogger()
         
         try:
-            # Import required modules
             from core.data_fetcher import DataFetcher
             from utils.watchlist import get_active_watchlist
             
-            # Determine stocks to scan
             if scan_scope == "Single Stock":
                 stocks_to_scan = [selected_stock]
             else:
                 stocks_to_scan = get_active_watchlist()
             
-            # Determine analysis date
             analysis_date = historical_date if scan_date_type == "Historical Date" else None
             
-            # Execute scan
             run_enhanced_stock_scan(
                 stocks_to_scan=stocks_to_scan,
                 analysis_date=analysis_date,
@@ -1184,7 +1086,10 @@ def execute_scan_button(scan_scope, selected_stock, scan_date_type, historical_d
             st.error("❌ Failed to execute scan - check error details above")
 
 def run_enhanced_stock_scan(stocks_to_scan, analysis_date=None, days_back=59, rolling_window=20):
-    """Execute the enhanced stock scanning process from local files"""
+    """
+    Execute the enhanced stock scanning process from local files
+    CORRECTED: Creates display columns immediately after merging reports
+    """
     
     error_logger = st.session_state.error_logger
     
@@ -1192,7 +1097,6 @@ def run_enhanced_stock_scan(stocks_to_scan, analysis_date=None, days_back=59, ro
         from core.data_fetcher import DataFetcher, set_global_data_fetcher
         from core.technical_analysis import add_enhanced_columns, get_mpi_trend_info
         
-        # Log scan start
         is_historical = analysis_date is not None
         is_single_stock = len(stocks_to_scan) == 1
         
@@ -1202,16 +1106,13 @@ def run_enhanced_stock_scan(stocks_to_scan, analysis_date=None, days_back=59, ro
         logger.info(f"Starting scan: {scope_text} with {date_text}")
         st.info(f"🔄 Scanning {scope_text} with {date_text}... Loading from local files...")
         
-        # Initialize progress tracking
         progress_bar = st.progress(0)
         status_text = st.empty()
         
-        # Initialize data fetcher
         status_text.text("🔧 Initializing data fetcher...")
         fetcher = DataFetcher(days_back=days_back)
         progress_bar.progress(0.1)
         
-        # Download stock data from local files
         status_text.text("📥 Loading stock data from local files...")
         stock_data = fetcher.download_stock_data(stocks_to_scan, target_date=analysis_date)
         set_global_data_fetcher(fetcher)
@@ -1222,7 +1123,6 @@ def run_enhanced_stock_scan(stocks_to_scan, analysis_date=None, days_back=59, ro
             st.error("❌ Failed to load stock data from local files. Check error log for details.")
             return
         
-        # Process stocks
         status_text.text("🔄 Calculating Pure MPI Expansion and technical analysis...")
         progress_bar.progress(0.4)
         
@@ -1235,18 +1135,13 @@ def run_enhanced_stock_scan(stocks_to_scan, analysis_date=None, days_back=59, ro
                     error_logger.log_warning("Stock Processing", f"Empty dataframe for {ticker}")
                     continue
                 
-                # Apply technical analysis
                 df_enhanced = add_enhanced_columns(df_raw, ticker, rolling_window)
-                
-                # Get analysis row (most recent)
                 analysis_row = df_enhanced.iloc[-1]
                 actual_date = analysis_row.name
                 
-                # Collect result
                 result = _create_result_dict(analysis_row, actual_date, ticker, fetcher)
                 results.append(result)
                 
-                # Update progress
                 progress = 0.4 + (0.4 * (i + 1) / len(stock_data))
                 progress_bar.progress(progress)
                 
@@ -1255,7 +1150,6 @@ def run_enhanced_stock_scan(stocks_to_scan, analysis_date=None, days_back=59, ro
                 processing_errors.append(f"{ticker}: {str(e)}")
                 continue
         
-        # Finalize results
         status_text.text("📊 Preparing Pure MPI Expansion results...")
         progress_bar.progress(0.8)
         
@@ -1273,6 +1167,26 @@ def run_enhanced_stock_scan(stocks_to_scan, analysis_date=None, days_back=59, ro
                 matches = results_df['sentiment_score'].notna().sum() if 'sentiment_score' in results_df.columns else 0
                 logger.info(f"Merged analyst reports: {matches} matches out of {len(results_df)} stocks")
                 status_text.text(f"📊 Analyst reports: {matches} matches found")
+                
+                # CRITICAL FIX: CREATE ANALYST DISPLAY COLUMNS HERE
+                if 'sentiment_score' in results_df.columns:
+                    results_df['Sentiment_Display'] = results_df.apply(
+                        lambda row: f"{format_sentiment_emoji(row['sentiment_label'])} {row['sentiment_score']:.2f}" 
+                        if pd.notna(row['sentiment_score']) else '—',
+                        axis=1
+                    )
+                    results_df['Report_Date_Display'] = results_df.apply(
+                        lambda row: row['report_date'].strftime('%b %d') 
+                        if pd.notna(row['report_date']) else '—',
+                        axis=1
+                    )
+                    results_df['Report_Count_Display'] = results_df.apply(
+                        lambda row: f"{int(row['report_count'])} 📊" 
+                        if pd.notna(row['report_count']) and row['report_count'] > 1 
+                        else ('1 📊' if pd.notna(row['report_count']) else '—'),
+                        axis=1
+                    )
+                    logger.info("✅ Created analyst display columns")
             else:
                 logger.info("No analyst reports available")
                 
@@ -1291,6 +1205,45 @@ def run_enhanced_stock_scan(stocks_to_scan, analysis_date=None, days_back=59, ro
                 matches = results_df['revenue'].notna().sum() if 'revenue' in results_df.columns else 0
                 logger.info(f"Merged earnings reports: {matches} matches out of {len(results_df)} stocks")
                 status_text.text(f"💰 Earnings reports: {matches} matches found")
+                
+                # CRITICAL FIX: CREATE EARNINGS DISPLAY COLUMNS HERE
+                if 'revenue' in results_df.columns:
+                    results_df['Earnings_Period'] = results_df.apply(
+                        lambda row: row['report_type'] if pd.notna(row.get('report_type')) else '—',
+                        axis=1
+                    )
+                    
+                    results_df['Guidance_Display'] = results_df.apply(
+                        lambda row: f"{format_guidance_emoji(row['guidance_tone'])} {row['guidance_tone'].title()}" 
+                        if pd.notna(row.get('guidance_tone')) else '—',
+                        axis=1
+                    )
+                    
+                    results_df['Rev_YoY_Display'] = results_df.apply(
+                        lambda row: format_percentage_change(row['revenue_yoy_change']) 
+                        if pd.notna(row.get('revenue_yoy_change')) else '—',
+                        axis=1
+                    )
+                    
+                    def get_eps_dpu_display(row):
+                        if pd.isna(row.get('company_type')):
+                            return '—'
+                        
+                        company_type = row['company_type']
+                        
+                        if company_type in ['reit', 'business_trust']:
+                            if pd.notna(row.get('dpu_yoy_change')):
+                                return f"DPU: {format_percentage_change(row['dpu_yoy_change'])}"
+                            else:
+                                return '—'
+                        else:
+                            if pd.notna(row.get('eps_yoy_change')):
+                                return f"EPS: {format_percentage_change(row['eps_yoy_change'])}"
+                            else:
+                                return '—'
+                    
+                    results_df['EPS_DPU_Display'] = results_df.apply(get_eps_dpu_display, axis=1)
+                    logger.info("✅ Created earnings display columns")
             else:
                 logger.info("No earnings reports available")
                 
@@ -1306,7 +1259,6 @@ def run_enhanced_stock_scan(stocks_to_scan, analysis_date=None, days_back=59, ro
             'stock_count': len(results_df)
         }
         
-        # Complete scan
         progress_bar.progress(1.0)
         status_text.text("✅ Pure MPI Expansion scan completed!")
         
@@ -1314,7 +1266,6 @@ def run_enhanced_stock_scan(stocks_to_scan, analysis_date=None, days_back=59, ro
         progress_bar.empty()
         status_text.empty()
         
-        # Show success message
         success_message = f"🎉 Pure MPI Expansion Scan completed! Analyzed {len(results_df)} stocks successfully from local files"
         if processing_errors:
             success_message += f" ({len(processing_errors)} errors - check log for details)"
@@ -1328,24 +1279,18 @@ def run_enhanced_stock_scan(stocks_to_scan, analysis_date=None, days_back=59, ro
         error_logger.log_error("Scan Execution", e)
         st.error("❌ Pure MPI Expansion scan failed with critical error - check error log for details")
         
-        # Clean up progress indicators
         if 'progress_bar' in locals():
             progress_bar.empty()
         if 'status_text' in locals():
             status_text.empty()
 
 def _create_result_dict(analysis_row: pd.Series, actual_date, ticker: str, fetcher) -> dict:
-    """
-    Create result dictionary from analysis row
-    REMOVED: Market_Regime and Regime_Probability columns
-    """
-    # Get company name
+    """Create result dictionary from analysis row"""
     try:
         company_name = fetcher.get_company_name(ticker)
     except Exception:
         company_name = ticker.replace('.SG', '')
     
-    # Determine price formatting
     close_price = float(analysis_row['Close'])
     price_decimals = 3 if close_price < 1.00 else 2
     
@@ -1356,7 +1301,6 @@ def _create_result_dict(analysis_row: pd.Series, actual_date, ticker: str, fetch
             return 0
     
     def safe_int(value, default=0):
-        """Safely convert value to int, handling NaN and other edge cases"""
         try:
             if pd.isna(value):
                 return default
@@ -1364,7 +1308,6 @@ def _create_result_dict(analysis_row: pd.Series, actual_date, ticker: str, fetch
         except:
             return default
     
-    # Get MPI trend info
     mpi_trend = str(analysis_row.get('MPI_Trend', 'Unknown'))
     mpi_velocity = float(analysis_row.get('MPI_Velocity', 0.0)) if not pd.isna(analysis_row.get('MPI_Velocity', 0.0)) else 0.0
     
@@ -1374,11 +1317,9 @@ def _create_result_dict(analysis_row: pd.Series, actual_date, ticker: str, fetch
     except:
         mpi_trend_info = {'emoji': '❓', 'description': 'Unknown'}
     
-    # Get Higher_H and Higher_HL values and create HL_Pattern
     higher_h = safe_int(analysis_row.get('Higher_H', 0))
     higher_hl = safe_int(analysis_row.get('Higher_HL', 0))
     
-    # Create HL_Pattern display value
     if higher_hl == 1:
         hl_pattern = "HHL"
     elif higher_h == 1:
@@ -1386,7 +1327,6 @@ def _create_result_dict(analysis_row: pd.Series, actual_date, ticker: str, fetch
     else:
         hl_pattern = "-"
     
-    # Create result dictionary (REMOVED Market_Regime columns)
     result = {
         'Ticker': ticker,
         'Name': company_name,
@@ -1396,12 +1336,9 @@ def _create_result_dict(analysis_row: pd.Series, actual_date, ticker: str, fetch
         'Low': safe_round(analysis_row['Low'], price_decimals),
         'IBS': round(float(analysis_row['IBS']), 3) if not pd.isna(analysis_row['IBS']) else 0,
         'Valid_CRT': safe_int(analysis_row.get('Valid_CRT', 0)),
-        
-        # Add Higher_H and HL_Pattern
         'Higher_H': higher_h,
         'Higher_HL': higher_hl,
         'HL_Pattern': hl_pattern,
-        
         'CRT_Velocity': round(float(analysis_row.get('CRT_Qualifying_Velocity', 0)), 4) if not pd.isna(analysis_row.get('CRT_Qualifying_Velocity', 0)) else 0,
         'VW_Range_Velocity': round(float(analysis_row.get('VW_Range_Velocity', 0)), 4) if not pd.isna(analysis_row.get('VW_Range_Velocity', 0)) else 0,
         'Weekly_Open': safe_round(analysis_row.get('Weekly_Open', 0), price_decimals),
@@ -1409,48 +1346,35 @@ def _create_result_dict(analysis_row: pd.Series, actual_date, ticker: str, fetch
         'CRT_Low': safe_round(analysis_row.get('CRT_Low', 0), price_decimals),
         'VW_Range_Percentile': round(float(analysis_row.get('VW_Range_Percentile', 0)), 4) if not pd.isna(analysis_row.get('VW_Range_Percentile', 0)) else 0,
         'Rel_Range_Signal': safe_int(analysis_row.get('Rel_Range_Signal', 0)),
-        
-        # Pure MPI Expansion columns
         'MPI': round(float(analysis_row.get('MPI', 0.5)), 4) if not pd.isna(analysis_row.get('MPI', 0.5)) else 0.5,
         'MPI_Velocity': round(mpi_velocity, 4),
         'MPI_Trend': mpi_trend,
         'MPI_Trend_Emoji': mpi_trend_info.get('emoji', '❓'),
         'MPI_Description': mpi_trend_info.get('description', 'Unknown'),
         'MPI_Visual': format_mpi_visual(analysis_row.get('MPI', 0.5)),
-        
-        # Relative Volume columns
         'Relative_Volume': round(float(analysis_row.get('Relative_Volume', 100.0)), 1) if not pd.isna(analysis_row.get('Relative_Volume', 100.0)) else 100.0,
         'High_Rel_Volume_150': safe_int(analysis_row.get('High_Rel_Volume_150', 0)),
         'High_Rel_Volume_200': safe_int(analysis_row.get('High_Rel_Volume_200', 0)),
-        
         'Price_Decimals': price_decimals
     }
     
     return result
 
-# File: pages/scanner.py
-# Part 4 of 4 (Final - Display Functions)
-
-# Add these functions after _create_result_dict() in Part 3
+# File: pages/scanner.py - Part 5 of 6
+# Display functions including detailed analyst and earnings sections
 
 def display_scan_summary(results_df: pd.DataFrame):
-    """
-    Display scan summary with Pure MPI Expansion statistics
-    UPDATED: Added earnings coverage statistics
-    REMOVED: Market regime statistics
-    """
+    """Display scan summary with Pure MPI Expansion statistics"""
     st.subheader("📊 Scan Summary with Pure MPI Expansion Analysis")
     
     total_stocks = len(results_df)
     
-    # Calculate Higher_H and Higher_HL counts
     higher_h_count = len(results_df[results_df['Higher_H'] == 1])
     higher_hl_count = len(results_df[results_df['Higher_HL'] == 1])
     hh_only_count = len(results_df[(results_df['Higher_H'] == 1) & (results_df['Higher_HL'] == 0)])
     
     valid_crt_count = len(results_df[results_df['Valid_CRT'] == 1])
     
-    # Pure MPI Expansion statistics
     if 'MPI_Trend' in results_df.columns:
         trend_counts = results_df['MPI_Trend'].value_counts()
         strong_expansion = trend_counts.get('Strong Expansion', 0)
@@ -1462,7 +1386,6 @@ def display_scan_summary(results_df: pd.DataFrame):
         strong_expansion = expanding = contracting = 0
         avg_mpi = avg_velocity = 0
     
-    # Display metrics
     col1, col2, col3, col4, col5, col6 = st.columns(6)
     
     with col1:
@@ -1478,7 +1401,6 @@ def display_scan_summary(results_df: pd.DataFrame):
     with col6:
         st.metric("📈 Expanding", strong_expansion + expanding, delta=f">0% velocity")
     
-    # Analysis date info with H/L pattern breakdown
     if len(results_df) > 0:
         analysis_dates = results_df['Analysis_Date'].unique()
         if len(analysis_dates) == 1:
@@ -1512,14 +1434,10 @@ def display_scan_summary(results_df: pd.DataFrame):
     if 'revenue' in results_df.columns:
         with_earnings = results_df['revenue'].notna().sum()
         if with_earnings > 0:
-            # Get earnings statistics
-            earnings_stats = get_earnings_coverage_stats(results_df, results_df[results_df['revenue'].notna()])
-            
             positive_guidance = (results_df['guidance_tone'] == 'positive').sum()
             negative_guidance = (results_df['guidance_tone'] == 'negative').sum()
             neutral_guidance = (results_df['guidance_tone'] == 'neutral').sum()
             
-            # Calculate average report age
             avg_age = results_df[results_df['report_age_days'].notna()]['report_age_days'].mean()
             
             st.markdown("#### 💰 Earnings Reports Coverage")
@@ -1536,10 +1454,9 @@ def display_scan_summary(results_df: pd.DataFrame):
                 st.metric("📉 Negative", negative_guidance, delta="Bearish")
 
 def show_base_pattern_filter(results_df: pd.DataFrame) -> pd.DataFrame:
-    """Show base pattern filter - SIMPLIFIED to only Valid CRT and All Stocks"""
+    """Show base pattern filter"""
     st.subheader("🎯 Pattern Analysis")
     
-    # Only 2 base filter options
     base_filter_options = {
         "Valid CRT Only": "All stocks with Valid CRT (Monday range expansion)",
         "All Stocks": "Complete scan results without pattern filtering"
@@ -1552,108 +1469,38 @@ def show_base_pattern_filter(results_df: pd.DataFrame) -> pd.DataFrame:
         key="base_filter_radio"
     )
     
-    # Store in session state for filter logic
     st.session_state.base_filter_type = selected_base_filter
     
-    # Apply base filter
     if selected_base_filter == "Valid CRT Only":
         base_stocks = results_df[results_df['Valid_CRT'] == 1].copy()
         st.info(f"Showing {len(base_stocks)} stocks with Valid CRT (Monday range expansion)")
-    
-    else:  # All Stocks
+    else:
         base_stocks = results_df.copy()
         st.info(f"Showing all {len(base_stocks)} scanned stocks")
     
     return base_stocks
 
 def display_filtered_results(filtered_stocks: pd.DataFrame, selected_base_filter: str):
-    """
-    Display the filtered results table and export options
-    UPDATED: Added earnings report columns (Period, Guidance, Revenue YoY, EPS/DPU YoY)
-    """
+    """Display the filtered results table and export options"""
     st.subheader(f"📋 Pure MPI Expansion Results ({len(filtered_stocks)} stocks)")
     
     if len(filtered_stocks) == 0:
         st.warning("No stocks match the current filter criteria")
         return
     
-    # Prepare analyst report display columns if data exists
-    if 'sentiment_score' in filtered_stocks.columns:
-        filtered_stocks['Sentiment_Display'] = filtered_stocks.apply(
-            lambda row: f"{format_sentiment_emoji(row['sentiment_label'])} {row['sentiment_score']:.2f}" 
-            if pd.notna(row['sentiment_score']) else '—',
-            axis=1
-        )
-        filtered_stocks['Report_Date_Display'] = filtered_stocks.apply(
-            lambda row: row['report_date'].strftime('%b %d') 
-            if pd.notna(row['report_date']) else '—',
-            axis=1
-        )
-        filtered_stocks['Report_Count_Display'] = filtered_stocks.apply(
-            lambda row: f"{int(row['report_count'])} 📊" 
-            if pd.notna(row['report_count']) and row['report_count'] > 1 
-            else ('1 📊' if pd.notna(row['report_count']) else '—'),
-            axis=1
-        )
-    
-    # Prepare earnings report display columns if data exists
-    if 'revenue' in filtered_stocks.columns:
-        # Earnings Period display
-        filtered_stocks['Earnings_Period'] = filtered_stocks.apply(
-            lambda row: row['report_type'] if pd.notna(row.get('report_type')) else '—',
-            axis=1
-        )
-        
-        # Guidance display with emoji
-        filtered_stocks['Guidance_Display'] = filtered_stocks.apply(
-            lambda row: f"{format_guidance_emoji(row['guidance_tone'])} {row['guidance_tone'].title()}" 
-            if pd.notna(row.get('guidance_tone')) else '—',
-            axis=1
-        )
-        
-        # Revenue YoY
-        filtered_stocks['Rev_YoY_Display'] = filtered_stocks.apply(
-            lambda row: format_percentage_change(row['revenue_yoy_change']) 
-            if pd.notna(row.get('revenue_yoy_change')) else '—',
-            axis=1
-        )
-        
-        # EPS/DPU YoY (adaptive based on company type)
-        def get_eps_dpu_display(row):
-            if pd.isna(row.get('company_type')):
-                return '—'
-            
-            company_type = row['company_type']
-            
-            if company_type in ['reit', 'business_trust']:
-                # Show DPU for REITs
-                if pd.notna(row.get('dpu_yoy_change')):
-                    return f"DPU: {format_percentage_change(row['dpu_yoy_change'])}"
-                else:
-                    return '—'
-            else:
-                # Show EPS for normal companies
-                if pd.notna(row.get('eps_yoy_change')):
-                    return f"EPS: {format_percentage_change(row['eps_yoy_change'])}"
-                else:
-                    return '—'
-        
-        filtered_stocks['EPS_DPU_Display'] = filtered_stocks.apply(get_eps_dpu_display, axis=1)
-    
-    # Define display columns with both analyst and earnings data
+    # Display columns already exist from scan - just use them
     display_cols = ['Analysis_Date', 'Ticker', 'Name', 'HL_Pattern',
                     'VW_Range_Velocity', 'IBS', 'Relative_Volume',
                     'MPI_Trend_Emoji', 'MPI_Visual']
     
     # Add analyst columns if available
-    if 'sentiment_score' in filtered_stocks.columns:
+    if 'Sentiment_Display' in filtered_stocks.columns:
         display_cols.extend(['Sentiment_Display', 'Report_Date_Display', 'Report_Count_Display'])
     
     # Add earnings columns if available
-    if 'revenue' in filtered_stocks.columns:
+    if 'Earnings_Period' in filtered_stocks.columns:
         display_cols.extend(['Earnings_Period', 'Guidance_Display', 'Rev_YoY_Display', 'EPS_DPU_Display'])
     
-    # Create column configuration
     base_column_config = {
         'Analysis_Date': st.column_config.TextColumn('Date', width='small'),
         'Ticker': st.column_config.TextColumn('Ticker', width='small'),
@@ -1673,13 +1520,9 @@ def display_filtered_results(filtered_stocks: pd.DataFrame, selected_base_filter
         'EPS_DPU_Display': st.column_config.TextColumn('EPS/DPU', width='small', help='EPS or DPU year-over-year change')
     }
     
-    # Apply dynamic price formatting
     column_config = get_dynamic_column_config(filtered_stocks, display_cols, base_column_config)
-    
-    # Filter display columns to only existing ones
     display_cols = [col for col in display_cols if col in filtered_stocks.columns]
     
-    # Display the results table
     try:
         st.dataframe(
             filtered_stocks[display_cols],
@@ -1688,7 +1531,6 @@ def display_filtered_results(filtered_stocks: pd.DataFrame, selected_base_filter
             hide_index=True
         )
         
-        # TradingView Export
         show_tradingview_export(filtered_stocks, selected_base_filter)
         
     except Exception as e:
@@ -1699,11 +1541,9 @@ def show_tradingview_export(filtered_stocks: pd.DataFrame, selected_base_filter:
     """Show TradingView export section"""
     st.subheader("📋 TradingView Export (Pure MPI Expansion Filtered)")
     
-    # Remove .SG suffix for TradingView format
     tv_tickers = [f"SGX:{ticker.replace('.SG', '')}" for ticker in filtered_stocks['Ticker'].tolist()]
     tv_string = ','.join(tv_tickers)
     
-    # Calculate Pure MPI Expansion summary for export description
     mpi_summary = ""
     if 'MPI_Trend' in filtered_stocks.columns:
         trend_summary = filtered_stocks['MPI_Trend'].value_counts()
@@ -1719,7 +1559,6 @@ def show_tradingview_export(filtered_stocks: pd.DataFrame, selected_base_filter:
         help="Copy and paste into TradingView watchlist. Sorted by MPI Expansion trends."
     )
     
-    # CSV Export
     csv_data = filtered_stocks.to_csv(index=False)
     filename_prefix = selected_base_filter.lower().replace(' ', '_').replace('+', 'and')
     st.download_button(
@@ -1730,10 +1569,9 @@ def show_tradingview_export(filtered_stocks: pd.DataFrame, selected_base_filter:
     )
 
 def show_full_results_table(results_df: pd.DataFrame):
-    """Show the full results table in an expander - UPDATED: Added earnings report columns"""
+    """Show the full results table in an expander"""
     with st.expander("📋 Full Pure MPI Expansion Analysis Results", expanded=False):
         try:
-            # Include earnings columns if available
             full_results_cols = [
                 'Analysis_Date', 'Ticker', 'Name', 'Close',
                 'CRT_High', 'CRT_Low', 'HL_Pattern',
@@ -1741,11 +1579,9 @@ def show_full_results_table(results_df: pd.DataFrame):
                 'MPI_Trend_Emoji', 'MPI_Trend', 'MPI', 'MPI_Velocity', 'MPI_Visual'
             ]
             
-            # Add analyst columns if present
             if 'Sentiment_Display' in results_df.columns:
                 full_results_cols.extend(['Sentiment_Display', 'Report_Date_Display', 'Report_Count_Display'])
             
-            # Add earnings columns if present
             if 'Earnings_Period' in results_df.columns:
                 full_results_cols.extend(['Earnings_Period', 'Guidance_Display', 'Rev_YoY_Display', 'EPS_DPU_Display'])
             
@@ -1753,7 +1589,7 @@ def show_full_results_table(results_df: pd.DataFrame):
                 'Analysis_Date': st.column_config.TextColumn('Date', width='small'),
                 'Ticker': st.column_config.TextColumn('Ticker', width='small'),
                 'Name': st.column_config.TextColumn('Company Name', width='medium'),
-                'HL_Pattern': st.column_config.TextColumn('H/L', width='small', help='HHL=Both, HH=High only, -=Neither'),
+                'HL_Pattern': st.column_config.TextColumn('H/L', width='small'),
                 'VW_Range_Velocity': st.column_config.NumberColumn('Range Vel', format='%+.4f'),
                 'IBS': st.column_config.NumberColumn('IBS', format='%.3f'),
                 'Valid_CRT': st.column_config.NumberColumn('CRT', width='small'),
@@ -1771,7 +1607,6 @@ def show_full_results_table(results_df: pd.DataFrame):
                 'EPS_DPU_Display': st.column_config.TextColumn('EPS/DPU', width='small')
             }
             
-            # Apply dynamic formatting and filter columns
             full_results_column_config = get_dynamic_column_config(results_df, full_results_cols, base_full_results_config)
             full_results_cols = [col for col in full_results_cols if col in results_df.columns]
             
@@ -1792,7 +1627,6 @@ def show_mpi_insights(results_df: pd.DataFrame):
         return
         
     with st.expander("📈 Pure MPI Expansion Insights", expanded=False):
-        # Create comprehensive trend summary
         trend_summary = []
         trend_counts = results_df['MPI_Trend'].value_counts()
         
@@ -1803,7 +1637,6 @@ def show_mpi_insights(results_df: pd.DataFrame):
                 avg_mpi = trend_stocks['MPI'].mean()
                 avg_velocity = trend_stocks['MPI_Velocity'].mean()
                 
-                # Get top stock by velocity in this trend
                 if len(trend_stocks) > 0:
                     if trend in ['Strong Expansion', 'Expanding']:
                         top_stock_idx = trend_stocks['MPI_Velocity'].idxmax()
@@ -1828,34 +1661,378 @@ def show_mpi_insights(results_df: pd.DataFrame):
         if trend_summary:
             st.dataframe(pd.DataFrame(trend_summary), hide_index=True, use_container_width=True)
 
+# File: pages/scanner.py - Part 6 of 6 (Final)
+# Detailed analyst/earnings sections and main show() function
+
+def display_detailed_analyst_reports(results_df: pd.DataFrame):
+    """
+    Display detailed analyst reports for stocks with coverage
+    Shows all reports at bottom after main table
+    """
+    if 'sentiment_score' not in results_df.columns:
+        return
+    
+    stocks_with_reports = results_df[results_df['sentiment_score'].notna()].copy()
+    
+    if len(stocks_with_reports) == 0:
+        return
+    
+    st.markdown("---")
+    st.subheader(f"📊 Detailed Analyst Reports ({len(stocks_with_reports)} stocks)")
+    st.markdown("*Complete analyst coverage details with catalysts, risks, and report history*")
+    
+    try:
+        all_reports, _ = get_cached_reports()
+    except:
+        all_reports = pd.DataFrame()
+    
+    for idx, row in stocks_with_reports.iterrows():
+        ticker = row['Ticker']
+        ticker_clean = ticker.replace('.SG', '')
+        company_name = row['Name']
+        
+        st.markdown(f"### {ticker_clean} - {company_name}")
+        
+        sentiment_emoji = format_sentiment_emoji(row['sentiment_label'])
+        sentiment_score = row['sentiment_score']
+        sentiment_label = row['sentiment_label']
+        report_date = row['report_date']
+        report_age = row.get('report_age_days', 0)
+        
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("📅 Report Date", report_date.strftime('%b %d, %Y') if pd.notna(report_date) else 'N/A',
+                     delta=format_report_age(report_age))
+        with col2:
+            st.metric(f"{sentiment_emoji} Sentiment", f"{sentiment_score:.2f}",
+                     delta=sentiment_label.title())
+        with col3:
+            if pd.notna(row.get('analyst_firm')):
+                st.metric("🏢 Analyst Firm", row['analyst_firm'])
+            else:
+                st.metric("🏢 Analyst Firm", "N/A")
+        with col4:
+            if pd.notna(row.get('upside_pct')):
+                upside = row['upside_pct']
+                st.metric("🎯 Upside to Target", f"{upside:+.1f}%")
+            else:
+                st.metric("🎯 Target", "N/A")
+        
+        if pd.notna(row.get('price_target')) and pd.notna(row.get('price_at_report')):
+            col_a, col_b, col_c = st.columns(3)
+            with col_a:
+                st.write(f"**Current Price:** ${row['Close']:.3f}" if row['Close'] < 1 else f"**Current Price:** ${row['Close']:.2f}")
+            with col_b:
+                st.write(f"**Target Price:** ${row['price_target']:.3f}" if row['price_target'] < 1 else f"**Target Price:** ${row['price_target']:.2f}")
+            with col_c:
+                st.write(f"**Price at Report:** ${row['price_at_report']:.3f}" if row['price_at_report'] < 1 else f"**Price at Report:** ${row['price_at_report']:.2f}")
+        
+        col_left, col_right = st.columns(2)
+        
+        with col_left:
+            catalysts = row.get('key_catalysts', [])
+            if catalysts and len(catalysts) > 0:
+                st.markdown(f"**💡 Key Catalysts ({len(catalysts)}):**")
+                for i, catalyst in enumerate(catalysts, 1):
+                    st.write(f"{i}. {catalyst}")
+            else:
+                st.markdown("**💡 Key Catalysts:** None listed")
+        
+        with col_right:
+            risks = row.get('key_risks', [])
+            if risks and len(risks) > 0:
+                st.markdown(f"**⚠️ Key Risks ({len(risks)}):**")
+                for i, risk in enumerate(risks, 1):
+                    st.write(f"{i}. {risk}")
+            else:
+                st.markdown("**⚠️ Key Risks:** None listed")
+        
+        report_count = row.get('report_count', 1)
+        if report_count > 1 and not all_reports.empty:
+            history = get_report_history(all_reports, ticker)
+            
+            if len(history) > 1:
+                st.markdown(f"**📈 Report History ({len(history)} reports):**")
+                
+                history_data = []
+                for _, hist_row in history.iterrows():
+                    hist_date = hist_row['report_date']
+                    hist_sentiment = hist_row['sentiment_score']
+                    hist_label = hist_row['sentiment_label']
+                    hist_emoji = format_sentiment_emoji(hist_label)
+                    hist_age = hist_row.get('report_age_days', 0)
+                    
+                    history_data.append({
+                        'Date': hist_date.strftime('%b %d, %Y'),
+                        'Age': format_report_age(hist_age),
+                        'Sentiment': f"{hist_emoji} {hist_sentiment:.2f}",
+                        'Label': hist_label.title()
+                    })
+                
+                history_df = pd.DataFrame(history_data)
+                st.dataframe(history_df, hide_index=True, use_container_width=True)
+                
+                trend = get_sentiment_trend_description(history)
+                st.info(f"**Sentiment Trend:** {trend}")
+        
+        st.markdown("---")
+
+def display_detailed_earnings_reports(results_df: pd.DataFrame):
+    """
+    Display detailed earnings reports for stocks with coverage
+    Shows all earnings reports at bottom after analyst reports
+    """
+    if 'revenue' not in results_df.columns:
+        return
+    
+    stocks_with_earnings = results_df[results_df['revenue'].notna()].copy()
+    
+    if len(stocks_with_earnings) == 0:
+        return
+    
+    st.markdown("---")
+    st.subheader(f"💰 Detailed Earnings Reports ({len(stocks_with_earnings)} stocks)")
+    st.markdown("*Complete earnings coverage with financial metrics, guidance, and report history*")
+    
+    try:
+        all_earnings, _ = get_cached_earnings()
+    except:
+        all_earnings = pd.DataFrame()
+    
+    for idx, row in stocks_with_earnings.iterrows():
+        ticker = row['Ticker']
+        ticker_clean = ticker.replace('.SG', '')
+        company_name = row['Name']
+        company_type = row.get('company_type', 'normal')
+        
+        report_type = row.get('report_type', 'N/A')
+        fiscal_year = row.get('fiscal_year', 'N/A')
+        st.markdown(f"### {ticker_clean} - {company_name}")
+        st.markdown(f"**{report_type} {fiscal_year} Results** | Company Type: {company_type.upper()}")
+        
+        report_date = row.get('report_date')
+        report_age = row.get('report_age_days', 0)
+        guidance_tone = row.get('guidance_tone', 'neutral')
+        guidance_emoji = format_guidance_emoji(guidance_tone)
+        
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("📅 Report Date", 
+                     report_date.strftime('%b %d, %Y') if pd.notna(report_date) else 'N/A',
+                     delta=format_report_age(report_age))
+        with col2:
+            st.metric(f"{guidance_emoji} Guidance", guidance_tone.title())
+        with col3:
+            revenue_yoy = row.get('revenue_yoy_change')
+            if pd.notna(revenue_yoy):
+                st.metric("Revenue YoY", format_percentage_change(revenue_yoy))
+            else:
+                st.metric("Revenue YoY", "N/A")
+        with col4:
+            if company_type in ['reit', 'business_trust']:
+                dpu_yoy = row.get('dpu_yoy_change')
+                if pd.notna(dpu_yoy):
+                    st.metric("DPU YoY", format_percentage_change(dpu_yoy))
+                else:
+                    st.metric("DPU YoY", "N/A")
+            else:
+                eps_yoy = row.get('eps_yoy_change')
+                if pd.notna(eps_yoy):
+                    st.metric("EPS YoY", format_percentage_change(eps_yoy))
+                else:
+                    st.metric("EPS YoY", "N/A")
+        
+        st.markdown("#### 📊 Key Financial Metrics")
+        
+        if company_type in ['reit', 'business_trust']:
+            col_a, col_b, col_c, col_d = st.columns(4)
+            
+            with col_a:
+                dpu = row.get('dpu')
+                if pd.notna(dpu):
+                    st.write(f"**DPU:** {dpu:.2f} cents")
+                else:
+                    st.write("**DPU:** N/A")
+                
+                npi = row.get('net_property_income')
+                if pd.notna(npi):
+                    st.write(f"**Net Property Income:** {format_currency(npi)}")
+                else:
+                    st.write("**Net Property Income:** N/A")
+            
+            with col_b:
+                gearing = row.get('gearing_ratio')
+                if pd.notna(gearing):
+                    st.write(f"**Gearing Ratio:** {gearing:.1f}%")
+                else:
+                    st.write("**Gearing Ratio:** N/A")
+                
+                occupancy = row.get('portfolio_occupancy')
+                if pd.notna(occupancy):
+                    st.write(f"**Portfolio Occupancy:** {occupancy:.1f}%")
+                else:
+                    st.write("**Portfolio Occupancy:** N/A")
+            
+            with col_c:
+                nav = row.get('nav_per_unit')
+                if pd.notna(nav):
+                    st.write(f"**NAV per Unit:** ${nav:.2f}")
+                else:
+                    st.write("**NAV per Unit:** N/A")
+                
+                interest_coverage = row.get('interest_coverage_ratio')
+                if pd.notna(interest_coverage):
+                    st.write(f"**Interest Coverage:** {interest_coverage:.1f}x")
+                else:
+                    st.write("**Interest Coverage:** N/A")
+            
+            with col_d:
+                revenue = row.get('revenue')
+                if pd.notna(revenue):
+                    st.write(f"**Revenue:** {format_currency(revenue)}")
+                else:
+                    st.write("**Revenue:** N/A")
+                
+                property_margin = row.get('property_operating_margin')
+                if pd.notna(property_margin):
+                    st.write(f"**Property Op Margin:** {property_margin:.1f}%")
+                else:
+                    st.write("**Property Op Margin:** N/A")
+        
+        else:
+            col_a, col_b, col_c, col_d = st.columns(4)
+            
+            with col_a:
+                revenue = row.get('revenue')
+                if pd.notna(revenue):
+                    st.write(f"**Revenue:** {format_currency(revenue)}")
+                else:
+                    st.write("**Revenue:** N/A")
+                
+                net_profit = row.get('net_profit')
+                if pd.notna(net_profit):
+                    st.write(f"**Net Profit:** {format_currency(net_profit)}")
+                else:
+                    st.write("**Net Profit:** N/A")
+            
+            with col_b:
+                eps = row.get('eps')
+                if pd.notna(eps):
+                    st.write(f"**EPS:** ${eps:.2f}")
+                else:
+                    st.write("**EPS:** N/A")
+                
+                gross_margin = row.get('gross_margin')
+                if pd.notna(gross_margin):
+                    st.write(f"**Gross Margin:** {gross_margin:.1f}%")
+                else:
+                    st.write("**Gross Margin:** N/A")
+            
+            with col_c:
+                operating_margin = row.get('operating_margin')
+                if pd.notna(operating_margin):
+                    st.write(f"**Operating Margin:** {operating_margin:.1f}%")
+                else:
+                    st.write("**Operating Margin:** N/A")
+                
+                net_margin = row.get('net_margin')
+                if pd.notna(net_margin):
+                    st.write(f"**Net Margin:** {net_margin:.1f}%")
+                else:
+                    st.write("**Net Margin:** N/A")
+            
+            with col_d:
+                debt_to_equity = row.get('debt_to_equity')
+                if pd.notna(debt_to_equity):
+                    st.write(f"**Debt-to-Equity:** {debt_to_equity:.2f}")
+                else:
+                    st.write("**Debt-to-Equity:** N/A")
+                
+                fcf = row.get('free_cash_flow')
+                if pd.notna(fcf):
+                    st.write(f"**Free Cash Flow:** {format_currency(fcf)}")
+                else:
+                    st.write("**Free Cash Flow:** N/A")
+        
+        col_left, col_right = st.columns(2)
+        
+        with col_left:
+            highlights = row.get('key_highlights', [])
+            if highlights and len(highlights) > 0:
+                st.markdown(f"**💡 Key Highlights ({len(highlights)}):**")
+                for i, highlight in enumerate(highlights, 1):
+                    st.write(f"{i}. {highlight}")
+            else:
+                st.markdown("**💡 Key Highlights:** None listed")
+        
+        with col_right:
+            concerns = row.get('concerns', [])
+            if concerns and len(concerns) > 0:
+                st.markdown(f"**⚠️ Concerns ({len(concerns)}):**")
+                for i, concern in enumerate(concerns, 1):
+                    st.write(f"{i}. {concern}")
+            else:
+                st.markdown("**⚠️ Concerns:** None listed")
+        
+        mgmt_commentary = row.get('mgmt_commentary_summary')
+        if pd.notna(mgmt_commentary) and mgmt_commentary:
+            st.markdown("**💬 Management Commentary:**")
+            st.info(mgmt_commentary)
+        
+        report_count = row.get('report_count', 1)
+        if report_count > 1 and not all_earnings.empty:
+            history = get_earnings_history(all_earnings, ticker)
+            
+            if len(history) > 1:
+                st.markdown(f"**📈 Earnings History ({len(history)} reports):**")
+                
+                history_data = []
+                for _, hist_row in history.iterrows():
+                    hist_date = hist_row['report_date']
+                    hist_type = hist_row.get('report_type', 'N/A')
+                    hist_guidance = hist_row.get('guidance_tone', 'neutral')
+                    hist_emoji = format_guidance_emoji(hist_guidance)
+                    hist_revenue_yoy = hist_row.get('revenue_yoy_change')
+                    
+                    history_data.append({
+                        'Date': hist_date.strftime('%b %d, %Y'),
+                        'Period': hist_type,
+                        'Guidance': f"{hist_emoji} {hist_guidance.title()}",
+                        'Revenue YoY': format_percentage_change(hist_revenue_yoy) if pd.notna(hist_revenue_yoy) else 'N/A'
+                    })
+                
+                history_df = pd.DataFrame(history_data)
+                st.dataframe(history_df, hide_index=True, use_container_width=True)
+                
+                trend = get_earnings_trend_description(history)
+                st.info(f"**Earnings Trend:** {trend}")
+        
+        st.markdown("---")
+
 def display_scan_results(results_df: pd.DataFrame):
-    """Main function to display scanning results with Pure MPI Expansion filtering, Analyst Reports, and Earnings Reports"""
+    """Main function to display scanning results with all features"""
     
     if results_df.empty:
         st.warning("No results to display.")
         return
     
     try:
-        # Display scan summary
         display_scan_summary(results_df)
         
-        # Show base pattern filter and get filtered stocks
         base_stocks = show_base_pattern_filter(results_df)
         
         if len(base_stocks) > 0:
-            # Apply dynamic filters
             filtered_stocks = apply_dynamic_filters(base_stocks, results_df)
-            
-            # Display filtered results
             display_filtered_results(filtered_stocks, st.session_state.base_filter_type)
         else:
             st.warning(f"No stocks found for pattern: {st.session_state.base_filter_type}")
         
-        # Show full results table
         show_full_results_table(results_df)
-        
-        # Show MPI insights
         show_mpi_insights(results_df)
+        
+        # CRITICAL: These functions display the detailed sections
+        display_detailed_analyst_reports(results_df)
+        display_detailed_earnings_reports(results_df)
         
         logger.info(f"Successfully displayed results for {len(results_df)} stocks")
         
@@ -1863,15 +2040,13 @@ def display_scan_results(results_df: pd.DataFrame):
         st.session_state.error_logger.log_error("Results Display", e)
         st.error("❌ Error displaying Pure MPI Expansion results - check error log for details")
 
-# Update the show() function to include the display call
 def show():
-    """Main scanner page display with Pure MPI Expansion filtering, Analyst Reports, Earnings Reports, and yfinance download integration"""
+    """Main scanner page display with all features"""
     
     st.title("📈 Stock Scanner")
     st.markdown("Enhanced with **Pure MPI Expansion System**, **Analyst Report Integration**, **Earnings Report Integration**, and **yfinance Download**")
     st.markdown("**Data Source: Local File System** (./data/Historical_Data + ./data/EOD_Data + yfinance API)")
     
-    # Show update check/prompt
     st.subheader("📥 Data Management")
     
     if 'update_check_done' not in st.session_state:
@@ -1883,14 +2058,12 @@ def show():
             st.session_state.update_check_done = True
             st.rerun()
     else:
-        # Show manual update button
         if st.button("🔄 Check for Updates Again"):
             st.session_state.update_check_done = False
             st.rerun()
     
     st.markdown("---")
     
-    # Clear error log and refresh reports buttons
     col1, col2, col3 = st.columns(3)
     with col1:
         if st.button("🗑️ Clear Error Log"):
@@ -1908,22 +2081,16 @@ def show():
             st.success("Earnings reports cache cleared - earnings will reload on next scan")
             st.rerun()
     
-    # Display any existing errors
     st.session_state.error_logger.display_errors_in_streamlit()
     
-    # Show scanning configuration
     scan_scope, selected_stock, scan_date_type, historical_date = show_scanning_configuration()
-    
-    # Show advanced settings
     days_back, rolling_window = show_advanced_settings()
     
-    # Scan execution
     st.subheader("🚀 Execute Scan")
     
     execute_scan_button(scan_scope, selected_stock, scan_date_type, historical_date, 
                        days_back, rolling_window)
     
-    # Display last scan info if available
     if 'last_scan_time' in st.session_state:
         st.info(f"📊 Last scan completed: {st.session_state.last_scan_time}")
         
@@ -1931,7 +2098,6 @@ def show():
             config = st.session_state.last_scan_config
             st.caption(f"Scope: {config['scope']} | Date: {config['date']} | Stocks: {config['stock_count']}")
     
-    # Display results if available
     if 'scan_results' in st.session_state:
         display_scan_results(st.session_state.scan_results)
 
