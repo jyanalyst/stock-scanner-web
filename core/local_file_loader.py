@@ -6,13 +6,14 @@ Handles reading and updating stock data from local CSV files
 All dates use Singapore format: D/M/YYYY (dayfirst=True)
 FIXED: Proper date validation, cleanup of erroneous dates, and metadata column handling
 ENHANCED: Force update capability to re-process latest EOD file
+NEW: yfinance download capability for filling date gaps
 """
 
 import os
 import logging
 import pandas as pd
 from typing import Dict, List, Optional, Tuple
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 import glob
 
 logger = logging.getLogger(__name__)
@@ -308,54 +309,309 @@ class LocalFileLoader:
             logger.error(f"Error getting last date for {ticker}: {e}")
             return None
     
-    def check_for_updates(self) -> Tuple[bool, Optional[str], Optional[datetime]]:
+    def get_current_working_day(self) -> date:
         """
-        Check if Historical_Data needs updating from EOD_Data
+        Get current working day (today if weekday, else last Friday)
         
         Returns:
-            Tuple of (needs_update, eod_filename, eod_date)
+            date object representing current working day
+        """
+        today = date.today()
+        weekday = today.weekday()  # Monday=0, Sunday=6
+        
+        if weekday <= 4:  # Monday to Friday
+            return today
+        elif weekday == 5:  # Saturday
+            return today - timedelta(days=1)  # Friday
+        else:  # Sunday
+            return today - timedelta(days=2)  # Friday
+    
+    def check_for_updates(self) -> Tuple[bool, Optional[str], Optional[datetime], bool, Optional[date], Optional[date]]:
+        """
+        Check if Historical_Data needs updating from EOD_Data OR if gap exists for yfinance download
+        
+        Returns:
+            Tuple of (eod_available, eod_filename, eod_date, gap_exists, last_historical_date, current_working_day)
         """
         try:
+            # Get current working day
+            current_working_day = self.get_current_working_day()
+            
             # Get latest EOD file
             latest_eod = self.get_latest_eod_file()
             
-            if not latest_eod:
-                logger.warning("No EOD files found")
-                return False, None, None
+            eod_date = None
+            eod_available = False
             
-            # Parse EOD date
-            eod_date_str = latest_eod.replace('.csv', '')
-            eod_date = datetime.strptime(eod_date_str, '%d_%b_%Y')
+            if latest_eod:
+                # Parse EOD date
+                eod_date_str = latest_eod.replace('.csv', '')
+                eod_date = datetime.strptime(eod_date_str, '%d_%b_%Y')
             
             # Load EOD file to get first ticker
-            filepath = os.path.join(self.eod_path, latest_eod)
-            eod_df = pd.read_csv(filepath, encoding='utf-8')
-            
-            if 'Code' not in eod_df.columns:
-                return False, None, None
-            
-            sample_ticker = eod_df['Code'].iloc[0]
+            if latest_eod:
+                filepath = os.path.join(self.eod_path, latest_eod)
+                eod_df = pd.read_csv(filepath, encoding='utf-8')
+                
+                if 'Code' in eod_df.columns:
+                    sample_ticker = eod_df['Code'].iloc[0]
+                else:
+                    sample_ticker = None
+            else:
+                sample_ticker = None
             
             # Get last date in historical
-            last_hist_date = self.get_last_date_in_historical(sample_ticker)
+            last_hist_date = None
+            if sample_ticker:
+                last_hist_date = self.get_last_date_in_historical(sample_ticker)
             
-            if last_hist_date is None:
-                logger.info(f"Historical file for {sample_ticker} is missing or empty")
-                return True, latest_eod, eod_date
+            # Check if EOD update is available
+            if eod_date and last_hist_date:
+                eod_available = eod_date.date() > last_hist_date.date()
+            elif eod_date and not last_hist_date:
+                eod_available = True  # No historical data, so EOD is "new"
             
-            # Compare dates
-            needs_update = eod_date.date() > last_hist_date.date()
-            
-            if needs_update:
-                logger.info(f"Update available: EOD {eod_date.date()} > Historical {last_hist_date.date()}")
+            # Check if gap exists (current working day > last historical date)
+            gap_exists = False
+            if last_hist_date:
+                gap_exists = current_working_day > last_hist_date.date()
             else:
-                logger.info(f"Historical data is current (last: {last_hist_date.date()})")
+                gap_exists = True  # No historical data means gap exists
             
-            return needs_update, latest_eod, eod_date
+            logger.info(f"Update check: EOD available={eod_available}, Gap exists={gap_exists}")
+            logger.info(f"  Current working day: {current_working_day}")
+            logger.info(f"  Last historical: {last_hist_date.date() if last_hist_date else 'None'}")
+            logger.info(f"  EOD date: {eod_date.date() if eod_date else 'None'}")
+            
+            return (
+                eod_available,
+                latest_eod,
+                eod_date,
+                gap_exists,
+                last_hist_date.date() if last_hist_date else None,
+                current_working_day
+            )
             
         except Exception as e:
             logger.error(f"Error checking for updates: {e}")
-            return False, None, None
+            return False, None, None, False, None, None
+        
+    # File: core/local_file_loader.py
+# Part 2 of 2
+
+    def download_missing_dates_from_yfinance(self, start_date: date, end_date: date) -> Dict[str, any]:
+        """
+        Download missing dates from yfinance and append to Historical_Data
+        NEW: Downloads only missing date range and appends to existing CSVs
+        
+        Args:
+            start_date: Start of missing date range
+            end_date: End of missing date range (inclusive)
+            
+        Returns:
+            Statistics dictionary with success/failure counts
+        """
+        stats = {
+            'total_stocks': 0,
+            'updated': 0,
+            'failed': 0,
+            'skipped': 0,
+            'total_dates_added': 0,
+            'start_date': start_date.strftime('%Y-%m-%d'),
+            'end_date': end_date.strftime('%Y-%m-%d'),
+            'details': []
+        }
+        
+        try:
+            import yfinance as yf
+            
+            # Get watchlist
+            from utils.watchlist import get_active_watchlist
+            tickers = get_active_watchlist()
+            
+            stats['total_stocks'] = len(tickers)
+            
+            logger.info(f"Starting yfinance download: {start_date} to {end_date} for {len(tickers)} stocks")
+            
+            # Download for each ticker
+            for ticker in tickers:
+                try:
+                    result = self._download_and_append_single_stock(ticker, start_date, end_date)
+                    
+                    stats['details'].append(result)
+                    
+                    if result['status'] == 'updated':
+                        stats['updated'] += 1
+                        stats['total_dates_added'] += result.get('dates_added', 0)
+                    elif result['status'] == 'skipped':
+                        stats['skipped'] += 1
+                    elif result['status'] == 'failed':
+                        stats['failed'] += 1
+                        
+                except Exception as e:
+                    logger.error(f"Error downloading {ticker}: {e}")
+                    stats['failed'] += 1
+                    stats['details'].append({
+                        'ticker': ticker,
+                        'status': 'failed',
+                        'message': str(e)
+                    })
+            
+            logger.info(f"yfinance download complete: {stats['updated']} updated, {stats['failed']} failed, {stats['skipped']} skipped")
+            
+            return stats
+            
+        except Exception as e:
+            logger.error(f"Error in download_missing_dates_from_yfinance: {e}")
+            stats['error'] = str(e)
+            return stats
+    
+    def _download_and_append_single_stock(self, ticker: str, start_date: date, end_date: date) -> Dict:
+        """
+        Download data for a single stock and append to its Historical_Data CSV
+        
+        Args:
+            ticker: Stock ticker (e.g., 'A17U.SG')
+            start_date: Start date for download
+            end_date: End date for download
+            
+        Returns:
+            Dictionary with download result
+        """
+        import yfinance as yf
+        
+        result = {
+            'ticker': ticker,
+            'status': 'unknown',
+            'message': '',
+            'dates_added': 0
+        }
+        
+        try:
+            # Skip invalid tickers
+            if pd.isna(ticker) or ticker == '' or str(ticker).lower() == 'nan':
+                result['status'] = 'skipped'
+                result['message'] = 'Invalid ticker'
+                return result
+            
+            # Load existing historical data
+            ticker_clean = ticker.replace('.SG', '')
+            filename = f"{ticker_clean}.csv"
+            filepath = os.path.join(self.historical_path, filename)
+            
+            # Check if file exists and get last date
+            if os.path.exists(filepath):
+                existing_df = pd.read_csv(filepath, encoding='utf-8')
+                
+                # Parse dates
+                existing_df['Date'] = pd.to_datetime(existing_df['Date'], dayfirst=True, format='mixed')
+                
+                # Get actual last date in this file
+                last_date_in_file = existing_df['Date'].max().date()
+                
+                # Adjust start_date to be day after last date in file
+                actual_start_date = last_date_in_file + timedelta(days=1)
+                
+                if actual_start_date > end_date:
+                    result['status'] = 'skipped'
+                    result['message'] = f'No gap - file current to {last_date_in_file}'
+                    return result
+                
+            else:
+                # File doesn't exist - will create new one
+                existing_df = pd.DataFrame()
+                actual_start_date = start_date
+                logger.info(f"Creating new historical file for {ticker}")
+            
+            # Download from yfinance
+            # Convert to yfinance format (A17U.SG → A17U.SI for Singapore)
+            yf_ticker = ticker.replace('.SG', '.SI')
+            
+            logger.info(f"Downloading {yf_ticker} from {actual_start_date} to {end_date}")
+            
+            # Download data
+            stock = yf.Ticker(yf_ticker)
+            downloaded_df = stock.history(
+                start=actual_start_date,
+                end=end_date + timedelta(days=1),  # yfinance end is exclusive
+                auto_adjust=False
+            )
+            
+            if downloaded_df.empty:
+                result['status'] = 'skipped'
+                result['message'] = f'No data available from yfinance for {actual_start_date} to {end_date}'
+                return result
+            
+            # Convert downloaded data to our format
+            new_df = pd.DataFrame()
+            
+            # Reset index to get Date as column
+            downloaded_df = downloaded_df.reset_index()
+            
+            # Convert Date to Singapore format (D/M/YYYY)
+            downloaded_df['Date'] = downloaded_df['Date'].dt.strftime('%-d/%-m/%Y' if os.name != 'nt' else '%#d/%#m/%Y')
+            
+            # Build dataframe with correct column order
+            new_df['Date'] = downloaded_df['Date']
+            new_df['Code'] = ticker
+            
+            # Get company name (shortname)
+            if not existing_df.empty and 'Shortname' in existing_df.columns:
+                shortname = existing_df['Shortname'].iloc[0]
+            else:
+                shortname = ticker_clean
+            
+            new_df['Shortname'] = shortname
+            new_df['Open'] = downloaded_df['Open'].round(4)
+            new_df['High'] = downloaded_df['High'].round(4)
+            new_df['Low'] = downloaded_df['Low'].round(4)
+            new_df['Close'] = downloaded_df['Close'].round(4)
+            new_df['Vol'] = downloaded_df['Volume'].astype(int)
+            
+            # Filter: Remove any dates that might overlap (safety check)
+            if not existing_df.empty:
+                new_df['Date_dt'] = pd.to_datetime(new_df['Date'], dayfirst=True)
+                new_df = new_df[new_df['Date_dt'] > last_date_in_file]
+                new_df = new_df.drop(columns=['Date_dt'])
+            
+            if new_df.empty:
+                result['status'] = 'skipped'
+                result['message'] = 'No new dates after filtering'
+                return result
+            
+            # Sort new data by date
+            new_df['Date_dt'] = pd.to_datetime(new_df['Date'], dayfirst=True)
+            new_df = new_df.sort_values('Date_dt')
+            new_df = new_df.drop(columns=['Date_dt'])
+            
+            # Append to existing data
+            if not existing_df.empty:
+                # Convert existing dates back to string format for consistency
+                existing_df['Date'] = existing_df['Date'].dt.strftime('%-d/%-m/%Y' if os.name != 'nt' else '%#d/%#m/%Y')
+                combined_df = pd.concat([existing_df, new_df], ignore_index=True)
+            else:
+                combined_df = new_df
+            
+            # Ensure column order
+            column_order = ['Date', 'Code', 'Shortname', 'Open', 'High', 'Low', 'Close', 'Vol']
+            combined_df = combined_df[column_order]
+            
+            # Save to file
+            combined_df.to_csv(filepath, index=False, encoding='utf-8')
+            
+            result['status'] = 'updated'
+            result['dates_added'] = len(new_df)
+            result['message'] = f'Added {len(new_df)} date(s) from yfinance'
+            
+            logger.info(f"✅ {ticker}: Added {len(new_df)} dates from yfinance")
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error downloading {ticker}: {e}")
+            result['status'] = 'failed'
+            result['message'] = str(e)
+            return result
     
     def update_historical_from_eod(self, force: bool = False) -> Dict[str, any]:
         """
@@ -637,4 +893,3 @@ def get_local_loader() -> LocalFileLoader:
         LocalFileLoader instance
     """
     return LocalFileLoader()
-
