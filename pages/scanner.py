@@ -1,11 +1,12 @@
 # File: pages/scanner.py
-# Part 1 of 5
+# Part 1 of 3
 """
 Stock Scanner - Local File System
 Enhanced with Pure MPI Expansion Filtering, Analyst Report Integration, and Earnings Report Integration
 NOW USING VW_RANGE_VELOCITY FOR DAILY MOMENTUM FILTERING
 Automatically checks for Historical_Data updates on startup
 ENHANCED: Force update capability to re-process latest EOD file
+ENHANCED: yfinance download capability for filling date gaps
 UPDATED: Simplified base filter, enhanced H/L filter with Higher_H support
 UPDATED: Custom filters now support both Minimum and Maximum filtering
 NEW: Integrated with Analyst Reports for sentiment analysis
@@ -145,8 +146,8 @@ if 'error_logger' not in st.session_state:
 
 def show_update_prompt():
     """
-    Check for updates and prompt user if new data available
-    ENHANCED: Added Force Update option
+    Check for updates and prompt user with options for EOD update and/or yfinance download
+    ENHANCED: Now shows both EOD and yfinance options when appropriate
     Returns True if update was performed or skipped, False if check failed
     """
     try:
@@ -155,11 +156,50 @@ def show_update_prompt():
         loader = get_local_loader()
         
         # Check for updates
-        with st.spinner("Checking for Historical_Data updates..."):
-            needs_update, eod_filename, eod_date = loader.check_for_updates()
+        with st.spinner("Checking for Historical_Data updates and date gaps..."):
+            (eod_available, eod_filename, eod_date, 
+             gap_exists, last_historical_date, current_working_day) = loader.check_for_updates()
         
-        if needs_update:
-            # Show update prompt
+        # Scenario A: EOD available AND gap exists - show BOTH options
+        if eod_available and gap_exists:
+            st.info(f"📥 **Two update options available!**")
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.markdown("### Option 1: EOD File Update")
+                st.metric("Latest EOD File", eod_filename)
+                st.metric("EOD Date", eod_date.strftime('%d/%m/%Y') if eod_date else 'Unknown')
+                
+                if st.button("🔄 Update from EOD File", type="primary", use_container_width=True, key="eod_update_btn"):
+                    return perform_eod_update(loader, force=False)
+            
+            with col2:
+                st.markdown("### Option 2: yfinance Download")
+                st.metric("Last Historical", last_historical_date.strftime('%d/%m/%Y') if last_historical_date else 'None')
+                st.metric("Current Working Day", current_working_day.strftime('%d/%m/%Y') if current_working_day else 'Unknown')
+                
+                if gap_exists and last_historical_date and current_working_day:
+                    gap_days = (current_working_day - last_historical_date).days
+                    st.caption(f"Gap: {gap_days} day(s)")
+                
+                if st.button("📥 Download from yfinance", type="secondary", use_container_width=True, key="yfinance_download_btn"):
+                    if last_historical_date and current_working_day:
+                        start_date = last_historical_date + timedelta(days=1)
+                        return perform_yfinance_download(loader, start_date, current_working_day)
+                    else:
+                        st.error("Cannot determine date range for download")
+                        return False
+            
+            # Skip button
+            if st.button("⏭️ Skip Updates", use_container_width=True, key="skip_both_btn"):
+                st.info("Skipped updates. You can update later.")
+                return True
+            
+            return False  # Waiting for user action
+        
+        # Scenario B: Only EOD available (no gap)
+        elif eod_available and not gap_exists:
             st.info(f"📥 **New EOD data available!**")
             
             col1, col2 = st.columns(2)
@@ -173,27 +213,62 @@ def show_update_prompt():
             col_update, col_skip = st.columns(2)
             
             with col_update:
-                if st.button("🔄 Update Now", type="primary", use_container_width=True):
-                    return perform_update(loader, force=False)
+                if st.button("🔄 Update Now", type="primary", use_container_width=True, key="eod_only_update_btn"):
+                    return perform_eod_update(loader, force=False)
             
             with col_skip:
-                if st.button("⏭️ Skip This Time", use_container_width=True):
+                if st.button("⏭️ Skip This Time", use_container_width=True, key="eod_only_skip_btn"):
                     st.info("Skipped update. You can update later using the buttons below.")
                     return True
             
             return False  # Waiting for user action
         
+        # Scenario C: Only gap exists (no EOD)
+        elif not eod_available and gap_exists:
+            st.warning(f"📊 **Date gap detected!**")
+            
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Last Historical", last_historical_date.strftime('%d/%m/%Y') if last_historical_date else 'None')
+            with col2:
+                st.metric("Current Working Day", current_working_day.strftime('%d/%m/%Y') if current_working_day else 'Unknown')
+            with col3:
+                if last_historical_date and current_working_day:
+                    gap_days = (current_working_day - last_historical_date).days
+                    st.metric("Gap", f"{gap_days} day(s)")
+            
+            st.markdown("No EOD file available, but you can download missing dates from yfinance.")
+            
+            col_download, col_skip = st.columns(2)
+            
+            with col_download:
+                if st.button("📥 Download from yfinance", type="primary", use_container_width=True, key="gap_only_download_btn"):
+                    if last_historical_date and current_working_day:
+                        start_date = last_historical_date + timedelta(days=1)
+                        return perform_yfinance_download(loader, start_date, current_working_day)
+                    else:
+                        st.error("Cannot determine date range for download")
+                        return False
+            
+            with col_skip:
+                if st.button("⏭️ Skip for Now", use_container_width=True, key="gap_only_skip_btn"):
+                    st.info("Skipped download. Data gap remains.")
+                    return True
+            
+            return False  # Waiting for user action
+        
+        # Scenario D: No updates needed
         else:
-            # No new updates - show current status and force update option
             st.success("✅ Historical_Data is up to date!")
             
-            # Get latest EOD file info for force update
+            # Get latest EOD file info for force update option
             latest_eod = loader.get_latest_eod_file()
             if latest_eod:
                 eod_date_str = latest_eod.replace('.csv', '')
-                eod_date = datetime.strptime(eod_date_str, '%d_%b_%Y')
+                eod_date_display = datetime.strptime(eod_date_str, '%d_%b_%Y')
                 
-                st.info(f"📄 Latest EOD file: **{latest_eod}** ({eod_date.strftime('%d/%m/%Y')})")
+                st.info(f"📄 Latest data: **{last_historical_date.strftime('%d/%m/%Y') if last_historical_date else 'Unknown'}**")
+                st.caption(f"Current working day: {current_working_day.strftime('%d/%m/%Y') if current_working_day else 'Unknown'}")
                 
                 # Show force update option
                 with st.expander("⚙️ Advanced: Force Re-process Latest File", expanded=False):
@@ -211,7 +286,7 @@ def show_update_prompt():
                     """)
                     
                     if st.button("🔧 Force Update Latest File", type="secondary", use_container_width=True, key="force_update_button"):
-                        result = perform_update(loader, force=True)
+                        result = perform_eod_update(loader, force=True)
                         if result:
                             st.success("Force update completed!")
                             time.sleep(2)
@@ -226,9 +301,9 @@ def show_update_prompt():
         st.error("❌ Could not check for updates")
         return False
 
-def perform_update(loader, force: bool = False) -> bool:
+def perform_eod_update(loader, force: bool = False) -> bool:
     """
-    Perform the Historical_Data update
+    Perform the Historical_Data update from EOD file
     ENHANCED: Added force parameter to bypass date checks
     
     Args:
@@ -310,9 +385,94 @@ def perform_update(loader, force: bool = False) -> bool:
         return True
         
     except Exception as e:
-        st.session_state.error_logger.log_error("Update Execution", e)
-        st.error("❌ Update failed - check error log for details")
+        st.session_state.error_logger.log_error("EOD Update Execution", e)
+        st.error("❌ EOD update failed - check error log for details")
         return False
+
+def perform_yfinance_download(loader, start_date: date, end_date: date) -> bool:
+    """
+    NEW: Perform yfinance download to fill date gaps
+    
+    Args:
+        loader: LocalFileLoader instance
+        start_date: Start of missing date range
+        end_date: End of missing date range
+    
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        # Create progress containers
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+        
+        status_text.text(f"📥 Starting yfinance download: {start_date.strftime('%d/%m/%Y')} to {end_date.strftime('%d/%m/%Y')}...")
+        
+        # Show download info
+        gap_days = (end_date - start_date).days + 1
+        st.info(f"📊 Downloading {gap_days} day(s) of data for all stocks from yfinance...")
+        
+        # Perform download
+        stats = loader.download_missing_dates_from_yfinance(start_date, end_date)
+        
+        # Show progress during download
+        if stats['total_stocks'] > 0:
+            for i, detail in enumerate(stats['details']):
+                progress = (i + 1) / stats['total_stocks']
+                progress_bar.progress(progress)
+                
+                ticker = detail['ticker']
+                status = detail['status']
+                
+                if status == 'updated':
+                    status_text.text(f"✅ {ticker} - {detail['message']}")
+                elif status == 'skipped':
+                    status_text.text(f"⏭️ {ticker} - {detail['message']}")
+                elif status == 'failed':
+                    status_text.text(f"❌ {ticker} - {detail['message']}")
+                
+                time.sleep(0.1)
+        
+        # Clear progress indicators
+        progress_bar.empty()
+        status_text.empty()
+        
+        # Show summary
+        st.success(f"✅ **yfinance Download Complete!**")
+        
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("Total Stocks", stats['total_stocks'])
+        with col2:
+            st.metric("Updated", stats['updated'])
+        with col3:
+            st.metric("Skipped", stats['skipped'])
+        with col4:
+            st.metric("Failed", stats['failed'])
+        
+        col_a, col_b = st.columns(2)
+        with col_a:
+            st.metric("Total Dates Added", stats['total_dates_added'])
+        with col_b:
+            st.info(f"📅 Date range: **{stats['start_date']}** to **{stats['end_date']}**")
+        
+        # Show failures if any
+        if stats['failed'] > 0:
+            with st.expander("⚠️ View Failed Downloads", expanded=False):
+                for detail in stats['details']:
+                    if detail['status'] == 'failed':
+                        st.write(f"**{detail['ticker']}**: {detail['message']}")
+        
+        time.sleep(2)
+        return True
+        
+    except Exception as e:
+        st.session_state.error_logger.log_error("yfinance Download Execution", e)
+        st.error("❌ yfinance download failed - check error log for details")
+        return False
+    
+# File: pages/scanner.py
+# Part 2 of 3
 
 def get_price_format(price: float) -> str:
     """Get the appropriate price format string based on price level"""
@@ -354,9 +514,6 @@ def get_mpi_expansion_description(trend: str) -> str:
         'Strong Contraction': 'Momentum declining'
     }
     return descriptions.get(trend, 'Unknown')
-
-# File: pages/scanner.py
-# Part 2 of 5
 
 def apply_mpi_expansion_filter(base_stocks: pd.DataFrame, selected_trends: List[str]) -> pd.DataFrame:
     """Apply pure MPI expansion-based filtering with smart sorting"""
@@ -829,9 +986,6 @@ def show_filter_statistics(component_name: str, data: pd.Series, base_stocks: pd
             if trend_stats_data:
                 st.dataframe(pd.DataFrame(trend_stats_data), hide_index=True, use_container_width=True)
 
-# File: pages/scanner.py
-# Part 3 of 5
-
 def apply_dynamic_filters(base_stocks: pd.DataFrame, results_df: pd.DataFrame) -> pd.DataFrame:
     """
     Apply dynamic filtering with optimized component structure
@@ -911,6 +1065,9 @@ def apply_dynamic_filters(base_stocks: pd.DataFrame, results_df: pd.DataFrame) -
         st.info(f"No additional filters applied → {len(filtered_stocks)} stocks")
     
     return filtered_stocks
+
+# File: pages/scanner.py
+# Part 3 of 3
 
 def show_scanning_configuration():
     """Display the scanning configuration panel"""
@@ -1122,7 +1279,7 @@ def run_enhanced_stock_scan(stocks_to_scan, analysis_date=None, days_back=59, ro
         except Exception as e:
             error_logger.log_warning("Analyst Reports", f"Could not load analyst reports: {e}")
         
-        # NEW: Load and merge earnings reports
+        # Load and merge earnings reports
         status_text.text("💰 Loading earnings reports...")
         progress_bar.progress(0.9)
         
@@ -1272,7 +1429,9 @@ def _create_result_dict(analysis_row: pd.Series, actual_date, ticker: str, fetch
     return result
 
 # File: pages/scanner.py
-# Part 4 of 5
+# Part 4 of 4 (Final - Display Functions)
+
+# Add these functions after _create_result_dict() in Part 3
 
 def display_scan_summary(results_df: pd.DataFrame):
     """
@@ -1327,7 +1486,7 @@ def display_scan_summary(results_df: pd.DataFrame):
         else:
             st.info(f"📅 Analysis dates: **{', '.join(analysis_dates)}** | Higher H: **{higher_h_count}** | Avg MPI: **{avg_mpi:.1%}** | Avg Velocity: **{avg_velocity:+.1%}**")
     
-    # Analyst report statistics (existing)
+    # Analyst report statistics
     if 'sentiment_score' in results_df.columns:
         with_reports = results_df['sentiment_score'].notna().sum()
         if with_reports > 0:
@@ -1349,7 +1508,7 @@ def display_scan_summary(results_df: pd.DataFrame):
             with col5:
                 st.metric("📉 Negative", negative, delta="Bearish")
     
-    # NEW: Earnings report statistics
+    # Earnings report statistics
     if 'revenue' in results_df.columns:
         with_earnings = results_df['revenue'].notna().sum()
         if with_earnings > 0:
@@ -1437,7 +1596,7 @@ def display_filtered_results(filtered_stocks: pd.DataFrame, selected_base_filter
             axis=1
         )
     
-    # NEW: Prepare earnings report display columns if data exists
+    # Prepare earnings report display columns if data exists
     if 'revenue' in filtered_stocks.columns:
         # Earnings Period display
         filtered_stocks['Earnings_Period'] = filtered_stocks.apply(
@@ -1571,10 +1730,7 @@ def show_tradingview_export(filtered_stocks: pd.DataFrame, selected_base_filter:
     )
 
 def show_full_results_table(results_df: pd.DataFrame):
-    """
-    Show the full results table in an expander
-    UPDATED: Added earnings report columns
-    """
+    """Show the full results table in an expander - UPDATED: Added earnings report columns"""
     with st.expander("📋 Full Pure MPI Expansion Analysis Results", expanded=False):
         try:
             # Include earnings columns if available
@@ -1672,378 +1828,6 @@ def show_mpi_insights(results_df: pd.DataFrame):
         if trend_summary:
             st.dataframe(pd.DataFrame(trend_summary), hide_index=True, use_container_width=True)
 
-# File: pages/scanner.py
-# Part 5 of 5 (Final Part)
-
-def display_detailed_analyst_reports(results_df: pd.DataFrame):
-    """
-    Display detailed analyst reports for stocks with coverage
-    Shows all reports at bottom after main table
-    """
-    # Check if analyst data exists
-    if 'sentiment_score' not in results_df.columns:
-        return
-    
-    # Filter to stocks with reports
-    stocks_with_reports = results_df[results_df['sentiment_score'].notna()].copy()
-    
-    if len(stocks_with_reports) == 0:
-        return
-    
-    st.markdown("---")
-    st.subheader(f"📊 Detailed Analyst Reports ({len(stocks_with_reports)} stocks)")
-    st.markdown("*Complete analyst coverage details with catalysts, risks, and report history*")
-    
-    # Get all reports for history lookup
-    try:
-        all_reports, _ = get_cached_reports()
-    except:
-        all_reports = pd.DataFrame()
-    
-    # Display each stock's report
-    for idx, row in stocks_with_reports.iterrows():
-        ticker = row['Ticker']
-        ticker_clean = ticker.replace('.SG', '')
-        company_name = row['Name']
-        
-        # Create report header
-        st.markdown(f"### {ticker_clean} - {company_name}")
-        
-        # Latest report details
-        sentiment_emoji = format_sentiment_emoji(row['sentiment_label'])
-        sentiment_score = row['sentiment_score']
-        sentiment_label = row['sentiment_label']
-        report_date = row['report_date']
-        report_age = row.get('report_age_days', 0)
-        
-        col1, col2, col3, col4 = st.columns(4)
-        with col1:
-            st.metric("📅 Report Date", report_date.strftime('%b %d, %Y') if pd.notna(report_date) else 'N/A',
-                     delta=format_report_age(report_age))
-        with col2:
-            st.metric(f"{sentiment_emoji} Sentiment", f"{sentiment_score:.2f}",
-                     delta=sentiment_label.title())
-        with col3:
-            if pd.notna(row.get('analyst_firm')):
-                st.metric("🏢 Analyst Firm", row['analyst_firm'])
-            else:
-                st.metric("🏢 Analyst Firm", "N/A")
-        with col4:
-            if pd.notna(row.get('upside_pct')):
-                upside = row['upside_pct']
-                st.metric("🎯 Upside to Target", f"{upside:+.1f}%")
-            else:
-                st.metric("🎯 Target", "N/A")
-        
-        # Price information
-        if pd.notna(row.get('price_target')) and pd.notna(row.get('price_at_report')):
-            col_a, col_b, col_c = st.columns(3)
-            with col_a:
-                st.write(f"**Current Price:** ${row['Close']:.3f}" if row['Close'] < 1 else f"**Current Price:** ${row['Close']:.2f}")
-            with col_b:
-                st.write(f"**Target Price:** ${row['price_target']:.3f}" if row['price_target'] < 1 else f"**Target Price:** ${row['price_target']:.2f}")
-            with col_c:
-                st.write(f"**Price at Report:** ${row['price_at_report']:.3f}" if row['price_at_report'] < 1 else f"**Price at Report:** ${row['price_at_report']:.2f}")
-        
-        # Catalysts and Risks
-        col_left, col_right = st.columns(2)
-        
-        with col_left:
-            catalysts = row.get('key_catalysts', [])
-            if catalysts and len(catalysts) > 0:
-                st.markdown(f"**💡 Key Catalysts ({len(catalysts)}):**")
-                for i, catalyst in enumerate(catalysts, 1):
-                    st.write(f"{i}. {catalyst}")
-            else:
-                st.markdown("**💡 Key Catalysts:** None listed")
-        
-        with col_right:
-            risks = row.get('key_risks', [])
-            if risks and len(risks) > 0:
-                st.markdown(f"**⚠️ Key Risks ({len(risks)}):**")
-                for i, risk in enumerate(risks, 1):
-                    st.write(f"{i}. {risk}")
-            else:
-                st.markdown("**⚠️ Key Risks:** None listed")
-        
-        # Report history if multiple reports exist
-        report_count = row.get('report_count', 1)
-        if report_count > 1 and not all_reports.empty:
-            history = get_report_history(all_reports, ticker)
-            
-            if len(history) > 1:
-                st.markdown(f"**📈 Report History ({len(history)} reports):**")
-                
-                history_data = []
-                for _, hist_row in history.iterrows():
-                    hist_date = hist_row['report_date']
-                    hist_sentiment = hist_row['sentiment_score']
-                    hist_label = hist_row['sentiment_label']
-                    hist_emoji = format_sentiment_emoji(hist_label)
-                    hist_age = hist_row.get('report_age_days', 0)
-                    
-                    history_data.append({
-                        'Date': hist_date.strftime('%b %d, %Y'),
-                        'Age': format_report_age(hist_age),
-                        'Sentiment': f"{hist_emoji} {hist_sentiment:.2f}",
-                        'Label': hist_label.title()
-                    })
-                
-                history_df = pd.DataFrame(history_data)
-                st.dataframe(history_df, hide_index=True, use_container_width=True)
-                
-                # Show sentiment trend
-                trend = get_sentiment_trend_description(history)
-                st.info(f"**Sentiment Trend:** {trend}")
-        
-        st.markdown("---")
-
-def display_detailed_earnings_reports(results_df: pd.DataFrame):
-    """
-    NEW: Display detailed earnings reports for stocks with coverage
-    Shows all earnings reports at bottom after analyst reports
-    """
-    # Check if earnings data exists
-    if 'revenue' not in results_df.columns:
-        return
-    
-    # Filter to stocks with earnings
-    stocks_with_earnings = results_df[results_df['revenue'].notna()].copy()
-    
-    if len(stocks_with_earnings) == 0:
-        return
-    
-    st.markdown("---")
-    st.subheader(f"💰 Detailed Earnings Reports ({len(stocks_with_earnings)} stocks)")
-    st.markdown("*Complete earnings coverage with financial metrics, guidance, and report history*")
-    
-    # Get all earnings for history lookup
-    try:
-        all_earnings, _ = get_cached_earnings()
-    except:
-        all_earnings = pd.DataFrame()
-    
-    # Display each stock's earnings
-    for idx, row in stocks_with_earnings.iterrows():
-        ticker = row['Ticker']
-        ticker_clean = ticker.replace('.SG', '')
-        company_name = row['Name']
-        company_type = row.get('company_type', 'normal')
-        
-        # Create earnings header
-        report_type = row.get('report_type', 'N/A')
-        fiscal_year = row.get('fiscal_year', 'N/A')
-        st.markdown(f"### {ticker_clean} - {company_name}")
-        st.markdown(f"**{report_type} {fiscal_year} Results** | Company Type: {company_type.upper()}")
-        
-        # Report date and guidance
-        report_date = row.get('report_date')
-        report_age = row.get('report_age_days', 0)
-        guidance_tone = row.get('guidance_tone', 'neutral')
-        guidance_emoji = format_guidance_emoji(guidance_tone)
-        
-        col1, col2, col3, col4 = st.columns(4)
-        with col1:
-            st.metric("📅 Report Date", 
-                     report_date.strftime('%b %d, %Y') if pd.notna(report_date) else 'N/A',
-                     delta=format_report_age(report_age))
-        with col2:
-            st.metric(f"{guidance_emoji} Guidance", guidance_tone.title())
-        with col3:
-            revenue_yoy = row.get('revenue_yoy_change')
-            if pd.notna(revenue_yoy):
-                st.metric("Revenue YoY", format_percentage_change(revenue_yoy))
-            else:
-                st.metric("Revenue YoY", "N/A")
-        with col4:
-            # Show EPS or DPU based on company type
-            if company_type in ['reit', 'business_trust']:
-                dpu_yoy = row.get('dpu_yoy_change')
-                if pd.notna(dpu_yoy):
-                    st.metric("DPU YoY", format_percentage_change(dpu_yoy))
-                else:
-                    st.metric("DPU YoY", "N/A")
-            else:
-                eps_yoy = row.get('eps_yoy_change')
-                if pd.notna(eps_yoy):
-                    st.metric("EPS YoY", format_percentage_change(eps_yoy))
-                else:
-                    st.metric("EPS YoY", "N/A")
-        
-        # Key financial metrics (adaptive based on company type)
-        st.markdown("#### 📊 Key Financial Metrics")
-        
-        if company_type in ['reit', 'business_trust']:
-            # REIT-specific metrics
-            col_a, col_b, col_c, col_d = st.columns(4)
-            
-            with col_a:
-                dpu = row.get('dpu')
-                if pd.notna(dpu):
-                    st.write(f"**DPU:** {dpu:.2f} cents")
-                else:
-                    st.write("**DPU:** N/A")
-                
-                npi = row.get('net_property_income')
-                if pd.notna(npi):
-                    st.write(f"**Net Property Income:** {format_currency(npi)}")
-                else:
-                    st.write("**Net Property Income:** N/A")
-            
-            with col_b:
-                gearing = row.get('gearing_ratio')
-                if pd.notna(gearing):
-                    st.write(f"**Gearing Ratio:** {gearing:.1f}%")
-                else:
-                    st.write("**Gearing Ratio:** N/A")
-                
-                occupancy = row.get('portfolio_occupancy')
-                if pd.notna(occupancy):
-                    st.write(f"**Portfolio Occupancy:** {occupancy:.1f}%")
-                else:
-                    st.write("**Portfolio Occupancy:** N/A")
-            
-            with col_c:
-                nav = row.get('nav_per_unit')
-                if pd.notna(nav):
-                    st.write(f"**NAV per Unit:** ${nav:.2f}")
-                else:
-                    st.write("**NAV per Unit:** N/A")
-                
-                interest_coverage = row.get('interest_coverage_ratio')
-                if pd.notna(interest_coverage):
-                    st.write(f"**Interest Coverage:** {interest_coverage:.1f}x")
-                else:
-                    st.write("**Interest Coverage:** N/A")
-            
-            with col_d:
-                revenue = row.get('revenue')
-                if pd.notna(revenue):
-                    st.write(f"**Revenue:** {format_currency(revenue)}")
-                else:
-                    st.write("**Revenue:** N/A")
-                
-                property_margin = row.get('property_operating_margin')
-                if pd.notna(property_margin):
-                    st.write(f"**Property Op Margin:** {property_margin:.1f}%")
-                else:
-                    st.write("**Property Op Margin:** N/A")
-        
-        else:
-            # Normal company metrics
-            col_a, col_b, col_c, col_d = st.columns(4)
-            
-            with col_a:
-                revenue = row.get('revenue')
-                if pd.notna(revenue):
-                    st.write(f"**Revenue:** {format_currency(revenue)}")
-                else:
-                    st.write("**Revenue:** N/A")
-                
-                net_profit = row.get('net_profit')
-                if pd.notna(net_profit):
-                    st.write(f"**Net Profit:** {format_currency(net_profit)}")
-                else:
-                    st.write("**Net Profit:** N/A")
-            
-            with col_b:
-                eps = row.get('eps')
-                if pd.notna(eps):
-                    st.write(f"**EPS:** ${eps:.2f}")
-                else:
-                    st.write("**EPS:** N/A")
-                
-                gross_margin = row.get('gross_margin')
-                if pd.notna(gross_margin):
-                    st.write(f"**Gross Margin:** {gross_margin:.1f}%")
-                else:
-                    st.write("**Gross Margin:** N/A")
-            
-            with col_c:
-                operating_margin = row.get('operating_margin')
-                if pd.notna(operating_margin):
-                    st.write(f"**Operating Margin:** {operating_margin:.1f}%")
-                else:
-                    st.write("**Operating Margin:** N/A")
-                
-                net_margin = row.get('net_margin')
-                if pd.notna(net_margin):
-                    st.write(f"**Net Margin:** {net_margin:.1f}%")
-                else:
-                    st.write("**Net Margin:** N/A")
-            
-            with col_d:
-                debt_to_equity = row.get('debt_to_equity')
-                if pd.notna(debt_to_equity):
-                    st.write(f"**Debt-to-Equity:** {debt_to_equity:.2f}")
-                else:
-                    st.write("**Debt-to-Equity:** N/A")
-                
-                fcf = row.get('free_cash_flow')
-                if pd.notna(fcf):
-                    st.write(f"**Free Cash Flow:** {format_currency(fcf)}")
-                else:
-                    st.write("**Free Cash Flow:** N/A")
-        
-        # Highlights and Concerns
-        col_left, col_right = st.columns(2)
-        
-        with col_left:
-            highlights = row.get('key_highlights', [])
-            if highlights and len(highlights) > 0:
-                st.markdown(f"**💡 Key Highlights ({len(highlights)}):**")
-                for i, highlight in enumerate(highlights, 1):
-                    st.write(f"{i}. {highlight}")
-            else:
-                st.markdown("**💡 Key Highlights:** None listed")
-        
-        with col_right:
-            concerns = row.get('concerns', [])
-            if concerns and len(concerns) > 0:
-                st.markdown(f"**⚠️ Concerns ({len(concerns)}):**")
-                for i, concern in enumerate(concerns, 1):
-                    st.write(f"{i}. {concern}")
-            else:
-                st.markdown("**⚠️ Concerns:** None listed")
-        
-        # Management commentary
-        mgmt_commentary = row.get('mgmt_commentary_summary')
-        if pd.notna(mgmt_commentary) and mgmt_commentary:
-            st.markdown("**💬 Management Commentary:**")
-            st.info(mgmt_commentary)
-        
-        # Earnings history if multiple reports exist
-        report_count = row.get('report_count', 1)
-        if report_count > 1 and not all_earnings.empty:
-            history = get_earnings_history(all_earnings, ticker)
-            
-            if len(history) > 1:
-                st.markdown(f"**📈 Earnings History ({len(history)} reports):**")
-                
-                history_data = []
-                for _, hist_row in history.iterrows():
-                    hist_date = hist_row['report_date']
-                    hist_type = hist_row.get('report_type', 'N/A')
-                    hist_guidance = hist_row.get('guidance_tone', 'neutral')
-                    hist_emoji = format_guidance_emoji(hist_guidance)
-                    hist_revenue_yoy = hist_row.get('revenue_yoy_change')
-                    
-                    history_data.append({
-                        'Date': hist_date.strftime('%b %d, %Y'),
-                        'Period': hist_type,
-                        'Guidance': f"{hist_emoji} {hist_guidance.title()}",
-                        'Revenue YoY': format_percentage_change(hist_revenue_yoy) if pd.notna(hist_revenue_yoy) else 'N/A'
-                    })
-                
-                history_df = pd.DataFrame(history_data)
-                st.dataframe(history_df, hide_index=True, use_container_width=True)
-                
-                # Show earnings trend
-                trend = get_earnings_trend_description(history)
-                st.info(f"**Earnings Trend:** {trend}")
-        
-        st.markdown("---")
-
 def display_scan_results(results_df: pd.DataFrame):
     """Main function to display scanning results with Pure MPI Expansion filtering, Analyst Reports, and Earnings Reports"""
     
@@ -2073,24 +1857,19 @@ def display_scan_results(results_df: pd.DataFrame):
         # Show MPI insights
         show_mpi_insights(results_df)
         
-        # Show detailed analyst reports
-        display_detailed_analyst_reports(results_df)
-        
-        # NEW: Show detailed earnings reports
-        display_detailed_earnings_reports(results_df)
-        
         logger.info(f"Successfully displayed results for {len(results_df)} stocks")
         
     except Exception as e:
         st.session_state.error_logger.log_error("Results Display", e)
         st.error("❌ Error displaying Pure MPI Expansion results - check error log for details")
 
+# Update the show() function to include the display call
 def show():
-    """Main scanner page display with Pure MPI Expansion filtering, Analyst Reports, and Earnings Reports integration"""
+    """Main scanner page display with Pure MPI Expansion filtering, Analyst Reports, Earnings Reports, and yfinance download integration"""
     
     st.title("📈 Stock Scanner")
-    st.markdown("Enhanced with **Pure MPI Expansion System**, **Analyst Report Integration**, and **Earnings Report Integration**")
-    st.markdown("**Data Source: Local File System** (./data/Historical_Data + ./data/EOD_Data + ./data/analyst_reports + ./data/earnings_reports)")
+    st.markdown("Enhanced with **Pure MPI Expansion System**, **Analyst Report Integration**, **Earnings Report Integration**, and **yfinance Download**")
+    st.markdown("**Data Source: Local File System** (./data/Historical_Data + ./data/EOD_Data + yfinance API)")
     
     # Show update check/prompt
     st.subheader("📥 Data Management")
