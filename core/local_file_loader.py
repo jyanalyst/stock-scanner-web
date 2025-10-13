@@ -7,6 +7,7 @@ All dates use Singapore format: D/M/YYYY (dayfirst=True)
 FIXED: Proper date validation, cleanup of erroneous dates, and metadata column handling
 ENHANCED: Force update capability to re-process latest EOD file
 NEW: yfinance download capability for filling date gaps
+FIXED: Volume scaling - yfinance volumes divided by 1000 to match abbreviated EOD format
 """
 
 import os
@@ -396,13 +397,13 @@ class LocalFileLoader:
             logger.error(f"Error checking for updates: {e}")
             return False, None, None, False, None, None
         
-    # File: core/local_file_loader.py
+# File: core/local_file_loader.py
 # Part 2 of 2
 
-    def download_missing_dates_from_yfinance(self, start_date: date, end_date: date) -> Dict[str, any]:
+    def download_missing_dates_from_yfinance(self, start_date: date, end_date: date, force_mode: bool = False) -> Dict[str, any]:
         """
         Download missing dates from yfinance and append to Historical_Data
-        NEW: Downloads only missing date range and appends to existing CSVs
+        FIXED: Divides yfinance volumes by 1000 to match abbreviated EOD format
         
         Args:
             start_date: Start of missing date range
@@ -419,6 +420,7 @@ class LocalFileLoader:
             'total_dates_added': 0,
             'start_date': start_date.strftime('%Y-%m-%d'),
             'end_date': end_date.strftime('%Y-%m-%d'),
+            'force_mode': force_mode,
             'details': []
         }
         
@@ -436,7 +438,7 @@ class LocalFileLoader:
             # Download for each ticker
             for ticker in tickers:
                 try:
-                    result = self._download_and_append_single_stock(ticker, start_date, end_date)
+                    result = self._download_and_append_single_stock(ticker, start_date, end_date, force_mode=force_mode)
                     
                     stats['details'].append(result)
                     
@@ -466,9 +468,10 @@ class LocalFileLoader:
             stats['error'] = str(e)
             return stats
     
-    def _download_and_append_single_stock(self, ticker: str, start_date: date, end_date: date) -> Dict:
+    def _download_and_append_single_stock(self, ticker: str, start_date: date, end_date: date, force_mode: bool = False) -> Dict:
         """
         Download data for a single stock and append to its Historical_Data CSV
+        FIXED: Divides yfinance volumes by 1000 to match abbreviated EOD format
         
         Args:
             ticker: Stock ticker (e.g., 'A17U.SG')
@@ -509,13 +512,18 @@ class LocalFileLoader:
                 # Get actual last date in this file
                 last_date_in_file = existing_df['Date'].max().date()
                 
-                # Adjust start_date to be day after last date in file
-                actual_start_date = last_date_in_file + timedelta(days=1)
-                
-                if actual_start_date > end_date:
-                    result['status'] = 'skipped'
-                    result['message'] = f'No gap - file current to {last_date_in_file}'
-                    return result
+                # In force mode, use the requested start_date regardless
+                # In normal mode, adjust start_date to be day after last date in file
+                if force_mode:
+                    actual_start_date = start_date
+                    logger.info(f"FORCE MODE: Downloading from {actual_start_date} (may overwrite existing)")
+                else:
+                    actual_start_date = last_date_in_file + timedelta(days=1)
+                    
+                    if actual_start_date > end_date:
+                        result['status'] = 'skipped'
+                        result['message'] = f'No gap - file current to {last_date_in_file}'
+                        return result
                 
             else:
                 # File doesn't exist - will create new one
@@ -566,18 +574,35 @@ class LocalFileLoader:
             new_df['High'] = downloaded_df['High'].round(4)
             new_df['Low'] = downloaded_df['Low'].round(4)
             new_df['Close'] = downloaded_df['Close'].round(4)
-            new_df['Vol'] = downloaded_df['Volume'].astype(int)
+            
+            # CRITICAL FIX: Divide yfinance volumes by 1000 to match abbreviated EOD format
+            new_df['Vol'] = (downloaded_df['Volume'] / 1000).round(0).astype(int)
+            
+            logger.info(f"✅ VOLUME FIX APPLIED: Divided yfinance volumes by 1000 for {ticker}")
             
             # Filter: Remove any dates that might overlap (safety check)
+            # In force mode, we REMOVE existing overlapping dates from historical, not from new data
             if not existing_df.empty:
-                new_df['Date_dt'] = pd.to_datetime(new_df['Date'], dayfirst=True)
-                new_df = new_df[new_df['Date_dt'] > last_date_in_file]
-                new_df = new_df.drop(columns=['Date_dt'])
-            
-            if new_df.empty:
-                result['status'] = 'skipped'
-                result['message'] = 'No new dates after filtering'
-                return result
+                if force_mode:
+                    # Force mode: Remove dates from existing data that overlap with new download
+                    new_df['Date_dt'] = pd.to_datetime(new_df['Date'], dayfirst=True)
+                    new_dates = new_df['Date_dt'].dt.date
+                    
+                    # Keep only existing dates that don't overlap with new download
+                    existing_df = existing_df[~existing_df['Date'].isin(new_dates)]
+                    
+                    new_df = new_df.drop(columns=['Date_dt'])
+                    logger.info(f"FORCE MODE: Removed overlapping dates from existing data for {ticker}")
+                else:
+                    # Normal mode: Skip dates that already exist
+                    new_df['Date_dt'] = pd.to_datetime(new_df['Date'], dayfirst=True)
+                    new_df = new_df[new_df['Date_dt'] > last_date_in_file]
+                    new_df = new_df.drop(columns=['Date_dt'])
+                    
+                    if new_df.empty:
+                        result['status'] = 'skipped'
+                        result['message'] = 'No new dates after filtering'
+                        return result
             
             # Sort new data by date
             new_df['Date_dt'] = pd.to_datetime(new_df['Date'], dayfirst=True)
@@ -601,9 +626,12 @@ class LocalFileLoader:
             
             result['status'] = 'updated'
             result['dates_added'] = len(new_df)
-            result['message'] = f'Added {len(new_df)} date(s) from yfinance'
+            if force_mode:
+                result['message'] = f'FORCE: Added {len(new_df)} date(s) from yfinance (volumes ÷1000, overwrote existing)'
+            else:
+                result['message'] = f'Added {len(new_df)} date(s) from yfinance (volumes ÷1000)'
             
-            logger.info(f"✅ {ticker}: Added {len(new_df)} dates from yfinance")
+            logger.info(f"✅ {ticker}: Added {len(new_df)} dates from yfinance with volume scaling")
             
             return result
             

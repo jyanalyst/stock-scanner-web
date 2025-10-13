@@ -297,6 +297,62 @@ def show_update_prompt():
                             time.sleep(2)
                         return result
                 
+                # NEW: Force yfinance Download option
+                with st.expander("⚙️ Advanced: Force yfinance Download", expanded=False):
+                    st.warning("⚠️ **Force yfinance Download** will download data from yfinance regardless of current state.")
+                    st.markdown("""
+                    **Use this when:**
+                    - You want to update to today's data without waiting for EOD file
+                    - You need to re-download data to fix issues
+                    - You want the absolute latest available data
+                    
+                    **This will:**
+                    - Calculate date range: (last EOD date + 1 day) to (current working day)
+                    - Download data from yfinance for all stocks
+                    - Overwrite any existing dates in this range
+                    - Use abbreviated volume format (÷1000)
+                    """)
+                    
+                    # Calculate download range based on EOD file date (not Historical_Data date)
+                    if latest_eod and current_working_day:
+                        # Parse date from EOD filename (e.g., "10_Oct_2025.csv" → 10/10/2025)
+                        try:
+                            eod_date_str = latest_eod.replace('.csv', '')
+                            eod_date_obj = datetime.strptime(eod_date_str, '%d_%b_%Y').date()
+                            
+                            # Force download range: (EOD date + 1) to (current working day)
+                            force_start_date = eod_date_obj + timedelta(days=1)
+                            force_end_date = current_working_day
+                        except Exception as e:
+                            st.error(f"Could not parse EOD date: {e}")
+                            force_start_date = None
+                            force_end_date = None
+                        
+                        # Check if there's actually a range to download
+                        if force_start_date <= force_end_date:
+                            gap_days = (force_end_date - force_start_date).days + 1
+                            
+                            col_a, col_b, col_c = st.columns(3)
+                            with col_a:
+                                st.metric("Last EOD Date", eod_date_obj.strftime('%d/%m/%Y'))
+                            with col_b:
+                                st.metric("Download Range", f"{gap_days} day(s)")
+                            with col_c:
+                                st.metric("End Date", force_end_date.strftime('%d/%m/%Y'))
+                            
+                            st.info(f"📥 Will download: **{force_start_date.strftime('%d/%m/%Y')}** to **{force_end_date.strftime('%d/%m/%Y')}**")
+                            
+                            if st.button("🔧 Force Download from yfinance", type="secondary", use_container_width=True, key="force_yfinance_button"):
+                                result = perform_yfinance_download(loader, force_start_date, force_end_date, force_mode=True)
+                                if result:
+                                    st.success("Force yfinance download completed!")
+                                    time.sleep(2)
+                                return result
+                        else:
+                            st.info("✅ No date range to download - Historical data is current to working day")
+                    else:
+                        st.error("Cannot determine date range for force download")
+
                 return False
             
             return True
@@ -387,7 +443,7 @@ def perform_eod_update(loader, force: bool = False) -> bool:
         st.error("❌ EOD update failed - check error log for details")
         return False
 
-def perform_yfinance_download(loader, start_date: date, end_date: date) -> bool:
+def perform_yfinance_download(loader, start_date: date, end_date: date, force_mode: bool = False) -> bool:
     """
     NEW: Perform yfinance download to fill date gaps
     """
@@ -396,14 +452,18 @@ def perform_yfinance_download(loader, start_date: date, end_date: date) -> bool:
         progress_bar = st.progress(0)
         status_text = st.empty()
         
-        status_text.text(f"📥 Starting yfinance download: {start_date.strftime('%d/%m/%Y')} to {end_date.strftime('%d/%m/%Y')}...")
+        download_type = "FORCE DOWNLOAD" if force_mode else "download"
+        status_text.text(f"📥 Starting yfinance {download_type}: {start_date.strftime('%d/%m/%Y')} to {end_date.strftime('%d/%m/%Y')}...")
         
         # Show download info
         gap_days = (end_date - start_date).days + 1
-        st.info(f"📊 Downloading {gap_days} day(s) of data for all stocks from yfinance...")
+        if force_mode:
+            st.warning(f"⚠️ FORCE MODE: Downloading {gap_days} day(s) - will overwrite existing dates")
+        else:
+            st.info(f"📊 Downloading {gap_days} day(s) of data for all stocks from yfinance...")
         
         # Perform download
-        stats = loader.download_missing_dates_from_yfinance(start_date, end_date)
+        stats = loader.download_missing_dates_from_yfinance(start_date, end_date, force_mode=force_mode)
         
         # Show progress during download
         if stats['total_stocks'] > 0:
@@ -428,7 +488,10 @@ def perform_yfinance_download(loader, start_date: date, end_date: date) -> bool:
         status_text.empty()
         
         # Show summary
-        st.success(f"✅ **yfinance Download Complete!**")
+        if force_mode:
+            st.success(f"✅ **Force yfinance Download Complete!**")
+        else:
+            st.success(f"✅ **yfinance Download Complete!**")
         
         col1, col2, col3, col4 = st.columns(4)
         with col1:
