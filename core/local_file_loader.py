@@ -586,17 +586,18 @@ class LocalFileLoader:
                 if force_mode:
                     # Force mode: Remove dates from existing data that overlap with new download
                     new_df['Date_dt'] = pd.to_datetime(new_df['Date'], dayfirst=True)
-                    new_dates = new_df['Date_dt'].dt.date
                     
                     # Keep only existing dates that don't overlap with new download
-                    existing_df = existing_df[~existing_df['Date'].isin(new_dates)]
+                    # FIXED: Compare datetime64[ns] with datetime64[ns], not with date objects
+                    existing_df = existing_df[~existing_df['Date'].isin(new_df['Date_dt'])]
                     
                     new_df = new_df.drop(columns=['Date_dt'])
                     logger.info(f"FORCE MODE: Removed overlapping dates from existing data for {ticker}")
                 else:
                     # Normal mode: Skip dates that already exist
                     new_df['Date_dt'] = pd.to_datetime(new_df['Date'], dayfirst=True)
-                    new_df = new_df[new_df['Date_dt'] > last_date_in_file]
+                    # FIXED: Convert date object to Timestamp for proper comparison
+                    new_df = new_df[new_df['Date_dt'] > pd.Timestamp(last_date_in_file)]
                     new_df = new_df.drop(columns=['Date_dt'])
                     
                     if new_df.empty:
