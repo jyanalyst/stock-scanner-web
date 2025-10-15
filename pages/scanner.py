@@ -672,7 +672,7 @@ def apply_velocity_filter(filtered_stocks: pd.DataFrame, results_df: pd.DataFram
                 "Enter minimum VW Range Velocity:",
                 min_value=-1.0,
                 max_value=1.0,
-                value=0.1,
+                value=0.07,
                 step=0.01,
                 format="%.4f",
                 key="custom_velocity_min_input",
@@ -800,7 +800,7 @@ def apply_relative_volume_filter(filtered_stocks: pd.DataFrame) -> tuple:
                 "Enter minimum Relative Volume %:",
                 min_value=50.0,
                 max_value=500.0,
-                value=100.0,
+                value=70.0,
                 step=10.0,
                 format="%.1f",
                 key="custom_rel_volume_min_input"
@@ -812,7 +812,7 @@ def apply_relative_volume_filter(filtered_stocks: pd.DataFrame) -> tuple:
                 "Enter maximum Relative Volume %:",
                 min_value=50.0,
                 max_value=500.0,
-                value=100.0,
+                value=70.0,
                 step=10.0,
                 format="%.1f",
                 key="custom_rel_volume_max_input"
