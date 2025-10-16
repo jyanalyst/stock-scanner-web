@@ -672,7 +672,7 @@ def apply_velocity_filter(filtered_stocks: pd.DataFrame, results_df: pd.DataFram
                 "Enter minimum VW Range Velocity:",
                 min_value=-1.0,
                 max_value=1.0,
-                value=0.07,
+                value=0.05,
                 step=0.01,
                 format="%.4f",
                 key="custom_velocity_min_input",
