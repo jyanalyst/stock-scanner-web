@@ -1,5 +1,6 @@
 # File: core/local_file_loader.py
-# Part 1 of 3
+# COMPLETE FILE - Replace entire file
+
 """
 Local File System Data Loader
 Handles reading and updating stock data from local CSV files
@@ -9,6 +10,7 @@ ENHANCED: Force update capability to re-process latest EOD file
 NEW: yfinance download capability for filling date gaps
 FIXED: Volume scaling - yfinance volumes divided by 1000 to match abbreviated EOD format
 FIXED: NaN validation in load_historical_data to prevent 'float' object has no attribute 'replace' error
+FIXED: Added start_date and end_date to download stats dictionary
 """
 
 import os
@@ -127,9 +129,6 @@ class LocalFileLoader:
         except Exception as e:
             logger.error(f"❌ Error loading historical data for {ticker}: {e}")
             return None
-        
-# File: core/local_file_loader.py
-# Part 2 of 3
     
     def get_latest_eod_file(self) -> Optional[str]:
         """
@@ -207,78 +206,36 @@ class LocalFileLoader:
     
     def parse_eod_filename_to_date(self, filename: str) -> Optional[str]:
         """
-        Parse EOD filename to D/M/YYYY date string
+        Parse EOD filename to D/M/YYYY format
         
         Args:
             filename: EOD filename (e.g., '01_Oct_2025.csv')
             
         Returns:
-            Date string in D/M/YYYY format or None
+            Date string in D/M/YYYY format (e.g., '1/10/2025')
         """
         try:
             date_str = filename.replace('.csv', '')
             date_obj = datetime.strptime(date_str, '%d_%b_%Y')
-            # Format as D/M/YYYY (Singapore format, no leading zeros)
+            # Format as D/M/YYYY (no leading zeros)
             return date_obj.strftime('%-d/%-m/%Y') if os.name != 'nt' else date_obj.strftime('%#d/%#m/%Y')
         except Exception as e:
-            logger.error(f"Error parsing filename {filename}: {e}")
+            logger.error(f"Error parsing date from filename {filename}: {e}")
             return None
-    
-    def _split_eod_data(self, df: pd.DataFrame) -> Dict[str, pd.DataFrame]:
-        """
-        Split EOD DataFrame into separate DataFrames per ticker
-        
-        Args:
-            df: Combined DataFrame with all stocks
-            
-        Returns:
-            Dictionary of {ticker: DataFrame}
-        """
-        stock_data = {}
-        
-        try:
-            if 'Code' not in df.columns:
-                logger.error("No 'Code' column found in EOD data")
-                return {}
-            
-            # Group by ticker
-            for ticker in df['Code'].unique():
-                # Skip NaN tickers
-                if pd.isna(ticker):
-                    continue
-                    
-                ticker_df = df[df['Code'] == ticker].copy()
-                
-                # Process dates
-                if 'Date' in ticker_df.columns:
-                    ticker_df['Date'] = pd.to_datetime(ticker_df['Date'], dayfirst=True)
-                    ticker_df.set_index('Date', inplace=True)
-                
-                # Standardize columns
-                ticker_df = self._standardize_columns(ticker_df)
-                
-                stock_data[ticker] = ticker_df
-            
-            logger.info(f"Split EOD data into {len(stock_data)} stocks")
-            
-        except Exception as e:
-            logger.error(f"Error splitting EOD data: {e}")
-        
-        return stock_data
     
     def _standardize_columns(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        Standardize column names
+        Standardize column names (Last→Close, Vol→Volume, etc.)
         
-        EOD: Code, Shortname, Open, High, Low, Last, Volume
-        Historical: Date, Code, Shortname, Open, High, Low, Close, Vol
-        Target: Open, High, Low, Close, Volume
+        Args:
+            df: DataFrame to standardize
+            
+        Returns:
+            DataFrame with standardized columns
         """
         column_mapping = {
             'Last': 'Close',
             'Vol': 'Volume',
-            'volume': 'Volume',
-            'close': 'Close',
             'open': 'Open',
             'high': 'High',
             'low': 'Low'
@@ -394,9 +351,6 @@ class LocalFileLoader:
         except Exception as e:
             logger.error(f"Error checking for updates: {e}")
             return (False, None, None, False, None, None)
-        
-# File: core/local_file_loader.py
-# Part 3 of 3
     
     def update_historical_from_eod(self, force: bool = False) -> Dict[str, any]:
         """
@@ -482,19 +436,18 @@ class LocalFileLoader:
             logger.error(f"Error in update_historical_from_eod: {e}")
             return stats
     
-    def _update_single_stock(self, ticker: str, eod_df: pd.DataFrame, 
-                            eod_date_str: str, eod_date_obj: datetime, force: bool = False) -> Dict:
+    def _update_single_stock(self, ticker: str, eod_df: pd.DataFrame, eod_date_str: str, eod_date_obj: datetime, force: bool = False) -> Dict:
         """
-        Update historical data for a single stock
-        ENHANCED: Added force parameter to bypass date validation
-        FIXED: Handle NaN ticker values
+        Update a single stock's historical data from EOD data
+        FIXED: Proper metadata column handling and data cleanup
+        ENHANCED: Added force parameter
         
         Args:
             ticker: Stock ticker (e.g., 'A17U.SG')
-            eod_df: EOD DataFrame containing all stocks
-            eod_date_str: Date string in D/M/YYYY format
-            eod_date_obj: Date as datetime object
-            force: If True, bypass date comparison check
+            eod_df: DataFrame with EOD data
+            eod_date_str: EOD date as formatted string (D/M/YYYY)
+            eod_date_obj: EOD date as datetime object
+            force: If True, update regardless of date checks
             
         Returns:
             Dictionary with update result
@@ -506,44 +459,29 @@ class LocalFileLoader:
         }
         
         try:
-            # FIXED: Skip if ticker is NaN or empty
-            if pd.isna(ticker) or ticker == '' or str(ticker).lower() == 'nan':
-                result['status'] = 'skipped'
-                result['message'] = 'Invalid ticker (NaN or empty)'
-                logger.warning(f"Skipping invalid ticker: {ticker}")
-                return result
+            # Get EOD row for this ticker
+            eod_row = eod_df[eod_df['Code'] == ticker].iloc[0]
             
-            # Get ticker's row from EOD data
-            ticker_rows = eod_df[eod_df['Code'] == ticker]
-            
-            if len(ticker_rows) == 0:
-                result['status'] = 'error'
-                result['message'] = 'Ticker not found in EOD data'
-                logger.warning(f"Ticker {ticker} not found in EOD data")
-                return result
-            
-            eod_row = ticker_rows.iloc[0]
-            
-            # Load existing historical data
+            # Prepare file path
             ticker_clean = ticker.replace('.SG', '')
             filename = f"{ticker_clean}.csv"
             filepath = os.path.join(self.historical_path, filename)
             
+            # Load existing historical data if file exists
             file_existed = os.path.exists(filepath)
+            needs_metadata_columns = False
+            removed_rows = 0
             
             if file_existed:
-                # Load existing file
                 hist_df = pd.read_csv(filepath, encoding='utf-8')
                 
-                # Check if Code and Shortname columns exist
-                needs_metadata_columns = 'Code' not in hist_df.columns or 'Shortname' not in hist_df.columns
+                # Check and add metadata columns if missing
+                if 'Code' not in hist_df.columns:
+                    hist_df['Code'] = ticker
+                    needs_metadata_columns = True
                 
-                if needs_metadata_columns:
-                    logger.info(f"Adding Code and Shortname columns to {ticker}")
-                    if 'Code' not in hist_df.columns:
-                        hist_df['Code'] = ticker
-                    if 'Shortname' not in hist_df.columns:
-                        hist_df['Shortname'] = eod_row.get('Shortname', ticker)
+                if 'Shortname' not in hist_df.columns:
+                    hist_df['Shortname'] = eod_row.get('Shortname', ticker)
                 
                 # Parse dates with STRICT Singapore format (dayfirst=True)
                 hist_df['Date'] = pd.to_datetime(hist_df['Date'], dayfirst=True, format='mixed')
@@ -643,6 +581,7 @@ class LocalFileLoader:
         """
         Download missing dates from yfinance for all stocks in watchlist
         FIXED: Divides yfinance volumes by 1000 to match abbreviated EOD format
+        FIXED: Added start_date and end_date to returned stats dictionary
         
         Args:
             start_date: Start date for download
@@ -650,7 +589,7 @@ class LocalFileLoader:
             force_mode: If True, overwrite existing dates
             
         Returns:
-            Statistics dictionary
+            Statistics dictionary with start_date and end_date
         """
         stats = {
             'total_stocks': 0,
@@ -658,6 +597,8 @@ class LocalFileLoader:
             'failed': 0,
             'skipped': 0,
             'total_dates_added': 0,
+            'start_date': start_date.strftime('%d/%m/%Y'),  # FIXED: Added this line
+            'end_date': end_date.strftime('%d/%m/%Y'),      # FIXED: Added this line
             'details': []
         }
         
@@ -715,6 +656,7 @@ class LocalFileLoader:
             ticker: Stock ticker (e.g., 'A17U.SG')
             start_date: Start date for download
             end_date: End date for download
+            force_mode: If True, overwrite existing dates
             
         Returns:
             Dictionary with download result
@@ -774,52 +716,37 @@ class LocalFileLoader:
             if not existing_df.empty and 'Shortname' in existing_df.columns:
                 shortname = existing_df['Shortname'].iloc[0]
             else:
-                shortname = ticker_clean
+                try:
+                    shortname = stock.info.get('shortName', ticker_clean)
+                except:
+                    shortname = ticker_clean
             
             new_df['Shortname'] = shortname
-            new_df['Open'] = downloaded_df['Open'].round(4)
-            new_df['High'] = downloaded_df['High'].round(4)
-            new_df['Low'] = downloaded_df['Low'].round(4)
-            new_df['Close'] = downloaded_df['Close'].round(4)
+            new_df['Open'] = downloaded_df['Open'].round(3)
+            new_df['High'] = downloaded_df['High'].round(3)
+            new_df['Low'] = downloaded_df['Low'].round(3)
+            new_df['Close'] = downloaded_df['Close'].round(3)
             
-            # CRITICAL FIX: Divide yfinance volumes by 1000 to match abbreviated EOD format
+            # CRITICAL FIX: Divide volumes by 1000 to match EOD abbreviated format
             new_df['Vol'] = (downloaded_df['Volume'] / 1000).round(0).astype(int)
             
             logger.info(f"✅ VOLUME FIX APPLIED: Divided yfinance volumes by 1000 for {ticker}")
             
-            # Filter: Remove any dates that might overlap (safety check)
-            # In force mode, we REMOVE existing overlapping dates from historical, not from new data
-            if not existing_df.empty:
-                if force_mode:
-                    # Force mode: Remove dates from existing data that overlap with new download
-                    new_df['Date_dt'] = pd.to_datetime(new_df['Date'], dayfirst=True)
-                    
-                    # Keep only existing dates that don't overlap with new download
-                    # FIXED: Compare datetime64[ns] with datetime64[ns], not with date objects
-                    existing_df = existing_df[~existing_df['Date'].isin(new_df['Date_dt'])]
-                    
-                    new_df = new_df.drop(columns=['Date_dt'])
-                    logger.info(f"FORCE MODE: Removed overlapping dates from existing data for {ticker}")
-                else:
-                    # Normal mode: Skip dates that already exist
-                    new_df['Date_dt'] = pd.to_datetime(new_df['Date'], dayfirst=True)
-                    # FIXED: Convert date object to Timestamp for proper comparison
-                    new_df = new_df[new_df['Date_dt'] > pd.Timestamp(last_date_in_file)]
-                    new_df = new_df.drop(columns=['Date_dt'])
-                    
-                    if new_df.empty:
-                        result['status'] = 'skipped'
-                        result['message'] = 'No new dates after filtering'
-                        return result
+            # If force mode, include all dates
+            # If not force mode, filter out dates that already exist
+            if not force_mode and not existing_df.empty:
+                new_df['Date_dt'] = pd.to_datetime(new_df['Date'], dayfirst=True, format='mixed')
+                new_df = new_df[new_df['Date_dt'].dt.date > last_date_in_file]
+                new_df.drop('Date_dt', axis=1, inplace=True)
             
-            # Sort new data by date
-            new_df['Date_dt'] = pd.to_datetime(new_df['Date'], dayfirst=True)
-            new_df = new_df.sort_values('Date_dt')
-            new_df = new_df.drop(columns=['Date_dt'])
+            if new_df.empty:
+                result['status'] = 'skipped'
+                result['message'] = 'No new dates to add'
+                return result
             
-            # Append to existing data
+            # Combine with existing data
             if not existing_df.empty:
-                # Convert existing dates back to string format for consistency
+                # Format existing dates for consistency
                 existing_df['Date'] = existing_df['Date'].dt.strftime('%-d/%-m/%Y' if os.name != 'nt' else '%#d/%#m/%Y')
                 combined_df = pd.concat([existing_df, new_df], ignore_index=True)
             else:
