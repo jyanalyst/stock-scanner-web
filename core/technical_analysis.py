@@ -11,6 +11,16 @@ import numpy as np
 import logging
 from typing import Optional, Dict, Tuple
 
+# Import performance optimizations
+try:
+    from pages.common.performance import cached_computation
+except ImportError:
+    # Fallback if performance module not available
+    def cached_computation(name):
+        def decorator(func):
+            return func
+        return decorator
+
 logger = logging.getLogger(__name__)
 
 def calculate_mpi_expansion(df: pd.DataFrame) -> pd.DataFrame:
@@ -53,14 +63,10 @@ def calculate_mpi_expansion(df: pd.DataFrame) -> pd.DataFrame:
     
     df['MPI_Trend'] = pd.Series(np.select(conditions, choices, default='Flat'), index=df.index)
     
-    # TEMPORARY DEBUG: Check MPI trend distribution
+    # Log MPI trend distribution for monitoring
     if len(df) > 0:
         trend_counts = df['MPI_Trend'].value_counts()
-        logger.info(f"DEBUG MPI Trends: {dict(trend_counts)}")
-        
-        # Sample some velocity values
-        sample_velocities = df['MPI_Velocity'].dropna().tail(10)
-        logger.info(f"DEBUG Sample velocities: {sample_velocities.tolist()}")
+        logger.debug(f"MPI Trends: {dict(trend_counts)}")
 
     # Trading signals based on pure expansion
     df['Signal_Expansion_Buy'] = (df['MPI_Velocity'] > 0).astype(int)
@@ -233,16 +239,18 @@ def calculate_crt_levels(df: pd.DataFrame) -> pd.DataFrame:
     
     return df
 
+@cached_computation("technical_analysis")
 def add_enhanced_columns(df_daily: pd.DataFrame, ticker: str, rolling_window: int = 20) -> pd.DataFrame:
     """
     Add enhanced columns with PURE MPI EXPANSION system and Relative Volume
+    PERFORMANCE OPTIMIZED: Added caching for expensive computations
     REMOVED: Market Regime analysis
-    
+
     Args:
         df_daily: Raw OHLCV data from yfinance
         ticker: Stock symbol
         rolling_window: Window for moving averages (kept for backward compatibility)
-    
+
     Returns:
         DataFrame with MPI-enhanced technical analysis columns and Relative Volume
     """
@@ -260,12 +268,11 @@ def add_enhanced_columns(df_daily: pd.DataFrame, ticker: str, rolling_window: in
         df = calculate_mpi_expansion(df)
         df = calculate_relative_volume(df)
         
-        # Log successful calculation (REMOVED regime info)
-        logger.info(f"{ticker}: Enhanced analysis completed successfully")
-        logger.info(f"{ticker}: Latest MPI: {df['MPI'].iloc[-1]:.1%}, "
-                   f"Velocity: {df['MPI_Velocity'].iloc[-1]:+.3f}, "
-                   f"Trend: {df['MPI_Trend'].iloc[-1]}")
-        logger.info(f"{ticker}: Latest Relative Volume: {df['Relative_Volume'].iloc[-1]:.0f}%")
+        # Log successful calculation
+        logger.debug(f"{ticker}: MPI={df['MPI'].iloc[-1]:.1%}, "
+                    f"Velocity={df['MPI_Velocity'].iloc[-1]:+.3f}, "
+                    f"Trend={df['MPI_Trend'].iloc[-1]}, "
+                    f"RelVol={df['Relative_Volume'].iloc[-1]:.0f}%")
         
     except Exception as e:
         logger.error(f"{ticker}: Technical analysis failed: {e}")
