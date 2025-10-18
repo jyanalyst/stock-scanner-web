@@ -20,6 +20,16 @@ from typing import Dict, List, Optional, Tuple
 from datetime import datetime, date, timedelta
 import glob
 
+# Import data validation
+try:
+    from pages.common.data_validation import validate_data_quality, clean_data
+except ImportError:
+    # Fallback if validation module not available
+    def validate_data_quality(df, dataset_type, strict=False):
+        return None
+    def clean_data(df, dataset_type, strategy='mean'):
+        return df, []
+
 logger = logging.getLogger(__name__)
 
 class LocalFileLoader:
@@ -114,15 +124,17 @@ class LocalFileLoader:
             
             # Read CSV with Singapore date format
             df = pd.read_csv(filepath, encoding='utf-8')
-            
+
             # Parse dates with STRICT Singapore format (dayfirst=True)
             if 'Date' in df.columns:
                 df['Date'] = pd.to_datetime(df['Date'], dayfirst=True, format='mixed')
                 df.set_index('Date', inplace=True)
-            
+
             # Standardize column names (Last→Close, Vol→Volume)
             df = self._standardize_columns(df)
-            
+
+            # Skip data quality logging - use original data as-is
+
             logger.info(f"✅ Loaded {ticker} from {filename}: {len(df)} rows")
             return df
             

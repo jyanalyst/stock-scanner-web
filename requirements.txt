@@ -12,3 +12,6 @@ requests
 
 # Analyst report processing (minimal dependencies)
 PyPDF2
+
+# Performance monitoring
+psutil

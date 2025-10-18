@@ -10,6 +10,23 @@ from datetime import datetime, date
 from typing import Dict, List, Optional
 import logging
 
+# Import performance optimizations and data validation
+try:
+    from pages.common.performance import cached_data_operation
+    from pages.common.data_validation import validate_data_quality, clean_data
+except ImportError:
+    # Fallback if modules not available
+    def cached_data_operation(prefix):
+        def decorator(func):
+            return func
+        return decorator
+
+    def validate_data_quality(df, dataset_type, strict=False):
+        return None
+
+    def clean_data(df, dataset_type, strategy='mean'):
+        return df, []
+
 logger = logging.getLogger(__name__)
 
 
@@ -19,10 +36,12 @@ def get_analyst_reports_dir() -> Path:
     return ANALYST_REPORTS_DIR
 
 
+@cached_data_operation("analyst_reports")
 def load_all_analyst_reports() -> pd.DataFrame:
     """
     Load all analyst report JSONs into a DataFrame
-    
+    PERFORMANCE OPTIMIZED: Added caching for expensive file operations
+
     Returns:
         DataFrame with columns:
         - ticker: Display ticker (e.g., "N2IU")
@@ -79,13 +98,25 @@ def load_all_analyst_reports() -> pd.DataFrame:
     
     # Create DataFrame
     df = pd.DataFrame(reports)
-    
+
     # Ensure report_date is datetime
     if 'report_date' in df.columns:
         df['report_date'] = pd.to_datetime(df['report_date'])
-    
+
+    # Validate data quality
+    if not df.empty:
+        quality_check = validate_data_quality(df, 'analyst_reports', strict=False)
+        if quality_check and quality_check.validation_score < 0.8:
+            logger.warning(f"Analyst reports data quality: {quality_check.validation_score:.1%}")
+
+            # Clean data if needed
+            cleaned_df, cleaning_actions = clean_data(df, 'analyst_reports', 'forward_fill')
+            if cleaning_actions:
+                logger.info(f"Applied {len(cleaning_actions)} cleaning actions to analyst reports")
+                df = cleaned_df
+
     logger.info(f"Loaded {len(df)} analyst reports from {len(json_files)} files")
-    
+
     return df
 
 
