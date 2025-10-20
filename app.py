@@ -191,27 +191,30 @@ def main():
     
     elif page_value == "historical":
         st.title("📊 Historical Analysis")
-        st.info("Historical analysis page coming soon! This will show:")
+        st.warning("🚧 Historical analysis page is not yet implemented")
+        st.info("This feature is planned for a future release and will include:")
         st.markdown("""
         - Performance tracking of past signals
         - Win/loss ratios for each scanner type
         - Best performing stocks by pattern
         - Strategy effectiveness over time
         """)
-    
+
     elif page_value == "watchlist":
-        st.title("📋 Watchlist Manager") 
-        st.info("Watchlist management page coming soon! This will allow:")
+        st.title("📋 Watchlist Manager")
+        st.warning("🚧 Watchlist management page is not yet implemented")
+        st.info("This feature is planned for a future release and will allow:")
         st.markdown("""
         - Add/remove stocks from scanning list
         - Import stocks from CSV
         - Manage stock categories
         - Custom watchlist creation
         """)
-    
+
     elif page_value == "settings":
         st.title("⚙️ Settings")
-        st.info("Settings page coming soon! This will include:")
+        st.warning("🚧 Settings page is not yet implemented")
+        st.info("This feature is planned for a future release and will include:")
         st.markdown("""
         - Scanning parameters (days back, rolling windows)
         - Email notification settings

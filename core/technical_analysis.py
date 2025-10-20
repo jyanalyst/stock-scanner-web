@@ -319,15 +319,13 @@ def validate_data_quality(df: pd.DataFrame) -> dict:
         'has_recent_data': len(df) > 0,
         'expansion_signals_count': int(df['Signal_Expansion_Buy'].sum()) if 'Signal_Expansion_Buy' in df.columns else 0,
         'mpi_data_available': 'MPI' in df.columns,
-        'strong_expansion_count': int((df['MPI_Trend'] == 'Strong Expansion').sum()) if 'MPI_Trend' in df.columns else 0,
-        'contraction_count': int(df['MPI_Trend'].isin(['Mild Contraction', 'Strong Contraction']).sum()) if 'MPI_Trend' in df.columns else 0
+        'expansion_count': int((df['MPI_Trend'] == 'Expanding').sum()) if 'MPI_Trend' in df.columns else 0,
+        'contraction_count': int((df['MPI_Trend'] == 'Contracting').sum()) if 'MPI_Trend' in df.columns else 0
     }
     
     return validation_results
 
-def calculate_technical_indicators_wrapper(df: pd.DataFrame, ticker: str = 'Unknown') -> pd.DataFrame:
-    """Simple wrapper for add_enhanced_columns (backward compatibility)"""
-    return add_enhanced_columns(df, ticker)
+
 
 def get_mpi_expansion_summary(df: pd.DataFrame) -> dict:
     """Get a summary of MPI expansion signals in the DataFrame"""
@@ -346,11 +344,9 @@ def get_mpi_expansion_summary(df: pd.DataFrame) -> dict:
         'total_days': len(df),
         'avg_mpi': float(df['MPI'].mean()),
         'avg_velocity': float(df['MPI_Velocity'].mean()),
-        'strong_expansion_days': int((df['MPI_Trend'] == 'Strong Expansion').sum()) if 'MPI_Trend' in df.columns else 0,
         'expanding_days': int((df['MPI_Trend'] == 'Expanding').sum()) if 'MPI_Trend' in df.columns else 0,
         'flat_days': int((df['MPI_Trend'] == 'Flat').sum()) if 'MPI_Trend' in df.columns else 0,
-        'mild_contraction_days': int((df['MPI_Trend'] == 'Mild Contraction').sum()) if 'MPI_Trend' in df.columns else 0,
-        'strong_contraction_days': int((df['MPI_Trend'] == 'Strong Contraction').sum()) if 'MPI_Trend' in df.columns else 0,
+        'contracting_days': int((df['MPI_Trend'] == 'Contracting').sum()) if 'MPI_Trend' in df.columns else 0,
         'expansion_buy_signals': int(df['Signal_Expansion_Buy'].sum()) if 'Signal_Expansion_Buy' in df.columns else 0,
         'strong_buy_signals': int(df['Signal_Strong_Buy'].sum()) if 'Signal_Strong_Buy' in df.columns else 0,
         'exit_signals': int(df['Signal_Exit'].sum()) if 'Signal_Exit' in df.columns else 0
