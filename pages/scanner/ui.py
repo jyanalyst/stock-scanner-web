@@ -30,6 +30,7 @@ from pages.common.error_handler import (handle_error, safe_execute, with_error_h
                                        display_user_friendly_error)
 from pages.common.performance import get_performance_stats
 from pages.common.data_validation import validate_data_quality, get_validation_summary
+from utils import analyst_reports
 
 
 def show_update_prompt() -> Optional[bool]:
@@ -906,7 +907,7 @@ def display_detailed_analyst_reports(results_df: pd.DataFrame) -> None:
         ticker = row['Ticker']
         name = row.get('Name', ticker)
         sentiment = row.get('sentiment_label', 'unknown')
-        sentiment_emoji = utils.analyst_reports.format_sentiment_emoji(sentiment)
+        sentiment_emoji = analyst_reports.format_sentiment_emoji(sentiment)
         report_date = row.get('report_date', 'Unknown')
         if isinstance(report_date, str):
             report_date = report_date[:10]  # YYYY-MM-DD format
@@ -943,7 +944,7 @@ def display_analyst_report_details(stock_data: pd.Series) -> None:
     col1, col2, col3 = st.columns(3)
     with col1:
         sentiment = stock_data.get('sentiment_label', 'unknown')
-        sentiment_emoji = utils.analyst_reports.format_sentiment_emoji(sentiment)
+        sentiment_emoji = analyst_reports.format_sentiment_emoji(sentiment)
         st.metric("Sentiment", f"{sentiment_emoji} {sentiment.title()}")
     with col2:
         score = stock_data.get('sentiment_score', 0)
@@ -1027,18 +1028,18 @@ def display_analyst_report_details(stock_data: pd.Series) -> None:
 
         try:
             from utils.analyst_reports import get_report_history
-            all_reports, _ = utils.analyst_reports.get_cached_reports()
+            all_reports, _ = analyst_reports.get_cached_reports()
             history_df = get_report_history(all_reports, stock_data['ticker_sgx'])
 
             if not history_df.empty and len(history_df) > 1:
                 # Show sentiment trend
-                trend = utils.analyst_reports.get_sentiment_trend_description(history_df)
+                trend = analyst_reports.get_sentiment_trend_description(history_df)
                 st.info(f"📈 **Sentiment Trend:** {trend}")
 
                 # Show historical reports table
                 history_display = history_df[['report_date', 'sentiment_label', 'recommendation', 'price_target']].copy()
                 history_display['sentiment_label'] = history_display['sentiment_label'].apply(
-                    lambda x: f"{utils.analyst_reports.format_sentiment_emoji(x)} {x.title()}"
+                    lambda x: f"{analyst_reports.format_sentiment_emoji(x)} {x.title()}"
                 )
                 history_display['report_date'] = history_display['report_date'].dt.strftime('%Y-%m-%d')
 
