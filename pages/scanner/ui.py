@@ -881,6 +881,364 @@ def get_mpi_expansion_description(trend: str) -> str:
     return descriptions.get(trend, 'Unknown')
 
 
+def display_detailed_analyst_reports(results_df: pd.DataFrame) -> None:
+    """Display detailed analyst reports with dropdown selection"""
+    if results_df.empty:
+        return
+
+    # Check if we have analyst report data
+    if 'sentiment_score' not in results_df.columns:
+        st.info("📊 No analyst reports available in current scan results")
+        return
+
+    # Get stocks with analyst reports
+    stocks_with_reports = results_df[results_df['sentiment_score'].notna()].copy()
+
+    if stocks_with_reports.empty:
+        st.info("📊 No stocks with analyst reports in current scan results")
+        return
+
+    create_section_header("📊 Analyst Reports Analysis", "")
+
+    # Create dropdown options
+    report_options = []
+    for _, row in stocks_with_reports.iterrows():
+        ticker = row['Ticker']
+        name = row.get('Name', ticker)
+        sentiment = row.get('sentiment_label', 'unknown')
+        sentiment_emoji = utils.analyst_reports.format_sentiment_emoji(sentiment)
+        report_date = row.get('report_date', 'Unknown')
+        if isinstance(report_date, str):
+            report_date = report_date[:10]  # YYYY-MM-DD format
+
+        option_text = f"{ticker} - {name} {sentiment_emoji} ({report_date})"
+        report_options.append((option_text, ticker))
+
+    # Sort by ticker for consistency
+    report_options.sort(key=lambda x: x[1])
+
+    # Dropdown selection
+    selected_option = st.selectbox(
+        "📋 Select stock to view detailed analyst report:",
+        options=[opt[0] for opt in report_options],
+        help="Choose a stock to view its detailed analyst report information"
+    )
+
+    # Find selected stock data
+    selected_ticker = next(opt[1] for opt in report_options if opt[0] == selected_option)
+    stock_data = stocks_with_reports[stocks_with_reports['Ticker'] == selected_ticker].iloc[0]
+
+    # Display detailed analyst report
+    display_analyst_report_details(stock_data)
+
+
+def display_analyst_report_details(stock_data: pd.Series) -> None:
+    """Display detailed analyst report information for a selected stock"""
+    ticker = stock_data['Ticker']
+    name = stock_data.get('Name', ticker)
+
+    st.markdown(f"### 📊 {ticker} - {name}")
+
+    # Basic report info
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        sentiment = stock_data.get('sentiment_label', 'unknown')
+        sentiment_emoji = utils.analyst_reports.format_sentiment_emoji(sentiment)
+        st.metric("Sentiment", f"{sentiment_emoji} {sentiment.title()}")
+    with col2:
+        score = stock_data.get('sentiment_score', 0)
+        st.metric("Sentiment Score", f"{score:.2f}", help="Range: -1 (bearish) to +1 (bullish)")
+    with col3:
+        recommendation = stock_data.get('recommendation', 'N/A')
+        st.metric("Recommendation", recommendation)
+
+    # Report details
+    col1, col2 = st.columns(2)
+    with col1:
+        st.markdown("**Report Information:**")
+        report_date = stock_data.get('report_date')
+        if report_date:
+            if isinstance(report_date, str):
+                report_date = report_date[:10]
+            st.write(f"📅 **Date:** {report_date}")
+        else:
+            st.write("📅 **Date:** Unknown")
+
+        analyst_firm = stock_data.get('analyst_firm', 'Unknown')
+        st.write(f"🏢 **Analyst Firm:** {analyst_firm}")
+
+        report_count = stock_data.get('report_count', 1)
+        st.write(f"📄 **Total Reports:** {report_count}")
+
+    with col2:
+        st.markdown("**Price Information:**")
+        price_target = stock_data.get('price_target')
+        if price_target:
+            st.write(f"🎯 **Price Target:** ${price_target:.2f}")
+        else:
+            st.write("🎯 **Price Target:** N/A")
+
+        price_at_report = stock_data.get('price_at_report')
+        if price_at_report:
+            st.write(f"💰 **Price at Report:** ${price_at_report:.2f}")
+        else:
+            st.write("💰 **Price at Report:** N/A")
+
+        upside_pct = stock_data.get('upside_pct')
+        if upside_pct is not None:
+            color = "green" if upside_pct > 0 else "red"
+            st.write(f"📈 **Upside:** {upside_pct:+.1f}%")
+
+    # Catalysts and Risks
+    st.markdown("---")
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.markdown("### 🎯 Key Catalysts")
+        catalysts = stock_data.get('key_catalysts', [])
+        if catalysts:
+            for catalyst in catalysts:
+                st.write(f"• {catalyst}")
+        else:
+            st.info("No catalysts specified")
+
+    with col2:
+        st.markdown("### ⚠️ Key Risks")
+        risks = stock_data.get('key_risks', [])
+        if risks:
+            for risk in risks:
+                st.write(f"• {risk}")
+        else:
+            st.info("No risks specified")
+
+    # Executive Summary
+    st.markdown("---")
+    st.markdown("### 📝 Executive Summary")
+    summary = stock_data.get('executive_summary', '')
+    if summary:
+        st.write(summary)
+    else:
+        st.info("No executive summary available")
+
+    # Report History (if multiple reports)
+    if stock_data.get('report_count', 1) > 1:
+        st.markdown("---")
+        st.markdown("### 📚 Report History")
+
+        try:
+            from utils.analyst_reports import get_report_history
+            all_reports, _ = utils.analyst_reports.get_cached_reports()
+            history_df = get_report_history(all_reports, stock_data['ticker_sgx'])
+
+            if not history_df.empty and len(history_df) > 1:
+                # Show sentiment trend
+                trend = utils.analyst_reports.get_sentiment_trend_description(history_df)
+                st.info(f"📈 **Sentiment Trend:** {trend}")
+
+                # Show historical reports table
+                history_display = history_df[['report_date', 'sentiment_label', 'recommendation', 'price_target']].copy()
+                history_display['sentiment_label'] = history_display['sentiment_label'].apply(
+                    lambda x: f"{utils.analyst_reports.format_sentiment_emoji(x)} {x.title()}"
+                )
+                history_display['report_date'] = history_display['report_date'].dt.strftime('%Y-%m-%d')
+
+                st.dataframe(
+                    history_display,
+                    column_config={
+                        'report_date': st.column_config.TextColumn('Date', width='small'),
+                        'sentiment_label': st.column_config.TextColumn('Sentiment', width='medium'),
+                        'recommendation': st.column_config.TextColumn('Recommendation', width='medium'),
+                        'price_target': st.column_config.NumberColumn('Price Target', format='$%.2f')
+                    },
+                    hide_index=True,
+                    use_container_width=True
+                )
+        except Exception as e:
+            st.warning(f"Could not load report history: {e}")
+
+
+def display_detailed_earnings_reports(results_df: pd.DataFrame) -> None:
+    """Display detailed earnings reports with dropdown selection"""
+    if results_df.empty:
+        return
+
+    # Check if we have earnings report data
+    earnings_columns = ['revenue', 'net_profit', 'guidance_tone']
+    has_earnings = any(col in results_df.columns for col in earnings_columns)
+
+    if not has_earnings:
+        st.info("💰 No earnings reports available in current scan results")
+        return
+
+    # Get stocks with earnings reports
+    earnings_mask = results_df['revenue'].notna() | results_df['net_profit'].notna()
+    stocks_with_earnings = results_df[earnings_mask].copy()
+
+    if stocks_with_earnings.empty:
+        st.info("💰 No stocks with earnings reports in current scan results")
+        return
+
+    create_section_header("💰 Earnings Reports Analysis", "")
+
+    # Create dropdown options
+    earnings_options = []
+    for _, row in stocks_with_earnings.iterrows():
+        ticker = row['Ticker']
+        name = row.get('Name', ticker)
+        period = row.get('Earnings_Period', 'Unknown')
+        guidance = row.get('guidance_tone', 'neutral')
+
+        guidance_emoji = {
+            'positive': '📈',
+            'neutral': '➖',
+            'negative': '📉'
+        }.get(guidance, '❓')
+
+        option_text = f"{ticker} - {name} ({period}) {guidance_emoji}"
+        earnings_options.append((option_text, ticker))
+
+    # Sort by ticker for consistency
+    earnings_options.sort(key=lambda x: x[1])
+
+    # Dropdown selection
+    selected_option = st.selectbox(
+        "📋 Select stock to view detailed earnings report:",
+        options=[opt[0] for opt in earnings_options],
+        help="Choose a stock to view its detailed earnings report information"
+    )
+
+    # Find selected stock data
+    selected_ticker = next(opt[1] for opt in earnings_options if opt[0] == selected_option)
+    stock_data = stocks_with_earnings[stocks_with_earnings['Ticker'] == selected_ticker].iloc[0]
+
+    # Display detailed earnings report
+    display_earnings_report_details(stock_data)
+
+
+def display_earnings_report_details(stock_data: pd.Series) -> None:
+    """Display detailed earnings report information for a selected stock"""
+    ticker = stock_data['Ticker']
+    name = stock_data.get('Name', ticker)
+
+    st.markdown(f"### 💰 {ticker} - {name}")
+
+    # Basic earnings info
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        period = stock_data.get('Earnings_Period', 'Unknown')
+        st.metric("Period", period)
+    with col2:
+        guidance = stock_data.get('guidance_tone', 'neutral')
+        guidance_emoji = {
+            'positive': '📈',
+            'neutral': '➖',
+            'negative': '📉'
+        }.get(guidance, '❓')
+        st.metric("Guidance", f"{guidance_emoji} {guidance.title()}")
+    with col3:
+        report_age = stock_data.get('report_age_days', None)
+        if report_age is not None:
+            age_str = "days" if report_age != 1 else "day"
+            st.metric("Report Age", f"{report_age} {age_str}")
+        else:
+            st.metric("Report Age", "Unknown")
+
+    # Financial Results
+    st.markdown("### 💵 Financial Results")
+
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        revenue = stock_data.get('revenue')
+        if revenue is not None:
+            st.metric("Revenue", f"${revenue:,.0f}")
+        else:
+            st.metric("Revenue", "N/A")
+
+    with col2:
+        net_profit = stock_data.get('net_profit')
+        if net_profit is not None:
+            st.metric("Net Profit", f"${net_profit:,.0f}")
+        else:
+            st.metric("Net Profit", "N/A")
+
+    with col3:
+        eps = stock_data.get('eps')
+        if eps is not None:
+            st.metric("EPS", f"${eps:.3f}")
+        else:
+            st.metric("EPS", "N/A")
+
+    # Year-over-Year Changes
+    st.markdown("### 📊 Year-over-Year Changes")
+
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        rev_yoy = stock_data.get('revenue_yoy_pct')
+        if rev_yoy is not None:
+            color = "green" if rev_yoy > 0 else "red"
+            st.metric("Revenue YoY", f"{rev_yoy:+.1f}%")
+        else:
+            st.metric("Revenue YoY", "N/A")
+
+    with col2:
+        profit_yoy = stock_data.get('profit_yoy_pct')
+        if profit_yoy is not None:
+            color = "green" if profit_yoy > 0 else "red"
+            st.metric("Profit YoY", f"{profit_yoy:+.1f}%")
+        else:
+            st.metric("Profit YoY", "N/A")
+
+    with col3:
+        eps_yoy = stock_data.get('eps_yoy_pct')
+        if eps_yoy is not None:
+            color = "green" if eps_yoy > 0 else "red"
+            st.metric("EPS YoY", f"{eps_yoy:+.1f}%")
+        else:
+            st.metric("EPS YoY", "N/A")
+
+    # Management Commentary
+    st.markdown("---")
+    st.markdown("### 💬 Management Commentary")
+
+    commentary = stock_data.get('management_commentary', '')
+    if commentary:
+        st.write(commentary)
+    else:
+        st.info("No management commentary available")
+
+    # Future Guidance
+    st.markdown("---")
+    st.markdown("### 🔮 Future Guidance")
+
+    col1, col2 = st.columns(2)
+    with col1:
+        st.markdown("**Revenue Guidance:**")
+        rev_guidance = stock_data.get('revenue_guidance', '')
+        if rev_guidance:
+            st.write(rev_guidance)
+        else:
+            st.info("No revenue guidance provided")
+
+    with col2:
+        st.markdown("**Profit Guidance:**")
+        profit_guidance = stock_data.get('profit_guidance', '')
+        if profit_guidance:
+            st.write(profit_guidance)
+        else:
+            st.info("No profit guidance provided")
+
+    # Key Points
+    st.markdown("---")
+    st.markdown("### 🎯 Key Points")
+
+    key_points = stock_data.get('key_points', [])
+    if key_points:
+        for point in key_points:
+            st.write(f"• {point}")
+    else:
+        st.info("No key points specified")
+
+
 def show_force_update_options():
     """Show force update options when data is up to date"""
     try:
