@@ -22,6 +22,7 @@ from pages.common.performance import (performance_monitor, cached_data_operation
                                      _memory_manager, _data_cache, _computation_cache)
 from pages.common.data_validation import (validate_data_quality, clean_data,
                                         get_validation_summary, DataQualityMetrics)
+from pages.scanner.constants import ScanProgress, ScanScope, ScanDateType
 
 logger = logging.getLogger(__name__)
 
@@ -61,26 +62,26 @@ def run_enhanced_stock_scan(stocks_to_scan: List[str], analysis_date: Optional[d
         if fetcher is None:
             raise DataLoadError("Failed to initialize data fetcher",
                               recovery_action="Check configuration and try again")
-        update_progress(progress_bar, status_text, 0.1, "🔧 Initializing data fetcher...")
+        update_progress(progress_bar, status_text, ScanProgress.INIT, "🔧 Data fetcher initialized")
 
         # Check memory before loading data
         if _memory_manager.check_memory_pressure():
             optimize_memory_usage()
 
-        update_progress(progress_bar, status_text, 0.1, "📥 Loading stock data from local files...")
+        update_progress(progress_bar, status_text, ScanProgress.INIT, "📥 Loading stock data from local files...")
         stock_data = safe_execute(fetcher.download_stock_data, stocks_to_scan, target_date=analysis_date,
                                 component="DataLoading", fallback_value={})
         set_global_data_fetcher(fetcher)
-        update_progress(progress_bar, status_text, 0.3, "📥 Loading stock data from local files...")
+        update_progress(progress_bar, status_text, ScanProgress.LOAD_DATA, "📥 Stock data loaded successfully")
 
         if not stock_data:
             raise DataLoadError("No stock data loaded from local files",
                               recovery_action="Check that data files exist and are accessible")
 
         # Skip all data validation and cleaning - use original data as-is
-        update_progress(progress_bar, status_text, 0.25, "📊 Analyzing original data (no validation or cleaning applied)...")
+        update_progress(progress_bar, status_text, 0.35, "📊 Analyzing original data (no validation or cleaning applied)...")
 
-        update_progress(progress_bar, status_text, 0.4, "🔄 Calculating Pure MPI Expansion and technical analysis...")
+        update_progress(progress_bar, status_text, ScanProgress.CALCULATE, "🔄 Calculating Pure MPI Expansion and technical analysis...")
 
         results = []
         processing_errors = []
@@ -110,7 +111,8 @@ def run_enhanced_stock_scan(stocks_to_scan: List[str], analysis_date: Optional[d
                 result = _create_result_dict(analysis_row, actual_date, ticker, fetcher)
                 results.append(result)
 
-                progress = 0.4 + (0.4 * (i + 1) / len(stock_data))
+                progress_range = ScanProgress.PROCESS_STOCKS_END - ScanProgress.PROCESS_STOCKS_START
+                progress = ScanProgress.PROCESS_STOCKS_START + (progress_range * (i + 1) / len(stock_data))
                 update_progress(progress_bar, status_text, progress, f"🔄 Processing {ticker}...")
 
                 time.sleep(PROGRESS_UPDATE_INTERVAL)
@@ -120,7 +122,7 @@ def run_enhanced_stock_scan(stocks_to_scan: List[str], analysis_date: Optional[d
                 processing_errors.append(f"{ticker}: {str(e)} (ID: {error_info.get('correlation_id', 'N/A')})")
                 continue
 
-        update_progress(progress_bar, status_text, 0.8, "📊 Preparing Filtered results...")
+        update_progress(progress_bar, status_text, ScanProgress.PREPARE_RESULTS, "📊 Preparing filtered results...")
 
         if not results:
             raise DataProcessingError("No stocks were successfully processed",
@@ -132,7 +134,7 @@ def run_enhanced_stock_scan(stocks_to_scan: List[str], analysis_date: Optional[d
         results_df = _memory_manager.optimize_dataframe(results_df)
 
         # Load and merge analyst reports with enhanced error handling
-        update_progress(progress_bar, status_text, 0.85, "📊 Loading analyst reports...")
+        update_progress(progress_bar, status_text, ScanProgress.ANALYST_REPORTS, "📊 Loading analyst reports...")
 
         try:
             from utils.analyst_reports import get_cached_reports, merge_reports_with_scan_results
@@ -147,7 +149,7 @@ def run_enhanced_stock_scan(stocks_to_scan: List[str], analysis_date: Optional[d
                 matches = results_df['sentiment_score'].notna().sum() if 'sentiment_score' in results_df.columns else 0
                 structured_logger.log('INFO', 'AnalystReports',
                                     f"Merged analyst reports: {matches} matches out of {len(results_df)} stocks")
-                update_progress(progress_bar, status_text, 0.85, f"📊 Analyst reports: {matches} matches found")
+                update_progress(progress_bar, status_text, ScanProgress.ANALYST_REPORTS, f"📊 Analyst reports: {matches} matches found")
 
                 # Create analyst display columns with error handling
                 if 'sentiment_score' in results_df.columns:
@@ -178,7 +180,7 @@ def run_enhanced_stock_scan(stocks_to_scan: List[str], analysis_date: Optional[d
             handle_error(e, "AnalystReports", {"operation": "load_and_merge"}, show_user_message=False)
 
         # Load and merge earnings reports with enhanced error handling
-        update_progress(progress_bar, status_text, 0.9, "💰 Loading earnings reports...")
+        update_progress(progress_bar, status_text, ScanProgress.EARNINGS_REPORTS, "💰 Loading earnings reports...")
 
         try:
             from utils.earnings_reports import get_cached_earnings, merge_earnings_with_scan_results
@@ -193,7 +195,7 @@ def run_enhanced_stock_scan(stocks_to_scan: List[str], analysis_date: Optional[d
                 matches = results_df['revenue'].notna().sum() if 'revenue' in results_df.columns else 0
                 structured_logger.log('INFO', 'EarningsReports',
                                     f"Merged earnings reports: {matches} matches out of {len(results_df)} stocks")
-                update_progress(progress_bar, status_text, 0.9, f"💰 Earnings reports: {matches} matches found")
+                update_progress(progress_bar, status_text, ScanProgress.EARNINGS_REPORTS, f"💰 Earnings reports: {matches} matches found")
 
                 # Create earnings display columns with error handling
                 if 'revenue' in results_df.columns:
@@ -246,12 +248,12 @@ def run_enhanced_stock_scan(stocks_to_scan: List[str], analysis_date: Optional[d
         st.session_state.scan_results = results_df
         st.session_state.last_scan_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         st.session_state.last_scan_config = {
-            'scope': 'Single Stock' if is_single_stock else 'Full Watchlist',
+            'scope': ScanScope.SINGLE_STOCK if is_single_stock else ScanScope.FULL_WATCHLIST,
             'date': f'Historical ({analysis_date.strftime("%d/%m/%Y")})' if is_historical else 'Current',
             'stock_count': len(results_df)
         }
 
-        update_progress(progress_bar, status_text, 1.0, "✅ Scan completed!")
+        update_progress(progress_bar, status_text, ScanProgress.COMPLETE, "✅ Scan completed!")
         clear_progress(progress_bar, status_text)
 
         time.sleep(1)
