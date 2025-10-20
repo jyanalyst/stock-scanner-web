@@ -11,7 +11,8 @@ from pages.scanner.ui import (
     show_update_prompt, show_scanning_configuration, show_advanced_settings,
     execute_scan_button, display_scan_summary, show_base_pattern_filter,
     display_filtered_results, show_full_results_table, show_mpi_insights,
-    show_force_update_options
+    show_force_update_options,
+    display_detailed_analyst_reports, display_detailed_earnings_reports
 )
 from pages.scanner.logic import run_enhanced_stock_scan
 from pages.scanner.data import apply_dynamic_filters
