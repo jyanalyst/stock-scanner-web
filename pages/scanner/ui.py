@@ -22,6 +22,8 @@ from pages.common.ui_components import (
 from pages.common.constants import (
     DEFAULT_DAYS_BACK, DEFAULT_ROLLING_WINDOW, PROGRESS_UPDATE_INTERVAL
 )
+from pages.scanner.constants import ScanScope, ScanDateType
+from utils.date_utils import format_singapore_date
 from pages.common.error_handler import (handle_error, safe_execute, with_error_handling,
                                        FileNotFoundError as AppFileNotFoundError,
                                        NetworkTimeoutError, NetworkConnectionError,
@@ -354,7 +356,6 @@ def perform_eod_update(loader, force: bool = False) -> Optional[bool]:
                     if detail['status'] == 'error':
                         st.write(f"**{detail['ticker']}**: {detail['message']}")
 
-        import time
         time.sleep(2)
         return True
 
@@ -455,12 +456,12 @@ def show_scanning_configuration() -> Tuple[str, Optional[str], str, Optional[dat
         st.markdown("**📊 Scan Scope**")
         scan_scope = st.radio(
             "Choose scan scope:",
-            ["Single Stock", "Full Watchlist"],
+            [ScanScope.SINGLE_STOCK, ScanScope.FULL_WATCHLIST],
             help="Select whether to scan one stock or the entire watchlist"
         )
 
         selected_stock = None
-        if scan_scope == "Single Stock":
+        if scan_scope == ScanScope.SINGLE_STOCK:
             try:
                 from utils.watchlist import get_active_watchlist
                 watchlist = get_active_watchlist()
@@ -477,12 +478,12 @@ def show_scanning_configuration() -> Tuple[str, Optional[str], str, Optional[dat
         st.markdown("**📅 Analysis Date**")
         scan_date_type = st.radio(
             "Choose analysis date:",
-            ["Current Date", "Historical Date"],
+            [ScanDateType.CURRENT, ScanDateType.HISTORICAL],
             help="Scan as of current date or specify a historical date"
         )
 
         historical_date = None
-        if scan_date_type == "Historical Date":
+        if scan_date_type == ScanDateType.HISTORICAL:
             try:
                 default_date = date.today() - timedelta(days=7)
                 historical_date = st.date_input(
@@ -540,13 +541,13 @@ def execute_scan_button(scan_scope: str, selected_stock: Optional[str],
         try:
             from pages.scanner.logic import run_enhanced_stock_scan
 
-            if scan_scope == "Single Stock":
+            if scan_scope == ScanScope.SINGLE_STOCK:
                 stocks_to_scan = [selected_stock]
             else:
                 from utils.watchlist import get_active_watchlist
                 stocks_to_scan = get_active_watchlist()
 
-            analysis_date = historical_date if scan_date_type == "Historical Date" else None
+            analysis_date = historical_date if scan_date_type == ScanDateType.HISTORICAL else None
 
             run_enhanced_stock_scan(
                 stocks_to_scan=stocks_to_scan,
