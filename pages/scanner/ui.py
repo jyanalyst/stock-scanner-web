@@ -1063,16 +1063,24 @@ def display_detailed_earnings_reports(results_df: pd.DataFrame) -> None:
     if results_df.empty:
         return
 
-    # Check if we have earnings report data
-    earnings_columns = ['revenue', 'net_profit', 'guidance_tone']
-    has_earnings = any(col in results_df.columns for col in earnings_columns)
+    # Check if earnings columns exist and have data
+    has_revenue = 'revenue' in results_df.columns and results_df['revenue'].notna().any()
+    has_profit = 'net_profit' in results_df.columns and results_df['net_profit'].notna().any()
+    has_guidance = 'guidance_tone' in results_df.columns and results_df['guidance_tone'].notna().any()
 
-    if not has_earnings:
+    if not (has_revenue or has_profit or has_guidance):
         st.info("💰 No earnings reports available in current scan results")
         return
 
-    # Get stocks with earnings reports
-    earnings_mask = results_df['revenue'].notna() | results_df['net_profit'].notna()
+    # Create mask for stocks with earnings data (defensive approach)
+    earnings_mask = pd.Series(False, index=results_df.index)
+    if 'revenue' in results_df.columns:
+        earnings_mask = earnings_mask | results_df['revenue'].notna()
+    if 'net_profit' in results_df.columns:
+        earnings_mask = earnings_mask | results_df['net_profit'].notna()
+    if 'guidance_tone' in results_df.columns:
+        earnings_mask = earnings_mask | results_df['guidance_tone'].notna()
+
     stocks_with_earnings = results_df[earnings_mask].copy()
 
     if stocks_with_earnings.empty:
