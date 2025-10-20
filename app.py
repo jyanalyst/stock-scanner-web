@@ -151,8 +151,9 @@ def main():
     pages = {
         "🏠 Home": "home",
         "📈 Scanner": "scanner",
+        "📊 Earnings Trend Analyzer": "earnings_analyzer",
         "🔬 Factor Analysis": "factor_analysis",
-        "📊 Historical Analysis": "historical", 
+        "📊 Historical Analysis": "historical",
         "📋 Watchlist Manager": "watchlist",
         "⚙️ Settings": "settings"
     }
@@ -180,7 +181,15 @@ def main():
         except ImportError as e:
             st.error(f"Scanner module not found: {e}")
             st.info("This scanner focuses on stocks with Higher High AND Higher Low patterns, with integrated analyst sentiment analysis.")
-    
+
+    elif page_value == "earnings_analyzer":
+        try:
+            from pages import earnings_trend_analyzer
+            earnings_trend_analyzer.show()
+        except ImportError as e:
+            st.error(f"Earnings Trend Analyzer module not found: {e}")
+            st.info("This module provides advanced earnings analysis with trend identification and future prediction.")
+
     elif page_value == "factor_analysis":
         try:
             from pages import factor_analysis
