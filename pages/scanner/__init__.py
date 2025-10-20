@@ -39,10 +39,9 @@ def display_scan_results(results_df):
         show_mpi_insights(results_df)
 
         # CRITICAL: These functions now display with dropdown selection
-        # Note: These functions are temporarily disabled due to import issues
-        # They will be re-enabled once the UI components are properly implemented
-        # display_detailed_analyst_reports(results_df)
-        # display_detailed_earnings_reports(results_df)
+        # Note: These functions are now implemented and enabled
+        display_detailed_analyst_reports(results_df)
+        display_detailed_earnings_reports(results_df)
 
     except Exception as e:
         st.session_state.error_logger.log_error("Results Display", e)
