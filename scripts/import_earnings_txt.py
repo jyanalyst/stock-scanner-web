@@ -1,12 +1,13 @@
 # File: scripts/import_earnings_txt.py
 """
 Import earnings report data from Claude-generated .txt files
-Filename format: YYYYMMDD_CompanyAbbrev_Period_Ticker.txt
-Example: 20220420_MCT_2HFY2122_N2IU.txt
+Filename format: YYYYMMDD_CompanyAbbrev_Quarter_FiscalYear_ReportTime_Ticker.txt
+Example: 20250730_MPACT_1Q_FY2026_PM_N2IU.txt
 Each .txt file should contain a JSON object with earnings report data
 Successfully processed files are automatically moved to processed/ subfolder
 
 UPDATED: Now supports adaptive structure for REITs, Business Trusts, and Normal Companies
+UPDATED: New filename format with fiscal year and report time (AM/PM)
 """
 import json
 from pathlib import Path
@@ -19,66 +20,67 @@ sys.path.append(str(Path(__file__).parent.parent))
 from utils.paths import EARNINGS_REPORTS_DIR, EARNINGS_PDF_DIR
 
 
-def parse_period_to_report_type(period_str: str) -> str:
+def parse_quarter_to_report_type(quarter_str: str) -> str:
     """
-    Convert various period formats to standardized report_type
+    Convert quarter format to standardized report_type
     
     Examples:
-        1QFY24 -> Q1
-        2HFY2122 -> H2
-        Q3FY25 -> Q3
-        FY2024 -> FY
-        1HFY24 -> H1
+        1Q -> Q1
+        2Q -> Q2
+        H1 -> H1
+        H2 -> H2
+        FY -> FY
     
     Returns:
         Standardized report_type: Q1, Q2, Q3, Q4, H1, H2, or FY
     """
-    period_upper = period_str.upper()
+    quarter_upper = quarter_str.upper()
     
-    # Quarter patterns
-    if re.match(r'[1-4]Q', period_upper) or re.match(r'Q[1-4]', period_upper):
-        quarter_num = re.search(r'[1-4]', period_upper).group()
+    # Quarter patterns: 1Q, 2Q, 3Q, 4Q -> Q1, Q2, Q3, Q4
+    if re.match(r'^[1-4]Q$', quarter_upper):
+        quarter_num = quarter_upper[0]
         return f"Q{quarter_num}"
     
-    # Half-year patterns
-    if re.match(r'[1-2]H', period_upper) or re.match(r'H[1-2]', period_upper):
-        half_num = re.search(r'[1-2]', period_upper).group()
-        return f"H{half_num}"
+    # Half-year patterns: H1, H2 -> H1, H2 (already correct)
+    if re.match(r'^H[1-2]$', quarter_upper):
+        return quarter_upper
     
-    # Full year patterns
-    if period_upper.startswith('FY') or period_upper.endswith('FY'):
-        return "FY"
+    # Full year pattern: FY -> FY (already correct)
+    if quarter_upper == 'FY':
+        return 'FY'
     
     # Default to the original string if no pattern matches
-    return period_str
+    return quarter_str
 
 
 def parse_filename(filename: str) -> dict:
     """
-    Parse filename to extract date, company, period, and ticker
+    Parse filename to extract date, company, quarter, fiscal year, report time, and ticker
     
-    Expected format: YYYYMMDD_CompanyAbbrev_Period_Ticker.txt
-    Example: 20220420_MCT_2HFY2122_N2IU.txt
+    Expected format: YYYYMMDD_CompanyAbbrev_Quarter_FiscalYear_ReportTime_Ticker.txt
+    Example: 20250730_MPACT_1Q_FY2026_PM_N2IU.txt
     
     Returns:
-        dict with 'date', 'company', 'period', 'ticker', 'report_type' or None if invalid
+        dict with parsed components or None if invalid
     """
     # Remove .txt extension
     basename = filename.replace('.txt', '')
     
-    # Pattern: YYYYMMDD_CompanyAbbrev_Period_Ticker
+    # Pattern: YYYYMMDD_CompanyAbbrev_Quarter_FiscalYear_ReportTime_Ticker
     # Date: 8 digits
-    # Company: letters/numbers
-    # Period: alphanumeric (various formats)
+    # Company: any characters (non-greedy)
+    # Quarter: 1Q, 2Q, 3Q, 4Q, H1, H2, or FY
+    # FiscalYear: FY followed by 4 digits (e.g., FY2026)
+    # ReportTime: AM or PM
     # Ticker: uppercase letters/numbers
-    pattern = r'^(\d{8})_([A-Z0-9]+)_([A-Z0-9]+)_([A-Z0-9]+)$'
+    pattern = r'^(\d{8})_(.+?)_([1-4]Q|H[1-2]|FY)_(FY\d{4})_(AM|PM)_([A-Z0-9]+)$'
     
     match = re.match(pattern, basename)
     
     if not match:
         return None
     
-    date_str, company, period, ticker = match.groups()
+    date_str, company, quarter, fiscal_year, report_time, ticker = match.groups()
     
     # Validate date
     try:
@@ -87,47 +89,33 @@ def parse_filename(filename: str) -> dict:
     except ValueError:
         return None
     
-    # Convert period to standardized report_type
-    report_type = parse_period_to_report_type(period)
+    # Convert quarter to report_type
+    report_type = parse_quarter_to_report_type(quarter)
     
     return {
         'date': date_formatted,
         'company': company,
-        'period': period,
+        'quarter': quarter,
+        'fiscal_year': fiscal_year,
+        'report_time': report_time,
         'ticker': ticker,
-        'report_type': report_type,
-        'date_raw': date_str
+        'report_type': report_type
     }
 
 
 def validate_json_data(data: dict, filename_info: dict) -> tuple:
     """
-    Validate JSON data against filename and company type
+    Validate JSON data against filename and company type requirements
     
     Returns:
         (is_valid, error_message)
     """
-    # Check company_type field exists
-    if 'company_type' not in data:
-        return False, "Missing required field: company_type"
+    # Check required base fields
+    required_fields = ['ticker', 'report_date', 'report_type', 'company_type', 'report_time', 'fiscal_year']
+    missing_fields = [f for f in required_fields if f not in data]
     
-    company_type = data['company_type']
-    
-    # Validate company_type values
-    valid_company_types = ['reit', 'business_trust', 'normal']
-    if company_type not in valid_company_types:
-        return False, f"company_type must be one of {valid_company_types}, got: {company_type}"
-    
-    # Universal required fields (all company types)
-    universal_required = [
-        'ticker', 'ticker_sgx', 'report_date', 'report_type', 'fiscal_year',
-        'revenue', 'eps', 'guidance_tone'
-    ]
-    
-    # Check universal fields
-    missing_fields = [f for f in universal_required if f not in data]
     if missing_fields:
-        return False, f"Missing required universal fields: {missing_fields}"
+        return False, f"Missing required fields: {missing_fields}"
     
     # Validate ticker matches filename
     if data['ticker'] != filename_info['ticker']:
@@ -137,30 +125,36 @@ def validate_json_data(data: dict, filename_info: dict) -> tuple:
     if data['report_date'] != filename_info['date']:
         return False, f"Date mismatch: JSON has '{data['report_date']}' but filename has '{filename_info['date']}'"
     
-    # Validate report type matches filename (allow some flexibility)
+    # Validate report_type matches derived from filename
     if data['report_type'] != filename_info['report_type']:
-        print(f"  ⚠️  Report type differs: JSON has '{data['report_type']}', filename suggests '{filename_info['report_type']}'")
-        print(f"      Proceeding with JSON value: '{data['report_type']}'")
+        return False, f"Report type mismatch: JSON has '{data['report_type']}' but filename quarter '{filename_info['quarter']}' maps to '{filename_info['report_type']}'"
     
-    # Validate ticker_sgx format
-    if not data['ticker_sgx'].endswith('.SG'):
-        return False, f"ticker_sgx must end with .SG, got: {data['ticker_sgx']}"
+    # Validate report_time matches filename
+    if data['report_time'] != filename_info['report_time']:
+        return False, f"Report time mismatch: JSON has '{data['report_time']}' but filename has '{filename_info['report_time']}'"
     
-    if data['ticker_sgx'] != f"{data['ticker']}.SG":
-        return False, f"ticker_sgx should be '{data['ticker']}.SG', got: {data['ticker_sgx']}"
+    # Validate report_time is strictly AM or PM
+    if data['report_time'] not in ['AM', 'PM']:
+        return False, f"Invalid report_time: must be 'AM' or 'PM', got '{data['report_time']}'"
     
-    # Validate guidance_tone
-    valid_guidance = ['positive', 'neutral', 'negative']
-    if data['guidance_tone'] not in valid_guidance:
-        return False, f"guidance_tone must be one of {valid_guidance}, got: {data['guidance_tone']}"
+    # Validate fiscal_year matches filename
+    if data['fiscal_year'] != filename_info['fiscal_year']:
+        return False, f"Fiscal year mismatch: JSON has '{data['fiscal_year']}' but filename has '{filename_info['fiscal_year']}'"
     
-    # Type-specific validation
+    # Validate company_type
+    valid_company_types = ['reit', 'business_trust', 'normal']
+    if data['company_type'] not in valid_company_types:
+        return False, f"Invalid company_type: must be one of {valid_company_types}"
+    
+    # Company type specific validation
+    company_type = data['company_type']
+    
     if company_type in ['reit', 'business_trust']:
         # REIT/Business Trust specific fields that should exist
-        reit_fields = ['dpu', 'net_property_income', 'gearing_ratio']
+        reit_fields = ['dpu', 'gearing_ratio']
         missing_reit = [f for f in reit_fields if f not in data]
         if missing_reit:
-            return False, f"Missing REIT-specific fields: {missing_reit}"
+            return False, f"Missing REIT/Business Trust fields: {missing_reit}"
         
         # Normal company fields should be null for REITs
         normal_fields_should_be_null = ['gross_margin', 'operating_margin', 'net_margin']
@@ -193,11 +187,15 @@ def import_txt_file(txt_path: Path):
     
     if not filename_info:
         print(f"  ✗ Error: Invalid filename format")
-        print(f"    Expected: YYYYMMDD_CompanyAbbrev_Period_Ticker.txt")
-        print(f"    Example: 20220420_MCT_2HFY2122_N2IU.txt")
+        print(f"    Expected: YYYYMMDD_CompanyAbbrev_Quarter_FiscalYear_ReportTime_Ticker.txt")
+        print(f"    Example: 20250730_MPACT_1Q_FY2026_PM_N2IU.txt")
+        print(f"    Quarter: 1Q, 2Q, 3Q, 4Q, H1, H2, or FY")
+        print(f"    ReportTime: AM or PM")
         return False
     
-    print(f"  Parsed filename: {filename_info['date']} | {filename_info['company']} | {filename_info['ticker']} | Period: {filename_info['period']} → {filename_info['report_type']}")
+    print(f"  Parsed filename: {filename_info['date']} | {filename_info['company']} | {filename_info['ticker']}")
+    print(f"  Quarter: {filename_info['quarter']} → Report Type: {filename_info['report_type']}")
+    print(f"  Fiscal Year: {filename_info['fiscal_year']} | Report Time: {filename_info['report_time']}")
     
     # Read the file with UTF-8 encoding
     try:
@@ -266,6 +264,7 @@ def import_txt_file(txt_path: Path):
     
     print(f"  ✓ Saved: {output_filename}")
     print(f"  Company Type: {data['company_type'].upper()} | Report Type: {report_type} | Guidance: {data['guidance_tone'].upper()}")
+    print(f"  Fiscal Year: {data['fiscal_year']} | Report Time: {data['report_time']}")
     
     # Show key metrics based on company type
     company_type = data['company_type']
@@ -336,8 +335,10 @@ def main():
     if not txt_files:
         print(f"No .txt files found in: {EARNINGS_PDF_DIR}")
         print("\nPlease add Claude-generated .txt files to this folder.")
-        print("\nFilename format: YYYYMMDD_CompanyAbbrev_Period_Ticker.txt")
-        print("Example: 20220420_MCT_2HFY2122_N2IU.txt")
+        print("\nFilename format: YYYYMMDD_CompanyAbbrev_Quarter_FiscalYear_ReportTime_Ticker.txt")
+        print("Example: 20250730_MPACT_1Q_FY2026_PM_N2IU.txt")
+        print("  • Quarter: 1Q, 2Q, 3Q, 4Q, H1, H2, or FY")
+        print("  • ReportTime: AM (before market) or PM (after market)")
         return
     
     print(f"Found {len(txt_files)} .txt file(s) to import\n")
@@ -357,11 +358,16 @@ def main():
                 
                 # Track company type (read the JSON to get company_type)
                 try:
-                    with open(EARNINGS_REPORTS_DIR / txt_file.name.replace('.txt', '.json'), 'r') as f:
-                        data = json.load(f)
-                        company_type = data.get('company_type', 'unknown')
-                        if company_type in company_type_counts:
-                            company_type_counts[company_type] += 1
+                    # Derive output filename
+                    filename_info = parse_filename(txt_file.name)
+                    if filename_info:
+                        output_filename = f"{filename_info['ticker']}_{filename_info['date']}_{filename_info['report_type']}.json"
+                        json_path = EARNINGS_REPORTS_DIR / output_filename
+                        with open(json_path, 'r') as f:
+                            data = json.load(f)
+                            company_type = data.get('company_type', 'unknown')
+                            if company_type in company_type_counts:
+                                company_type_counts[company_type] += 1
                 except:
                     pass
                 
@@ -401,16 +407,19 @@ def main():
         for filename in failed_files:
             print(f"  • {filename}")
         print("\nCommon issues:")
-        print("  1. Filename not in format: YYYYMMDD_CompanyAbbrev_Period_Ticker.txt")
+        print("  1. Filename not in format: YYYYMMDD_CompanyAbbrev_Quarter_FiscalYear_ReportTime_Ticker.txt")
         print("  2. JSON ticker/date doesn't match filename")
-        print("  3. Missing company_type field or invalid value")
-        print("  4. REIT missing REIT-specific fields (dpu, gearing_ratio, etc.)")
-        print("  5. Normal company missing company-specific fields (margins, net_profit)")
-        print("  6. File not saved with UTF-8 encoding")
+        print("  3. Missing required fields: report_time or fiscal_year")
+        print("  4. Invalid report_time (must be 'AM' or 'PM')")
+        print("  5. Missing company_type field or invalid value")
+        print("  6. REIT missing REIT-specific fields (dpu, gearing_ratio, etc.)")
+        print("  7. Normal company missing company-specific fields (margins, net_profit)")
+        print("  8. File not saved with UTF-8 encoding")
     
     if processed > 0:
         print(f"\n✓ JSON files saved to: {EARNINGS_REPORTS_DIR}")
         print("✓ Using CLAUDE ADAPTIVE ANALYSIS (REITs + Normal Companies)")
+        print("✓ New format with Fiscal Year and Report Time (AM/PM)")
         print("\nYou can now view these in the scanner!")
 
 
