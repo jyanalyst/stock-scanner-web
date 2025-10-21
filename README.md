@@ -16,3 +16,16 @@
 # Run the import script
 python scripts/import_analyst_txt.py
 python scripts/import_earnings_txt.py
+
+#Commit to github from VS Code
+# Stage all changes
+git add .
+
+# Commit with a message
+git commit -m "Your commit message here"
+
+# Push to GitHub
+git push
+
+#in code spaces
+git pull

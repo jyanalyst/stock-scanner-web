@@ -1,3 +1,4 @@
+# File: pages/earnings_trend_analyzer.py
 """
 Earnings Trend Analyzer - Advanced earnings analysis and prediction
 Analyzes historical earnings data to identify trends and predict future performance
@@ -83,14 +84,14 @@ def analyze_earnings_trends(earnings_df: pd.DataFrame) -> Dict:
         analysis['trends']['dpu'] = calculate_trend_metrics(earnings_df['dpu'])
 
     if 'gearing_ratio' in earnings_df.columns:
-        analysis['trends']['gearing'] = calculate_trend_metrics(earnings_df['gearing_ratio'])
+        analysis['trends']['gearing'] = calculate_trend_metrics(earnings_df['gearing_ratio'], inverse=True)
 
     if 'interest_coverage_ratio' in earnings_df.columns:
         analysis['trends']['interest_coverage'] = calculate_trend_metrics(earnings_df['interest_coverage_ratio'])
 
-    # Qualitative trends
+    # Qualitative trend
     if 'guidance_tone' in earnings_df.columns:
-        analysis['trends']['guidance_tone'] = analyze_guidance_trends(earnings_df['guidance_tone'])
+        analysis['trends']['guidance'] = analyze_guidance_trends(earnings_df['guidance_tone'])
 
     # Generate predictions
     analysis['predictions'] = generate_earnings_predictions(earnings_df, analysis['trends'])
@@ -98,61 +99,83 @@ def analyze_earnings_trends(earnings_df: pd.DataFrame) -> Dict:
     return analysis
 
 
-def calculate_trend_metrics(series: pd.Series) -> Dict:
-    """Calculate trend metrics for a time series"""
+def calculate_trend_metrics(series: pd.Series, inverse: bool = False) -> Dict:
+    """
+    Calculate trend metrics for a time series
+    inverse=True means lower values are better (e.g., gearing ratio)
+    """
     if len(series) < 2:
-        return {'trend': 'insufficient_data', 'direction': 'unknown'}
+        return {'direction': 'insufficient_data', 'strength': 'none'}
 
-    # Calculate linear trend
+    # Calculate linear regression slope
     x = np.arange(len(series))
-    slope, intercept = np.polyfit(x, series.values, 1)
+    valid_mask = series.notna()
 
-    # Calculate recent momentum (last 3 periods vs previous 3)
-    if len(series) >= 6:
-        recent_avg = series.iloc[-3:].mean()
-        previous_avg = series.iloc[-6:-3].mean()
-        momentum = (recent_avg - previous_avg) / abs(previous_avg) if previous_avg != 0 else 0
-    else:
-        momentum = slope  # Use slope as momentum for shorter series
+    if valid_mask.sum() < 2:
+        return {'direction': 'insufficient_data', 'strength': 'none'}
 
-    # Determine trend direction
-    if slope > 0.01:
-        direction = 'improving'
-    elif slope < -0.01:
-        direction = 'declining'
-    else:
+    x_valid = x[valid_mask]
+    y_valid = series[valid_mask].values
+
+    slope, intercept = np.polyfit(x_valid, y_valid, 1)
+
+    # Adjust slope interpretation for inverse metrics
+    if inverse:
+        slope = -slope
+
+    # Calculate correlation coefficient for strength
+    correlation = np.corrcoef(x_valid, y_valid)[0, 1]
+
+    # Determine direction
+    if abs(slope) < 0.01 * abs(y_valid.mean()):  # Less than 1% change is stable
         direction = 'stable'
+    elif slope > 0:
+        direction = 'improving'
+    else:
+        direction = 'declining'
 
-    # Determine strength
-    slope_abs = abs(slope)
-    if slope_abs > 0.05:
+    # Determine strength based on correlation
+    if abs(correlation) > 0.7:
         strength = 'strong'
-    elif slope_abs > 0.02:
+    elif abs(correlation) > 0.4:
         strength = 'moderate'
     else:
         strength = 'weak'
 
     return {
-        'slope': slope,
         'direction': direction,
         'strength': strength,
-        'momentum': momentum,
-        'latest_value': series.iloc[-1],
-        'avg_value': series.mean(),
-        'volatility': series.std() / series.mean() if series.mean() != 0 else 0
+        'slope': slope,
+        'correlation': correlation,
+        'recent_value': y_valid[-1] if len(y_valid) > 0 else None,
+        'change_pct': ((y_valid[-1] - y_valid[0]) / abs(y_valid[0]) * 100) if len(y_valid) > 0 and y_valid[0] != 0 else None
     }
 
 
 def analyze_guidance_trends(guidance_series: pd.Series) -> Dict:
-    """Analyze guidance tone trends"""
-    tone_scores = {'positive': 1, 'neutral': 0, 'negative': -1}
-    scores = guidance_series.map(tone_scores).fillna(0)
+    """Analyze management guidance tone trends"""
+    if len(guidance_series) < 2:
+        return {'direction': 'insufficient_data', 'most_common_tone': None}
 
-    trend_metrics = calculate_trend_metrics(scores)
+    # Map tones to scores
+    tone_scores = {
+        'positive': 1,
+        'neutral': 0,
+        'negative': -1
+    }
 
-    # Additional qualitative analysis
+    scores = guidance_series.map(tone_scores)
+    valid_scores = scores.dropna()
+
+    if len(valid_scores) < 2:
+        return {'direction': 'insufficient_data', 'most_common_tone': None}
+
+    # Calculate trend
+    trend_metrics = calculate_trend_metrics(valid_scores)
+
+    # Most common tone
     tone_counts = guidance_series.value_counts()
-    most_common = tone_counts.index[0] if len(tone_counts) > 0 else 'neutral'
+    most_common = tone_counts.index[0] if len(tone_counts) > 0 else None
 
     # Check for recent deterioration
     if len(scores) >= 3:
@@ -217,79 +240,100 @@ def generate_earnings_predictions(earnings_df: pd.DataFrame, trends: Dict) -> Di
             factors.append("Interest coverage weakening (-15 points)")
 
     # Qualitative analysis (30% weight)
-    if 'guidance_tone' in trends:
-        guidance_trend = trends['guidance_tone']
-        if guidance_trend['most_common_tone'] == 'positive':
-            prediction_score += 30
-            factors.append("Positive guidance tone (+30 points)")
-        elif guidance_trend['most_common_tone'] == 'negative':
+    if 'guidance' in trends:
+        guidance_trend = trends['guidance']
+        if guidance_trend.get('recent_deterioration'):
             prediction_score -= 30
-            factors.append("Negative guidance tone (-30 points)")
-
-        if guidance_trend['recent_deterioration']:
+            factors.append("Recent guidance deterioration (-30 points)")
+        elif guidance_trend.get('most_common_tone') == 'positive':
+            prediction_score += 15
+            factors.append("Generally positive guidance (+15 points)")
+        elif guidance_trend.get('most_common_tone') == 'negative':
             prediction_score -= 15
-            factors.append("Recent guidance deterioration (-15 points)")
+            factors.append("Generally negative guidance (-15 points)")
 
-    # Risk indicators
-    risk_flags = []
-    if 'dpu' in trends and trends['dpu']['volatility'] > 0.1:
-        risk_flags.append("High DPU volatility")
-    if 'gearing' in trends and trends['gearing']['latest_value'] > 45:
-        risk_flags.append("High gearing ratio (>45%)")
-    if 'interest_coverage' in trends and trends['interest_coverage']['latest_value'] < 2.5:
-        risk_flags.append("Weak interest coverage (<2.5x)")
-
-    # Classify prediction
-    if prediction_score >= 40:
-        outlook = "Bullish - Likely positive surprise"
-        confidence = "High"
+    # Determine prediction category
+    if prediction_score >= 30:
+        prediction = "Strong Positive"
+        emoji = "🟢"
+        description = "Multiple positive indicators suggest strong next earnings"
     elif prediction_score >= 10:
-        outlook = "Neutral-Positive - Stable to slightly better"
-        confidence = "Medium"
+        prediction = "Moderately Positive"
+        emoji = "🟡"
+        description = "Some positive trends, cautiously optimistic outlook"
     elif prediction_score >= -10:
-        outlook = "Neutral - In line with expectations"
-        confidence = "Medium"
-    elif prediction_score >= -40:
-        outlook = "Neutral-Negative - Potential softness"
-        confidence = "Medium"
+        prediction = "Neutral"
+        emoji = "⚪"
+        description = "Mixed signals, no clear directional bias"
+    elif prediction_score >= -30:
+        prediction = "Moderately Negative"
+        emoji = "🟠"
+        description = "Some concerning trends, potential headwinds"
     else:
-        outlook = "Bearish - Likely disappointment"
-        confidence = "High"
+        prediction = "Strong Negative"
+        emoji = "🔴"
+        description = "Multiple negative indicators suggest challenging next earnings"
 
     return {
-        'outlook': outlook,
-        'confidence': confidence,
+        'prediction': prediction,
+        'emoji': emoji,
         'score': prediction_score,
-        'factors': factors,
-        'risk_flags': risk_flags
+        'description': description,
+        'factors': factors
     }
 
 
-def create_trend_chart(earnings_df: pd.DataFrame, metric: str, title: str) -> go.Figure:
-    """Create a trend chart for a specific metric"""
+def display_prediction_panel(predictions: Dict) -> None:
+    """Display earnings prediction panel"""
+    st.markdown("---")
+    st.markdown("### 🔮 Next Earnings Prediction")
+
+    col1, col2 = st.columns([1, 2])
+
+    with col1:
+        st.markdown(f"## {predictions['emoji']}")
+        st.markdown(f"### {predictions['prediction']}")
+        st.metric("Prediction Score", f"{predictions['score']:+d}")
+
+    with col2:
+        st.markdown(f"**Analysis:** {predictions['description']}")
+        st.markdown("**Key Factors:**")
+        for factor in predictions['factors']:
+            st.write(f"• {factor}")
+
+    st.markdown("---")
+
+
+def create_trend_chart(earnings_df: pd.DataFrame, metric: str, title: str) -> Optional[go.Figure]:
+    """Create a trend chart with trendline"""
     if metric not in earnings_df.columns:
+        return None
+
+    valid_data = earnings_df[earnings_df[metric].notna()]
+
+    if len(valid_data) == 0:
         return None
 
     fig = go.Figure()
 
-    # Main line
+    # Actual values
     fig.add_trace(go.Scatter(
-        x=earnings_df['report_date'],
-        y=earnings_df[metric],
+        x=valid_data['report_date'],
+        y=valid_data[metric],
         mode='lines+markers',
-        name=metric,
-        line=dict(color='blue', width=3),
+        name='Actual',
+        line=dict(color='blue', width=2),
         marker=dict(size=8)
     ))
 
-    # Add trend line if enough data points
-    if len(earnings_df) >= 3:
-        x_numeric = np.arange(len(earnings_df))
-        slope, intercept = np.polyfit(x_numeric, earnings_df[metric].values, 1)
+    # Add trendline
+    if len(valid_data) >= 2:
+        x_numeric = np.arange(len(valid_data))
+        slope, intercept = np.polyfit(x_numeric, valid_data[metric].values, 1)
         trend_line = intercept + slope * x_numeric
 
         fig.add_trace(go.Scatter(
-            x=earnings_df['report_date'],
+            x=valid_data['report_date'],
             y=trend_line,
             mode='lines',
             name='Trend',
@@ -363,68 +407,47 @@ def create_comparison_chart(earnings_df: pd.DataFrame) -> go.Figure:
             name='DPU YoY %', line=dict(color='green')
         ), row=2, col=2, secondary_y=True)
 
-    fig.update_layout(height=600, showlegend=True)
+    fig.update_layout(height=800, showlegend=True, title_text="Comprehensive Financial Analysis")
     return fig
 
 
-def display_prediction_panel(predictions: Dict) -> None:
-    """Display the prediction panel with outlook and factors"""
-    st.markdown("### 🔮 Next Earnings Prediction")
+def get_available_tickers() -> List[str]:
+    """Get list of tickers that have earnings data"""
+    earnings_dir = Path("data/earnings_reports")
 
-    # Main prediction
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        if "Bullish" in predictions['outlook']:
-            st.success(f"📈 {predictions['outlook']}")
-        elif "Bearish" in predictions['outlook']:
-            st.error(f"📉 {predictions['outlook']}")
-        else:
-            st.info(f"➖ {predictions['outlook']}")
+    if not earnings_dir.exists():
+        return []
 
-    with col2:
-        confidence_color = {'High': 'green', 'Medium': 'orange', 'Low': 'red'}
-        st.metric("Confidence", predictions['confidence'])
+    # Extract unique tickers from filenames (format: TICKER_DATE_TYPE.json)
+    json_files = list(earnings_dir.glob("*.json"))
+    tickers = set()
 
-    with col3:
-        score_color = 'green' if predictions['score'] > 0 else 'red' if predictions['score'] < 0 else 'gray'
-        st.metric("Prediction Score", f"{predictions['score']:+d}")
+    for file_path in json_files:
+        # Extract ticker from filename (everything before first underscore)
+        ticker = file_path.stem.split('_')[0]
+        tickers.add(ticker)
 
-    # Factors
-    st.markdown("#### 🎯 Key Factors")
-    for factor in predictions['factors']:
-        st.write(f"• {factor}")
-
-    # Risk flags
-    if predictions['risk_flags']:
-        st.markdown("#### ⚠️ Risk Flags")
-        for risk in predictions['risk_flags']:
-            st.warning(f"• {risk}")
-    else:
-        st.success("✅ No major risk flags detected")
+    return sorted(list(tickers))
 
 
 def show():
     """Main earnings trend analyzer page"""
-    st.title("📊 Earnings Trend Analyzer")
-    st.markdown("Advanced earnings analysis with trend identification and future prediction")
+    st.title("📈 Earnings Trend Analyzer")
 
-    # Get available tickers with earnings data
-    earnings_dir = Path("data/earnings_reports")
-    if not earnings_dir.exists():
-        st.error("Earnings reports directory not found")
-        return
+    create_info_box(
+        "📊 **About This Tool**\n\n"
+        "Analyze historical earnings trends and predict future performance using advanced statistical analysis. "
+        "This tool identifies patterns in revenue, DPU, balance sheet metrics, and management guidance to "
+        "generate forward-looking predictions."
+    )
 
-    # Find all tickers with earnings data
-    all_files = list(earnings_dir.glob("*.json"))
-    tickers = set()
-    for file_path in all_files:
-        # Extract ticker from filename (format: TICKER_DATE_TYPE.json)
-        match = re.match(r'^([A-Z0-9]+)_', file_path.stem)
-        if match:
-            tickers.add(match.group(1))
+    # Get available tickers
+    tickers = get_available_tickers()
 
     if not tickers:
-        st.warning("No earnings data found")
+        create_warning_box(
+            "⚠️ No earnings data available. Please upload earnings reports to begin analysis."
+        )
         return
 
     # Ticker selection
@@ -492,7 +515,7 @@ def show():
             # YoY changes
             st.markdown("### Year-over-Year Changes")
             yoy_cols = ['revenue_yoy_change', 'dpu_yoy_change', 'eps_yoy_change']
-            yoy_data = earnings_df[['report_date'] + [col for col in yoy_cols if col in earnings_df.columns]].copy()
+            yoy_data = earnings_df[['report_date', 'report_type'] + [col for col in yoy_cols if col in earnings_df.columns]].copy()
             if len(yoy_data.columns) > 1:
                 st.dataframe(yoy_data, use_container_width=True, hide_index=True)
 
