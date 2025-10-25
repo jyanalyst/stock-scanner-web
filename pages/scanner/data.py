@@ -263,7 +263,7 @@ def apply_relative_volume_filter(filtered_stocks: pd.DataFrame) -> Tuple[pd.Data
                 "Enter maximum Relative Volume %:",
                 min_value=50.0,
                 max_value=500.0,
-                value=70.0,
+                value=50.0,
                 step=10.0,
                 format="%.1f",
                 key="custom_rel_volume_max_input"
