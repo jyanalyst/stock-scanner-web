@@ -236,6 +236,25 @@ def run_enhanced_stock_scan(stocks_to_scan: List[str], analysis_date: Optional[d
 
                         results_df['EPS_DPU_Display'] = results_df.apply(get_eps_dpu_display, axis=1)
                         structured_logger.log('INFO', 'EarningsReports', "Created earnings display columns")
+
+                        # Calculate earnings reaction analysis for intraday traders
+                        try:
+                            from utils.earnings_reports import calculate_earnings_reaction_analysis, format_earnings_reaction_display
+
+                            results_df['earnings_reaction_stats'] = results_df['ticker_sgx'].apply(
+                                lambda ticker: calculate_earnings_reaction_analysis(ticker)
+                            )
+
+                            results_df['Earnings_Reaction'] = results_df['earnings_reaction_stats'].apply(
+                                format_earnings_reaction_display
+                            )
+
+                            reaction_count = results_df['Earnings_Reaction'].notna().sum()
+                            structured_logger.log('INFO', 'EarningsReaction',
+                                                f"Calculated earnings reaction for {reaction_count} stocks")
+                        except Exception as e:
+                            handle_error(e, "EarningsReaction", {"operation": "calculate_reaction"}, show_user_message=False)
+
                     except Exception as e:
                         handle_error(e, "EarningsDisplay", {"operation": "create_display_columns"}, show_user_message=False)
             else:

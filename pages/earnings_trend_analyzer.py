@@ -495,7 +495,7 @@ def show():
             display_prediction_panel(analysis['predictions'])
 
         # Trend analysis tabs
-        tab1, tab2, tab3 = st.tabs(["📊 Financial Trends", "⚖️ Balance Sheet", "💬 Qualitative Analysis"])
+        tab1, tab2, tab3, tab4 = st.tabs(["📊 Financial Trends", "⚖️ Balance Sheet", "💬 Qualitative Analysis", "📈 Intraday Earnings Reaction"])
 
         with tab1:
             st.markdown("### Financial Performance Trends")
@@ -556,6 +556,126 @@ def show():
                     st.markdown("### ⚠️ Key Concerns")
                     for concern in latest['concerns'][:3]:  # Show top 3
                         st.write(f"• {concern}")
+
+        with tab4:
+            st.markdown("### 📈 Intraday Earnings Reaction Analysis")
+
+            # Get earnings reaction analysis
+            from utils.earnings_reports import calculate_earnings_reaction_analysis
+            reaction_stats = calculate_earnings_reaction_analysis(selected_ticker)
+
+            if reaction_stats is None:
+                st.warning("⚠️ Insufficient earnings data for intraday reaction analysis (need at least 3 earnings events)")
+            else:
+                # Summary statistics
+                col1, col2, col3, col4 = st.columns(4)
+                with col1:
+                    st.metric("Total Events", reaction_stats['total_events'])
+                with col2:
+                    win_rate = reaction_stats['win_rate']
+                    emoji = "🟢" if win_rate >= 60 else "🟡" if win_rate >= 40 else "🔴"
+                    st.metric("Win Rate", f"{emoji} {win_rate:.0f}%")
+                with col3:
+                    if win_rate >= 50:
+                        avg_return = reaction_stats['avg_positive_return']
+                        st.metric("Avg Positive", f"+{avg_return:.1f}%")
+                    else:
+                        avg_return = reaction_stats['avg_negative_return']
+                        st.metric("Avg Negative", f"{avg_return:.1f}%")
+                with col4:
+                    overall = reaction_stats['overall_avg_return']
+                    st.metric("Overall Avg", f"{overall:+.1f}%")
+
+                # Interpretation
+                st.markdown("---")
+                if win_rate >= 60:
+                    interpretation = f"🟢 **Strong Positive Pattern**: Stock tends to build momentum intraday on earnings days. {win_rate:.0f}% of earnings resulted in positive intraday moves with average gains of +{reaction_stats['avg_positive_return']:.1f}%."
+                elif win_rate >= 40:
+                    interpretation = f"🟡 **Mixed Pattern**: Stock shows moderate intraday performance on earnings. {win_rate:.0f}% positive days with average {'positive' if win_rate >= 50 else 'negative'} moves of {reaction_stats['avg_positive_return'] if win_rate >= 50 else reaction_stats['avg_negative_return']:+.1f}%."
+                else:
+                    interpretation = f"🔴 **Negative Pattern**: Stock tends to fade intraday on earnings days. Only {win_rate:.0f}% positive with average losses of {reaction_stats['avg_negative_return']:.1f}%."
+
+                create_info_box(f"**Trading Insight:** {interpretation}")
+
+                # Detailed event table
+                st.markdown("### 📋 Historical Earnings Reactions")
+
+                events_df = pd.DataFrame(reaction_stats['events'])
+                if not events_df.empty:
+                    # Format for display
+                    display_df = events_df.copy()
+                    display_df['intraday_return'] = display_df['intraday_return'].apply(lambda x: f"{x:+.2f}%")
+                    display_df['guidance_tone'] = display_df['guidance_tone'].str.title()
+
+                    # Add status column
+                    display_df['status'] = display_df['intraday_return'].apply(
+                        lambda x: "✅ Positive" if "+" in x else "❌ Negative"
+                    )
+
+                    st.dataframe(
+                        display_df[['report_date', 'report_type', 'report_time', 'target_date',
+                                  'open', 'close', 'intraday_return', 'guidance_tone', 'status']],
+                        column_config={
+                            'report_date': st.column_config.TextColumn('Report Date', width='small'),
+                            'report_type': st.column_config.TextColumn('Period', width='small'),
+                            'report_time': st.column_config.TextColumn('Time', width='small'),
+                            'target_date': st.column_config.TextColumn('Trade Date', width='small'),
+                            'open': st.column_config.NumberColumn('Open', format='%.3f'),
+                            'close': st.column_config.NumberColumn('Close', format='%.3f'),
+                            'intraday_return': st.column_config.TextColumn('Intraday %', width='small'),
+                            'guidance_tone': st.column_config.TextColumn('Guidance', width='small'),
+                            'status': st.column_config.TextColumn('Status', width='small')
+                        },
+                        use_container_width=True,
+                        hide_index=True
+                    )
+
+                    # Visualization
+                    st.markdown("### 📊 Intraday Returns Over Time")
+                    fig = go.Figure()
+
+                    # Add bars for each earnings event
+                    colors = ['green' if x > 0 else 'red' for x in events_df['intraday_return']]
+                    fig.add_trace(go.Bar(
+                        x=events_df['report_date'],
+                        y=events_df['intraday_return'],
+                        marker_color=colors,
+                        name='Intraday Return'
+                    ))
+
+                    # Add zero line
+                    fig.add_hline(y=0, line_dash="dash", line_color="gray")
+
+                    fig.update_layout(
+                        title="Historical Intraday Earnings Reactions",
+                        xaxis_title="Earnings Report Date",
+                        yaxis_title="Intraday Return %",
+                        height=400,
+                        showlegend=False
+                    )
+
+                    st.plotly_chart(fig, use_container_width=True)
+
+                    # Pattern insights
+                    st.markdown("### 🔍 Pattern Insights")
+
+                    # Guidance correlation
+                    guidance_positive = events_df[
+                        (events_df['guidance_tone'] == 'positive') &
+                        (events_df['intraday_return'] > 0)
+                    ].shape[0]
+                    guidance_total = events_df[events_df['guidance_tone'] == 'positive'].shape[0]
+
+                    if guidance_total >= 2:
+                        guidance_win_rate = (guidance_positive / guidance_total) * 100
+                        st.write(f"• **Positive Guidance**: {guidance_win_rate:.0f}% win rate ({guidance_positive}/{guidance_total} events)")
+
+                    # Recent performance (last 3)
+                    if len(events_df) >= 3:
+                        recent = events_df.tail(3)
+                        recent_wins = (recent['intraday_return'] > 0).sum()
+                        recent_win_rate = (recent_wins / 3) * 100
+                        st.write(f"• **Recent Performance**: {recent_win_rate:.0f}% win rate in last 3 earnings ({recent_wins}/3)")
 
         # Multi-metric comparison
         st.markdown("---")
