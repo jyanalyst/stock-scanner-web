@@ -705,6 +705,10 @@ def display_filtered_results(filtered_stocks: pd.DataFrame, selected_base_filter
     if 'Earnings_Period' in filtered_stocks.columns:
         display_cols.extend(['Earnings_Period', 'Guidance_Display', 'Rev_YoY_Display', 'EPS_DPU_Display'])
 
+    # Add earnings reaction column if available
+    if 'Earnings_Reaction' in filtered_stocks.columns:
+        display_cols.append('Earnings_Reaction')
+
     base_column_config = {
         'Analysis_Date': st.column_config.TextColumn('Date', width='small'),
         'Ticker': st.column_config.TextColumn('Ticker', width='small'),
@@ -721,7 +725,8 @@ def display_filtered_results(filtered_stocks: pd.DataFrame, selected_base_filter
         'Earnings_Period': st.column_config.TextColumn('Period', width='small', help='Earnings period (Q1/Q2/FY etc.)'),
         'Guidance_Display': st.column_config.TextColumn('Guidance', width='small', help='Management guidance tone'),
         'Rev_YoY_Display': st.column_config.TextColumn('Rev YoY', width='small', help='Revenue year-over-year change'),
-        'EPS_DPU_Display': st.column_config.TextColumn('EPS/DPU', width='small', help='EPS or DPU year-over-year change')
+        'EPS_DPU_Display': st.column_config.TextColumn('EPS/DPU', width='small', help='EPS or DPU year-over-year change'),
+        'Earnings_Reaction': st.column_config.TextColumn('Earn React', width='medium', help='Historical win rate after earnings releases')
     }
 
     column_config = create_dynamic_column_config(filtered_stocks, display_cols, base_column_config)

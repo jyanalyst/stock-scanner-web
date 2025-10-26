@@ -289,11 +289,11 @@ def clear_earnings_cache():
     logger.info("Earnings reports cache cleared")
 
 
-def get_earnings_coverage_stats(scan_results_df: pd.DataFrame, 
+def get_earnings_coverage_stats(scan_results_df: pd.DataFrame,
                                  latest_earnings_df: pd.DataFrame) -> Dict:
     """
     Get statistics about earnings coverage in scan results
-    
+
     Returns:
         Dictionary with coverage statistics
     """
@@ -306,11 +306,11 @@ def get_earnings_coverage_stats(scan_results_df: pd.DataFrame,
             'positive_guidance': 0,
             'negative_guidance': 0
         }
-    
+
     merged = merge_earnings_with_scan_results(scan_results_df, latest_earnings_df)
-    
+
     with_earnings = merged['revenue'].notna().sum()
-    
+
     stats = {
         'total_stocks': len(scan_results_df),
         'stocks_with_earnings': with_earnings,
@@ -319,5 +319,172 @@ def get_earnings_coverage_stats(scan_results_df: pd.DataFrame,
         'positive_guidance': (merged['guidance_tone'] == 'positive').sum() if 'guidance_tone' in merged.columns else 0,
         'negative_guidance': (merged['guidance_tone'] == 'negative').sum() if 'guidance_tone' in merged.columns else 0
     }
-    
+
     return stats
+
+
+def get_stock_price_on_date(ticker_sgx: str, target_date: date) -> tuple:
+    """
+    Get open and close prices for a specific date from Historical_Data
+
+    Args:
+        ticker_sgx: Ticker in SGX format (e.g., "N2IU.SG")
+        target_date: Date to get prices for
+
+    Returns:
+        Tuple of (open_price, close_price) or (None, None) if data unavailable
+    """
+    try:
+        from utils.paths import HISTORICAL_DATA_DIR
+
+        # Convert ticker to filename format (remove .SG)
+        ticker_base = ticker_sgx.replace('.SG', '')
+        csv_file = HISTORICAL_DATA_DIR / f"{ticker_base}.csv"
+
+        if not csv_file.exists():
+            logger.warning(f"Historical data file not found: {csv_file}")
+            return None, None
+
+        # Load CSV and filter to target date
+        df = pd.read_csv(csv_file, parse_dates=['Date'])
+
+        # Look for exact date first
+        price_row = df[df['Date'].dt.date == target_date]
+
+        if price_row.empty:
+            # If exact date not found, try next available trading day
+            # (useful for weekends/holidays when earnings released)
+            future_dates = df[df['Date'].dt.date >= target_date].head(1)
+            if not future_dates.empty:
+                price_row = future_dates
+                logger.info(f"Using next available date for {ticker_sgx} on {target_date}: {price_row['Date'].iloc[0].date()}")
+            else:
+                logger.warning(f"No price data found for {ticker_sgx} on or after {target_date}")
+                return None, None
+
+        open_price = float(price_row['Open'].iloc[0])
+        close_price = float(price_row['Close'].iloc[0])
+
+        return open_price, close_price
+
+    except Exception as e:
+        logger.error(f"Error getting price data for {ticker_sgx} on {target_date}: {e}")
+        return None, None
+
+
+def calculate_earnings_reaction_analysis(ticker_sgx: str) -> Optional[Dict]:
+    """
+    Calculate historical intraday earnings reaction for a ticker
+    Focuses on open-to-close move on earnings day (intraday trader perspective)
+
+    Args:
+        ticker_sgx: Ticker in SGX format (e.g., "N2IU.SG")
+
+    Returns:
+        Dictionary with reaction statistics, or None if insufficient data (< 3 events)
+    """
+    try:
+        # Get all earnings reports for this ticker
+        all_reports, _ = get_cached_earnings()
+        ticker_reports = all_reports[all_reports['ticker_sgx'] == ticker_sgx].copy()
+
+        if ticker_reports.empty or len(ticker_reports) < 3:
+            return None  # Insufficient data
+
+        # Sort by date (oldest first for chronological analysis)
+        ticker_reports = ticker_reports.sort_values('report_date')
+
+        events = []
+        positive_returns = []
+        negative_returns = []
+
+        for _, report in ticker_reports.iterrows():
+            report_date = report['report_date'].date()
+            report_time = report.get('report_time', 'PM')  # Default to PM if missing
+
+            # Calculate target trading date
+            if report_time == 'AM':
+                target_date = report_date
+            else:  # PM release
+                # Add one day for PM releases
+                target_date = report_date + pd.Timedelta(days=1)
+
+            # Get prices for target date
+            open_price, close_price = get_stock_price_on_date(ticker_sgx, target_date)
+
+            if open_price is None or close_price is None:
+                logger.warning(f"No price data for {ticker_sgx} on {target_date} (earnings: {report_date})")
+                continue
+
+            # Calculate intraday return
+            intraday_return = ((close_price - open_price) / open_price) * 100
+
+            # Store event details
+            event = {
+                'report_date': report_date.strftime('%Y-%m-%d'),
+                'report_type': report.get('report_type', 'Unknown'),
+                'report_time': report_time,
+                'target_date': target_date.strftime('%Y-%m-%d'),
+                'open': round(open_price, 3),
+                'close': round(close_price, 3),
+                'intraday_return': round(intraday_return, 2),
+                'guidance_tone': report.get('guidance_tone', 'unknown')
+            }
+            events.append(event)
+
+            # Categorize returns
+            if intraday_return > 0:
+                positive_returns.append(intraday_return)
+            else:
+                negative_returns.append(intraday_return)
+
+        if len(events) < 3:
+            return None  # Still insufficient after filtering missing data
+
+        # Calculate statistics
+        total_events = len(events)
+        positive_count = len(positive_returns)
+        win_rate = (positive_count / total_events) * 100
+
+        avg_positive_return = sum(positive_returns) / len(positive_returns) if positive_returns else 0
+        avg_negative_return = sum(negative_returns) / len(negative_returns) if negative_returns else 0
+        overall_avg_return = (sum(positive_returns) + sum(negative_returns)) / total_events
+
+        return {
+            'total_events': total_events,
+            'positive_count': positive_count,
+            'win_rate': round(win_rate, 1),
+            'avg_positive_return': round(avg_positive_return, 2),
+            'avg_negative_return': round(avg_negative_return, 2),
+            'overall_avg_return': round(overall_avg_return, 2),
+            'events': events
+        }
+
+    except Exception as e:
+        logger.error(f"Error calculating earnings reaction for {ticker_sgx}: {e}")
+        return None
+
+
+def format_earnings_reaction_display(reaction_stats: Optional[Dict]) -> str:
+    """
+    Format earnings reaction statistics for display in scanner results
+
+    Args:
+        reaction_stats: Dictionary from calculate_earnings_reaction_analysis()
+
+    Returns:
+        Formatted string like "70% ↑ +1.8% (7/10)" or "N/A"
+    """
+    if reaction_stats is None or reaction_stats['total_events'] < 3:
+        return 'N/A'
+
+    win_rate = reaction_stats['win_rate']
+    total = reaction_stats['total_events']
+    positive = reaction_stats['positive_count']
+
+    if win_rate >= 50:
+        avg_return = reaction_stats['avg_positive_return']
+        return f"{win_rate:.0f}% ↑ +{avg_return:.1f}% ({positive}/{total})"
+    else:
+        avg_return = reaction_stats['avg_negative_return']
+        return f"{win_rate:.0f}% ↓ {avg_return:.1f}% ({positive}/{total})"
