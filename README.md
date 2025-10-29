@@ -13,9 +13,12 @@
 ```bash
    pip install -r requirements.txt
 
+cd /workspaces/stock-scanner-web
+
 # Run the import script
 python scripts/import_analyst_txt.py
 python scripts/import_earnings_txt.py
+python scripts/append_historical_data.py
 
 #Commit to github from VS Code
 # Stage all changes
