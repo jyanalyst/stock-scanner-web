@@ -32,7 +32,7 @@ FILTER_CONFIG = {
         "Top 75%": 25
     },
     'mpi_trends': ['Expanding', 'Flat', 'Contracting'],
-    'hl_patterns': ['Higher H/L Only', 'Higher H Only', 'No Filter']
+    'hl_patterns': ['Break H/L Only', 'Break H Only', 'No Filter']
 }
 
 # Display configuration
@@ -65,7 +65,7 @@ BASE_COLUMN_CONFIG = {
     'Analysis_Date': {'title': 'Date', 'width': 'small'},
     'Ticker': {'title': 'Ticker', 'width': 'small'},
     'Name': {'title': 'Company Name', 'width': 'medium'},
-    'HL_Pattern': {'title': 'H/L', 'width': 'small', 'help': 'HHL=Both H&L, HH=Higher H only, -=Neither'},
+    'HL_Pattern': {'title': 'H/L', 'width': 'small', 'help': 'BHL=Both H&L, BH=Break H only, -=Neither'},
     'VW_Range_Velocity': {'title': 'Range Vel', 'format': '%+.4f', 'help': 'Daily range expansion velocity'},
     'IBS': {'title': 'IBS', 'format': '%.3f'},
     'Relative_Volume': {'title': 'Rel Vol', 'format': '%.1f%%', 'help': 'Relative Volume vs 14-day average'},

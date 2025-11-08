@@ -50,10 +50,10 @@ def show_home_page():
     ### Available Features:
     
     #### 📈 **Stock Scanner**
-    - Focuses on stocks showing Higher High AND Higher Low patterns
+    - Focuses on stocks showing Break High AND Break Low patterns
     - Identifies trending momentum with expanding range
     - Best for trend continuation plays
-    - Flexible filtering for Valid CRT and/or Higher H/L patterns
+    - Flexible filtering for Valid CRT and/or Break H/L patterns
     - **NEW:** Integrated analyst sentiment analysis
     
     #### 🔬 **Factor Analysis**
@@ -95,7 +95,7 @@ def show_home_page():
             st.metric("Stocks Tracked", "Ready", delta="SGX Listed")
     
     with col2:
-        st.metric("Scanner Types", "1", delta="Higher H/L Focus")
+        st.metric("Scanner Types", "1", delta="Break H/L Focus")
     
     with col3:
         if 'last_scan_time' in st.session_state:
@@ -126,7 +126,7 @@ def show_sidebar_stats():
         
         st.sidebar.metric("Stocks Scanned", total_stocks)
         st.sidebar.metric("Valid CRT", valid_crt)
-        st.sidebar.metric("Higher H/L", higher_hl)
+        st.sidebar.metric("Break H/L", higher_hl)
         
         # Show analyst coverage if available
         if 'sentiment_score' in results.columns:

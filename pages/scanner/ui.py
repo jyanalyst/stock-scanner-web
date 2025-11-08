@@ -593,9 +593,9 @@ def display_scan_summary(results_df: pd.DataFrame) -> None:
     with col1:
         st.metric("Total Analyzed", total_stocks)
     with col2:
-        st.metric("Higher H", higher_h_count, delta=f"{higher_h_count/total_stocks*100:.1f}%")
+        st.metric("Break H", higher_h_count, delta=f"{higher_h_count/total_stocks*100:.1f}%")
     with col3:
-        st.metric("HHL", higher_hl_count, delta="Both H & L")
+        st.metric("BHL", higher_hl_count, delta="Both H & L")
     with col4:
         st.metric("Valid CRT", valid_crt_count)
     with col5:
@@ -606,9 +606,9 @@ def display_scan_summary(results_df: pd.DataFrame) -> None:
     if len(results_df) > 0:
         analysis_dates = results_df['Analysis_Date'].unique()
         if len(analysis_dates) == 1:
-            create_info_box(f"📅 Analysis date: **{analysis_dates[0]}** | Higher H: **{higher_h_count}** (HHL: **{higher_hl_count}**, HH only: **{hh_only_count}**) | Avg MPI: **{avg_mpi:.1%}** | Avg Velocity: **{avg_velocity:+.1%}**")
+            create_info_box(f"📅 Analysis date: **{analysis_dates[0]}** | Break H: **{higher_h_count}** (BHL: **{higher_hl_count}**, BH only: **{hh_only_count}**) | Avg MPI: **{avg_mpi:.1%}** | Avg Velocity: **{avg_velocity:+.1%}**")
         else:
-            create_info_box(f"📅 Analysis dates: **{', '.join(analysis_dates)}** | Higher H: **{higher_h_count}** | Avg MPI: **{avg_mpi:.1%}** | Avg Velocity: **{avg_velocity:+.1%}**")
+            create_info_box(f"📅 Analysis dates: **{', '.join(analysis_dates)}** | Break H: **{higher_h_count}** | Avg MPI: **{avg_mpi:.1%}** | Avg Velocity: **{avg_velocity:+.1%}**")
 
     # Analyst report statistics
     if 'sentiment_score' in results_df.columns:
@@ -713,7 +713,7 @@ def display_filtered_results(filtered_stocks: pd.DataFrame, selected_base_filter
         'Analysis_Date': st.column_config.TextColumn('Date', width='small'),
         'Ticker': st.column_config.TextColumn('Ticker', width='small'),
         'Name': st.column_config.TextColumn('Company Name', width='medium'),
-        'HL_Pattern': st.column_config.TextColumn('H/L', width='small', help='HHL=Both H&L, HH=Higher H only, -=Neither'),
+        'HL_Pattern': st.column_config.TextColumn('H/L', width='small', help='BHL=Both H&L, BH=Break H only, -=Neither'),
         'VW_Range_Velocity': st.column_config.NumberColumn('Range Vel', format='%+.4f', help='Daily range expansion velocity'),
         'IBS': st.column_config.NumberColumn('IBS', format='%.3f'),
         'Relative_Volume': st.column_config.NumberColumn('Rel Vol', format='%.1f%%', help='Relative Volume vs 14-day average'),

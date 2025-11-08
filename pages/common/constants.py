@@ -5,11 +5,11 @@ Common constants used across the application
 # MPI Trend categories
 MPI_TRENDS = ['Expanding', 'Flat', 'Contracting']
 
-# Higher H/L patterns
+# Break H/L patterns
 HL_PATTERNS = {
-    'HHL': 'Both higher high AND higher low',
-    'HH': 'Higher high only (not higher low)',
-    '-': 'Neither higher high nor higher low'
+    'BHL': 'Both break high AND break low',
+    'BH': 'Break high only (not break low)',
+    '-': 'Neither break high nor break low'
 }
 
 # Sentiment labels

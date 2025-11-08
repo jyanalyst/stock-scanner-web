@@ -162,12 +162,12 @@ def calculate_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
         1.0
     )
     
-    # Higher H pattern - NEW: Only requires higher high
+    # Break H pattern - Only requires break high (higher high than previous day)
     df['Higher_H'] = (df['High'] > df['High'].shift(1)).astype(int)
-    
-    # Higher H/L pattern - Existing: Requires both higher high AND higher low
+
+    # Break H/L pattern - Requires both break high AND break low (higher high AND higher low than previous day)
     df['Higher_HL'] = (
-        (df['High'] > df['High'].shift(1)) & 
+        (df['High'] > df['High'].shift(1)) &
         (df['Low'] > df['Low'].shift(1))
     ).astype(int)
     

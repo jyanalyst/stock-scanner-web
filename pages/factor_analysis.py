@@ -426,7 +426,7 @@ def perform_simplified_factor_analysis(results_df: pd.DataFrame) -> Dict:
                                     target_hit_rate = 0
                                 
                                 # Create combination description
-                                hl_desc = "Higher_HL" if higher_hl == 1 else "No_HL"
+                                hl_desc = "Break_HL" if higher_hl == 1 else "No_HL"
                                 crt_desc = "Valid_CRT" if valid_crt == 1 else "No_CRT"
                                 combo_description = f"{mpi_combo['description']}_IBS03_{hl_desc}_{crt_desc}"
                                 
@@ -471,7 +471,7 @@ def analyze_preferred_strategy(results_df: pd.DataFrame, factor_analysis: Dict) 
         overall_avg_return = results_df['return_percentage'].mean() * 100
         
         # Find user's preferred combination in results
-        preferred_combo_name = "Expanding+Flat_IBS03_Higher_HL_Valid_CRT"
+        preferred_combo_name = "Expanding+Flat_IBS03_Break_HL_Valid_CRT"
         
         if 'best_combinations' in factor_analysis:
             combo_data = factor_analysis['best_combinations']
@@ -642,7 +642,7 @@ def create_simple_visualizations(results_df: pd.DataFrame, factor_analysis: Dict
             fig_combos.add_vline(x=50, line_dash="dash", line_color="red", annotation_text="50% Success Rate")
             
             # Highlight the preferred strategy
-            preferred_combo = combo_data[combo_data['combination'] == 'Expanding+Flat_IBS03_Higher_HL_Valid_CRT']
+            preferred_combo = combo_data[combo_data['combination'] == 'Expanding+Flat_IBS03_Break_HL_Valid_CRT']
             if len(preferred_combo) > 0:
                 fig_combos.add_scatter(
                     x=[preferred_combo.iloc[0]['Success_Rate']],
@@ -745,7 +745,7 @@ def display_preferred_strategy_analysis(results_df: pd.DataFrame, factor_analysi
     NEW: Display detailed analysis of the user's preferred strategy
     """
     st.subheader("🎯 Your Preferred Strategy Analysis")
-    st.markdown("**Detailed analysis of: Expanding+Flat_IBS03_Higher_HL_Valid_CRT**")
+    st.markdown("**Detailed analysis of: Expanding+Flat_IBS03_Break_HL_Valid_CRT**")
     
     # Analyze the preferred strategy
     strategy_analysis = analyze_preferred_strategy(results_df, factor_analysis)
@@ -858,7 +858,7 @@ def display_preferred_strategy_analysis(results_df: pd.DataFrame, factor_analysi
         st.markdown("#### 🚀 Practical Trading Implementation:")
         st.info(f"""
         **Your Trading Plan:**
-        1. **Entry Conditions:** Expanding OR Flat MPI + IBS ≥ 0.3 + Higher H/L + Valid CRT
+        1. **Entry Conditions:** Expanding OR Flat MPI + IBS ≥ 0.3 + Break H/L + Valid CRT
         2. **Entry Price:** Yesterday's high (when broken)
         3. **Exit Strategy:** Set 1% profit target immediately
         4. **If target hit:** SELL at 1% profit ({strategy_analysis['target_hit_rate']:.1f}% of the time)
@@ -1119,7 +1119,7 @@ def show():
         🎯 **NEW Exit Strategy:** 1% profit target dramatically improves success rates (48.3% → 65.3% for your strategy)
         🎯 **Focus:** Multi-trend MPI analysis (Flat, Expanding, Contracting + combinations) with IBS ≥ 0.3
         🎯 **Proven Better:** Fixed profit targets capture breakout momentum more effectively
-        🎯 **Your Strategy:** Expanding+Flat_IBS03_Higher_HL_Valid_CRT now gets detailed analysis
+        🎯 **Your Strategy:** Expanding+Flat_IBS03_Break_HL_Valid_CRT now gets detailed analysis
         """)
     
     # Initialize session state

@@ -283,27 +283,27 @@ def apply_relative_volume_filter(filtered_stocks: pd.DataFrame) -> Tuple[pd.Data
 
 
 def apply_higher_hl_filter(filtered_stocks: pd.DataFrame, base_filter_type: str) -> Tuple[pd.DataFrame, str, str]:
-    """Apply Higher H/L pattern filter"""
+    """Apply Break H/L pattern filter"""
     hl_filter_options = {
-        "Higher H/L Only": "All stocks with Valid CRT (Monday range expansion)",
-        "Higher H Only": "Any higher high (HH or HHL)",
+        "Break H/L Only": "All stocks with Valid CRT (Monday range expansion)",
+        "Break H Only": "Any break high (BH or BHL)",
         "No Filter": "All patterns"
     }
 
-    st.markdown("**Higher H/L Filter:**")
+    st.markdown("**Break H/L Filter:**")
 
     selected_hl_filter = st.radio(
-        "Select Higher H/L filter:",
+        "Select Break H/L filter:",
         list(hl_filter_options.keys()),
         key="higher_hl_pattern_radio"
     )
 
-    if selected_hl_filter == "Higher H/L Only":
+    if selected_hl_filter == "Break H/L Only":
         filtered_stocks = filtered_stocks[filtered_stocks['Higher_HL'] == 1]
-        info_message = f"Higher H/L Only (HHL) - {len(filtered_stocks)} stocks"
-    elif selected_hl_filter == "Higher H Only":
+        info_message = f"Break H/L Only (BHL) - {len(filtered_stocks)} stocks"
+    elif selected_hl_filter == "Break H Only":
         filtered_stocks = filtered_stocks[filtered_stocks['Higher_H'] == 1]
-        info_message = f"Higher H Only (HH + HHL) - {len(filtered_stocks)} stocks"
+        info_message = f"Break H Only (BH + BHL) - {len(filtered_stocks)} stocks"
     else:
         info_message = f"All patterns - {len(filtered_stocks)} stocks"
 
@@ -365,14 +365,14 @@ def show_filter_statistics(component_name: str, data: Optional[pd.Series], base_
             stats_df = create_filter_statistics_dataframe(data, component_name)
             st.dataframe(stats_df, hide_index=True, use_container_width=True)
 
-        elif component_name == "Higher H/L" and base_stocks is not None:
+        elif component_name == "Break H/L" and base_stocks is not None:
             higher_h_count = (base_stocks['Higher_H'] == 1).sum()
             higher_hl_count = (base_stocks['Higher_HL'] == 1).sum()
             hh_only_count = ((base_stocks['Higher_H'] == 1) & (base_stocks['Higher_HL'] == 0)).sum()
             total_count = len(base_stocks)
 
             hl_stats = pd.DataFrame({
-                "Pattern": ["HHL (H/L)", "HH Only", "Total Higher H", "Neither", "Total"],
+                "Pattern": ["BHL (H/L)", "BH Only", "Total Break H", "Neither", "Total"],
                 "Count": [
                     f"{higher_hl_count}",
                     f"{hh_only_count}",
@@ -388,10 +388,10 @@ def show_filter_statistics(component_name: str, data: Optional[pd.Series], base_
                     "100.0%"
                 ],
                 "Description": [
-                    "Both higher high AND higher low",
-                    "Higher high only (not higher low)",
-                    "Any higher high (HH + HHL)",
-                    "No higher high pattern",
+                    "Both break high AND break low",
+                    "Break high only (not break low)",
+                    "Any break high (BH + BHL)",
+                    "No break high pattern",
                     "All stocks"
                 ]
             })
@@ -434,11 +434,11 @@ def apply_dynamic_filters(base_stocks: pd.DataFrame, results_df: pd.DataFrame) -
     filtered_stocks = base_stocks.copy()
     filter_summary = []
 
-    # COL 1: HIGHER H/L FILTER
+    # COL 1: BREAK H/L FILTER
     with col1:
         filtered_stocks, selected_hl_filter, hl_info = apply_higher_hl_filter(filtered_stocks, st.session_state.get('base_filter_type', 'All Stocks'))
         st.info(hl_info)
-        show_filter_statistics("Higher H/L", None, base_stocks)
+        show_filter_statistics("Break H/L", None, base_stocks)
         if selected_hl_filter != "No Filter":
             filter_summary.append(f"H/L: {selected_hl_filter}")
 
