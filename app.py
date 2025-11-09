@@ -121,12 +121,18 @@ def show_sidebar_stats():
     if 'scan_results' in st.session_state and not st.session_state.scan_results.empty:
         results = st.session_state.scan_results
         total_stocks = len(results)
-        valid_crt = len(results[results['Valid_CRT'] == 1])
-        higher_hl = len(results[results['Higher_HL'] == 1])
         
-        st.sidebar.metric("Stocks Scanned", total_stocks)
-        st.sidebar.metric("Valid CRT", valid_crt)
-        st.sidebar.metric("Higher H/L", higher_hl)
+        # Count Signal_Bias (new dual-bias system)
+        if 'Signal_Bias' in results.columns:
+            bullish_count = len(results[results['Signal_Bias'] == '🟢 BULLISH'])
+            bearish_count = len(results[results['Signal_Bias'] == '🔴 BEARISH'])
+            
+            st.sidebar.metric("Stocks Scanned", total_stocks)
+            st.sidebar.metric("🟢 Bullish", bullish_count)
+            st.sidebar.metric("🔴 Bearish", bearish_count)
+        else:
+            # Fallback if Signal_Bias not available yet
+            st.sidebar.metric("Stocks Scanned", total_stocks)
         
         # Show analyst coverage if available
         if 'sentiment_score' in results.columns:

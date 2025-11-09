@@ -102,7 +102,7 @@ def apply_velocity_filter(filtered_stocks: pd.DataFrame, results_df: pd.DataFram
     selected_percentile = st.radio(
         "Select velocity filter:",
         list(percentile_options.keys()),
-        index=4,
+        index=4,  # Default to "No Filter"
         key="vw_range_velocity_percentile_radio"
     )
 
@@ -170,6 +170,7 @@ def apply_ibs_filter(filtered_stocks: pd.DataFrame) -> Tuple[pd.DataFrame, str]:
     selected_ibs_option = st.radio(
         "Select IBS filter:",
         list(ibs_percentile_options.keys()),
+        index=4,  # Default to "No Filter"
         key="ibs_percentile_radio"
     )
 
@@ -218,11 +219,37 @@ def apply_ibs_filter(filtered_stocks: pd.DataFrame) -> Tuple[pd.DataFrame, str]:
 
 
 def apply_relative_volume_filter(filtered_stocks: pd.DataFrame) -> Tuple[pd.DataFrame, str]:
-    """Apply Relative Volume percentile filter"""
+    """Apply Relative Volume percentile filter with velocity trend filtering"""
     if filtered_stocks.empty:
         return filtered_stocks, "No stocks available"
 
     rel_volume_values = filtered_stocks['Relative_Volume']
+
+    # NEW: Volume Trend Filter (Building/Stable/Fading)
+    if 'RelVol_Trend' in filtered_stocks.columns:
+        st.markdown("**Volume Trend:**")
+        volume_trend_options = ['All', 'Building Only', 'Not Fading', 'Fading Only']
+        selected_trend = st.selectbox(
+            "Filter by volume momentum:",
+            volume_trend_options,
+            index=0,  # Default to "All"
+            key="volume_trend_select",
+            help="Building = volume increasing, Fading = volume decreasing"
+        )
+        
+        if selected_trend == 'Building Only':
+            filtered_stocks = filtered_stocks[filtered_stocks['RelVol_Velocity'] > 0]
+            trend_info = f"📈 Building ({len(filtered_stocks)} stocks)"
+        elif selected_trend == 'Not Fading':
+            filtered_stocks = filtered_stocks[filtered_stocks['RelVol_Velocity'] >= 0]
+            trend_info = f"➡️ Stable+ ({len(filtered_stocks)} stocks)"
+        elif selected_trend == 'Fading Only':
+            filtered_stocks = filtered_stocks[filtered_stocks['RelVol_Velocity'] < 0]
+            trend_info = f"📉 Fading ({len(filtered_stocks)} stocks)"
+        else:
+            trend_info = f"All trends ({len(filtered_stocks)} stocks)"
+        
+        st.caption(trend_info)
 
     rel_volume_percentile_options = {
         "Top 25%": 75,
@@ -232,9 +259,11 @@ def apply_relative_volume_filter(filtered_stocks: pd.DataFrame) -> Tuple[pd.Data
         "No Filter": None
     }
 
+    st.markdown("**Volume Level:**")
     selected_rel_volume_option = st.radio(
         "Select Relative Volume filter:",
         list(rel_volume_percentile_options.keys()),
+        index=4,  # Default to "No Filter"
         key="rel_volume_percentile_radio"
     )
 
@@ -282,44 +311,86 @@ def apply_relative_volume_filter(filtered_stocks: pd.DataFrame) -> Tuple[pd.Data
     return filtered_stocks, info_message
 
 
-def apply_higher_hl_filter(filtered_stocks: pd.DataFrame, base_filter_type: str) -> Tuple[pd.DataFrame, str, str]:
-    """Apply Higher H/L pattern filter"""
-    hl_filter_options = {
-        "Higher H/L Only": "All stocks with Valid CRT (Monday range expansion)",
-        "Higher H Only": "Any higher high (HH or HHL)",
+def apply_break_hl_filter(filtered_stocks: pd.DataFrame, base_filter_type: str) -> Tuple[pd.DataFrame, str, str]:
+    """Apply Break H/L pattern filter with Higher and Lower patterns"""
+    break_filter_options = {
+        "Higher H/L Only (HHL)": "Both higher high AND higher low",
+        "Higher H Only (HH)": "Higher high only",
+        "Lower H/L Only (LHL)": "Both lower high AND lower low",
+        "Lower L Only (LL)": "Lower low only",
+        "Both Higher H & Lower L": "Either higher high OR lower low",
         "No Filter": "All patterns"
     }
 
-    st.markdown("**Higher H/L Filter:**")
+    st.markdown("**Break H/L Filter:**")
 
-    selected_hl_filter = st.radio(
-        "Select Higher H/L filter:",
-        list(hl_filter_options.keys()),
-        key="higher_hl_pattern_radio"
+    selected_filter = st.radio(
+        "Select Break H/L filter:",
+        list(break_filter_options.keys()),
+        index=5,  # Default to "No Filter"
+        key="break_hl_pattern_radio"
     )
 
-    if selected_hl_filter == "Higher H/L Only":
+    if selected_filter == "Higher H/L Only (HHL)":
         filtered_stocks = filtered_stocks[filtered_stocks['Higher_HL'] == 1]
-        info_message = f"Higher H/L Only (HHL) - {len(filtered_stocks)} stocks"
-    elif selected_hl_filter == "Higher H Only":
+        info_message = f"HHL Pattern - {len(filtered_stocks)} stocks"
+
+    elif selected_filter == "Higher H Only (HH)":
         filtered_stocks = filtered_stocks[filtered_stocks['Higher_H'] == 1]
-        info_message = f"Higher H Only (HH + HHL) - {len(filtered_stocks)} stocks"
-    else:
+        info_message = f"HH Pattern - {len(filtered_stocks)} stocks"
+
+    elif selected_filter == "Lower H/L Only (LHL)":
+        filtered_stocks = filtered_stocks[filtered_stocks['Lower_HL'] == 1]
+        info_message = f"LHL Pattern - {len(filtered_stocks)} stocks"
+
+    elif selected_filter == "Lower L Only (LL)":
+        filtered_stocks = filtered_stocks[filtered_stocks['Lower_L'] == 1]
+        info_message = f"LL Pattern - {len(filtered_stocks)} stocks"
+
+    elif selected_filter == "Both Higher H & Lower L":
+        # Either Higher H OR Lower L
+        filtered_stocks = filtered_stocks[
+            (filtered_stocks['Higher_H'] == 1) |
+            (filtered_stocks['Lower_L'] == 1)
+        ]
+        info_message = f"HH or LL Pattern - {len(filtered_stocks)} stocks"
+
+    else:  # No Filter
         info_message = f"All patterns - {len(filtered_stocks)} stocks"
 
-    return filtered_stocks, selected_hl_filter, info_message
+    return filtered_stocks, selected_filter, info_message
 
 
 def apply_mpi_filter(filtered_stocks: pd.DataFrame) -> Tuple[pd.DataFrame, List[str], str]:
-    """Apply MPI expansion trend filter"""
+    """Apply MPI expansion trend filter with signal quality scoring"""
     if 'MPI_Trend' not in filtered_stocks.columns:
         st.warning("MPI expansion filtering not available - MPI_Trend data missing")
         return filtered_stocks, [], "MPI data unavailable"
 
-    use_mpi_filter = st.checkbox("Enable MPI Filtering", value=True, key="mpi_filter_toggle")
+    use_mpi_filter = st.checkbox("Enable MPI Filtering", value=False, key="mpi_filter_toggle")  # Default to False
 
     if not use_mpi_filter:
         return filtered_stocks, [], "MPI filter disabled"
+
+    # Add signal quality filter
+    if 'MPI_Signal_Quality' in filtered_stocks.columns:
+        st.markdown("**Signal Quality Filter:**")
+        min_quality = st.slider(
+            "Minimum Signal Quality Score",
+            min_value=0,
+            max_value=100,
+            value=0,  # Default to 0 (no filtering)
+            step=10,
+            key="mpi_quality_slider",
+            help="Filter stocks by entry timing quality (0-100). Higher scores indicate better entry timing."
+        )
+        
+        # Apply quality filter
+        quality_filtered = filtered_stocks[filtered_stocks['MPI_Signal_Quality'] >= min_quality].copy()
+        
+        if len(quality_filtered) < len(filtered_stocks):
+            st.caption(f"Quality filter: {len(quality_filtered)} of {len(filtered_stocks)} stocks (≥{min_quality} score)")
+            filtered_stocks = quality_filtered
 
     trend_options = [
         "📈 Expanding",
@@ -327,7 +398,7 @@ def apply_mpi_filter(filtered_stocks: pd.DataFrame) -> Tuple[pd.DataFrame, List[
         "📉 Contracting"
     ]
 
-    st.markdown("Select momentum trends:")
+    st.markdown("**Select momentum trends:**")
     selected_trends = []
 
     trend_mapping = {
@@ -337,7 +408,7 @@ def apply_mpi_filter(filtered_stocks: pd.DataFrame) -> Tuple[pd.DataFrame, List[
     }
 
     for i, trend in enumerate(trend_options):
-        if st.checkbox(trend, key=f"mpi_trend_checkbox_{i}"):
+        if st.checkbox(trend, value=False, key=f"mpi_trend_checkbox_{i}"):  # Default to False
             selected_trends.append(trend_mapping[trend])
 
     if selected_trends:
@@ -365,37 +436,56 @@ def show_filter_statistics(component_name: str, data: Optional[pd.Series], base_
             stats_df = create_filter_statistics_dataframe(data, component_name)
             st.dataframe(stats_df, hide_index=True, use_container_width=True)
 
-        elif component_name == "Higher H/L" and base_stocks is not None:
+        elif component_name == "Break H/L" and base_stocks is not None:
+            # Count all patterns
             higher_h_count = (base_stocks['Higher_H'] == 1).sum()
             higher_hl_count = (base_stocks['Higher_HL'] == 1).sum()
-            hh_only_count = ((base_stocks['Higher_H'] == 1) & (base_stocks['Higher_HL'] == 0)).sum()
-            total_count = len(base_stocks)
+            lower_l_count = (base_stocks['Lower_L'] == 1).sum()
+            lower_hl_count = (base_stocks['Lower_HL'] == 1).sum()
+            hh_only = ((base_stocks['Higher_H'] == 1) & (base_stocks['Higher_HL'] == 0)).sum()
+            ll_only = ((base_stocks['Lower_L'] == 1) & (base_stocks['Lower_HL'] == 0)).sum()
+            hh_or_ll = ((base_stocks['Higher_H'] == 1) | (base_stocks['Lower_L'] == 1)).sum()
+            total = len(base_stocks)
 
-            hl_stats = pd.DataFrame({
-                "Pattern": ["HHL (H/L)", "HH Only", "Total Higher H", "Neither", "Total"],
+            stats = pd.DataFrame({
+                "Pattern": [
+                    "HHL (Higher H/L)",
+                    "HH Only",
+                    "LHL (Lower H/L)",
+                    "LL Only",
+                    "HH or LL",
+                    "Neither",
+                    "Total"
+                ],
                 "Count": [
                     f"{higher_hl_count}",
-                    f"{hh_only_count}",
-                    f"{higher_h_count}",
-                    f"{total_count - higher_h_count}",
-                    f"{total_count}"
+                    f"{hh_only}",
+                    f"{lower_hl_count}",
+                    f"{ll_only}",
+                    f"{hh_or_ll}",
+                    f"{total - hh_or_ll}",
+                    f"{total}"
                 ],
                 "Percentage": [
-                    f"{higher_hl_count/total_count*100:.1f}%",
-                    f"{hh_only_count/total_count*100:.1f}%",
-                    f"{higher_h_count/total_count*100:.1f}%",
-                    f"{(total_count - higher_h_count)/total_count*100:.1f}%",
+                    f"{higher_hl_count/total*100:.1f}%",
+                    f"{hh_only/total*100:.1f}%",
+                    f"{lower_hl_count/total*100:.1f}%",
+                    f"{ll_only/total*100:.1f}%",
+                    f"{hh_or_ll/total*100:.1f}%",
+                    f"{(total - hh_or_ll)/total*100:.1f}%",
                     "100.0%"
                 ],
                 "Description": [
-                    "Both higher high AND higher low",
-                    "Higher high only (not higher low)",
-                    "Any higher high (HH + HHL)",
-                    "No higher high pattern",
+                    "Higher high AND higher low",
+                    "Higher high only",
+                    "Lower high AND lower low",
+                    "Lower low only",
+                    "Either HH or LL pattern",
+                    "No HH/LL pattern",
                     "All stocks"
                 ]
             })
-            st.dataframe(hl_stats, hide_index=True, use_container_width=True)
+            st.dataframe(stats, hide_index=True, use_container_width=True)
 
         elif component_name == "MPI Trend" and base_stocks is not None and 'MPI_Trend' in base_stocks.columns:
             trend_counts = base_stocks['MPI_Trend'].value_counts()
@@ -422,7 +512,7 @@ def show_filter_statistics(component_name: str, data: Optional[pd.Series], base_
 
 
 def apply_dynamic_filters(base_stocks: pd.DataFrame, results_df: pd.DataFrame) -> pd.DataFrame:
-    """Apply dynamic filtering with optimized component structure"""
+    """Apply dynamic filtering - ordered: MPI, Break H/L, IBS, VW_Range_Velocity, Relative_Volume"""
     if base_stocks.empty:
         st.warning("No stocks available for filtering")
         return base_stocks
@@ -434,25 +524,29 @@ def apply_dynamic_filters(base_stocks: pd.DataFrame, results_df: pd.DataFrame) -
     filtered_stocks = base_stocks.copy()
     filter_summary = []
 
-    # COL 1: HIGHER H/L FILTER
+    # COL 1: MPI EXPANSION FILTER (matches MPI_Signal_Quality column)
     with col1:
-        filtered_stocks, selected_hl_filter, hl_info = apply_higher_hl_filter(filtered_stocks, st.session_state.get('base_filter_type', 'All Stocks'))
-        st.info(hl_info)
-        show_filter_statistics("Higher H/L", None, base_stocks)
-        if selected_hl_filter != "No Filter":
-            filter_summary.append(f"H/L: {selected_hl_filter}")
+        st.markdown("**MPI Expansion Filter:**")
+        filtered_stocks, selected_trends, mpi_info = apply_mpi_filter(filtered_stocks)
+        st.info(mpi_info)
+        show_filter_statistics("MPI Trend", None, base_stocks)
+        if selected_trends:
+            filter_summary.append(f"MPI: {len(selected_trends)} trends")
+        elif "disabled" not in mpi_info:
+            filter_summary.append("MPI: Enabled")
 
-    # COL 2: VW RANGE VELOCITY FILTER
+    # COL 2: BREAK H/L FILTER (matches HL_Pattern column)
     with col2:
-        st.markdown("**VW Range Velocity Filter:**")
-        filtered_stocks, velocity_data, velocity_info = apply_velocity_filter(filtered_stocks, results_df)
-        st.info(velocity_info)
-        if velocity_data is not None and len(velocity_data) > 0:
-            show_filter_statistics("VW Range Velocity", velocity_data)
-            if "≥" in velocity_info or "≤" in velocity_info:
-                filter_summary.append("VW Range Velocity filtered")
+        filtered_stocks, selected_break_filter, break_info = apply_break_hl_filter(
+            filtered_stocks,
+            st.session_state.get('base_filter_type', 'All Stocks')
+        )
+        st.info(break_info)
+        show_filter_statistics("Break H/L", None, base_stocks)
+        if selected_break_filter != "No Filter":
+            filter_summary.append(f"Break: {selected_break_filter}")
 
-    # COL 3: IBS FILTER
+    # COL 3: IBS FILTER (matches IBS column)
     with col3:
         st.markdown("**IBS Filter:**")
         filtered_stocks, ibs_info = apply_ibs_filter(filtered_stocks)
@@ -462,8 +556,18 @@ def apply_dynamic_filters(base_stocks: pd.DataFrame, results_df: pd.DataFrame) -
             if "≥" in ibs_info or "≤" in ibs_info:
                 filter_summary.append("IBS filtered")
 
-    # COL 4: RELATIVE VOLUME FILTER
+    # COL 4: VW RANGE VELOCITY FILTER (matches VW_Range_Velocity column)
     with col4:
+        st.markdown("**VW Range Velocity Filter:**")
+        filtered_stocks, velocity_data, velocity_info = apply_velocity_filter(filtered_stocks, results_df)
+        st.info(velocity_info)
+        if velocity_data is not None and len(velocity_data) > 0:
+            show_filter_statistics("VW Range Velocity", velocity_data)
+            if "≥" in velocity_info or "≤" in velocity_info:
+                filter_summary.append("VW Range Velocity filtered")
+
+    # COL 5: RELATIVE VOLUME FILTER (matches Relative_Volume column)
+    with col5:
         st.markdown("**Relative Volume Filter:**")
         filtered_stocks, rel_volume_info = apply_relative_volume_filter(filtered_stocks)
         st.info(rel_volume_info)
@@ -471,17 +575,6 @@ def apply_dynamic_filters(base_stocks: pd.DataFrame, results_df: pd.DataFrame) -
             show_filter_statistics("Relative Volume", filtered_stocks['Relative_Volume'])
             if "≥" in rel_volume_info or "≤" in rel_volume_info:
                 filter_summary.append("Relative Volume filtered")
-
-    # COL 5: MPI EXPANSION FILTER
-    with col5:
-        st.markdown("**MPI Expansion Filter:**")
-        filtered_stocks, selected_trends, mpi_info = apply_mpi_filter(filtered_stocks)
-        st.info(mpi_info)
-        show_filter_statistics("MPI Trend", None, base_stocks)
-        if selected_trends:
-            filter_summary.append(f"MPI: {len(selected_trends)} trends")
-        elif "disabled" in mpi_info:
-            filter_summary.append("MPI: Disabled")
 
     if filter_summary:
         st.success(f"Active filters: {' + '.join(filter_summary)} → {len(filtered_stocks)} stocks")

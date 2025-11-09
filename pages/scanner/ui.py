@@ -575,7 +575,9 @@ def display_scan_summary(results_df: pd.DataFrame) -> None:
     higher_hl_count = len(results_df[results_df['Higher_HL'] == 1])
     hh_only_count = len(results_df[(results_df['Higher_H'] == 1) & (results_df['Higher_HL'] == 0)])
 
-    valid_crt_count = len(results_df[results_df['Valid_CRT'] == 1])
+    # Count Signal_Bias
+    bullish_count = len(results_df[results_df['Signal_Bias'] == '🟢 BULLISH']) if 'Signal_Bias' in results_df.columns else 0
+    bearish_count = len(results_df[results_df['Signal_Bias'] == '🔴 BEARISH']) if 'Signal_Bias' in results_df.columns else 0
 
     if 'MPI_Trend' in results_df.columns:
         trend_counts = results_df['MPI_Trend'].value_counts()
@@ -597,11 +599,13 @@ def display_scan_summary(results_df: pd.DataFrame) -> None:
     with col3:
         st.metric("HHL", higher_hl_count, delta="Both H & L")
     with col4:
-        st.metric("Valid CRT", valid_crt_count)
+        st.metric("🟢 Bullish", bullish_count)
     with col5:
-        st.metric("🚀 Strong Exp", strong_expansion, delta="≥5% velocity")
+        st.metric("🔴 Bearish", bearish_count)
     with col6:
-        st.metric("📈 Expanding", strong_expansion + expanding, delta=">0% velocity")
+        st.metric("� Strong Exp", strong_expansion, delta="≥5% velocity")
+    with col6:
+        st.metric("�📈 Expanding", strong_expansion + expanding, delta=">0% velocity")
 
     if len(results_df) > 0:
         analysis_dates = results_df['Analysis_Date'].unique()
@@ -657,31 +661,43 @@ def display_scan_summary(results_df: pd.DataFrame) -> None:
 
 
 def show_base_pattern_filter(results_df: pd.DataFrame) -> pd.DataFrame:
-    """Show base pattern filter"""
+    """Show base pattern filter with simple bullish/bearish presets"""
     create_section_header("🎯 Pattern Analysis", "")
-
-    base_filter_options = {
-        "Valid CRT Only": "All stocks with Valid CRT (Monday range expansion)",
-        "All Stocks": "Complete scan results without pattern filtering"
-    }
-
-    selected_base_filter = st.radio(
-        "Select base pattern filter:",
-        list(base_filter_options.keys()),
-        help="Choose base filtering criteria",
-        key="base_filter_radio"
+    
+    # Simplified filter options - signal-based only
+    filter_options = [
+        "All Stocks",
+        "🟢 Bullish Stocks",
+        "🔴 Bearish Stocks"
+    ]
+    
+    # Radio buttons with default to "All Stocks" (index=0)
+    selected_filter = st.radio(
+        "Base Pattern Filter:",
+        options=filter_options,
+        index=0,  # Default to "All Stocks"
+        help="Filter stocks by signal bias (bullish/bearish)",
+        horizontal=True
     )
-
-    st.session_state.base_filter_type = selected_base_filter
-
-    if selected_base_filter == "Valid CRT Only":
-        base_stocks = results_df[results_df['Valid_CRT'] == 1].copy()
-        create_info_box(f"Showing {len(base_stocks)} stocks with Valid CRT (Monday range expansion)")
+    
+    # Store in session state
+    st.session_state.base_filter_type = selected_filter
+    
+    # Apply filtering based on selection
+    if selected_filter == "All Stocks":
+        filtered_df = results_df
+        create_info_box(f"Showing all {len(filtered_df)} scanned stocks")
+    elif selected_filter == "🟢 Bullish Stocks":
+        filtered_df = results_df[results_df['Signal_Bias'] == '🟢 BULLISH']
+        create_info_box(f"Showing {len(filtered_df)} bullish stocks")
+    elif selected_filter == "🔴 Bearish Stocks":
+        filtered_df = results_df[results_df['Signal_Bias'] == '🔴 BEARISH']
+        create_info_box(f"Showing {len(filtered_df)} bearish stocks")
     else:
-        base_stocks = results_df.copy()
-        create_info_box(f"Showing all {len(base_stocks)} scanned stocks")
-
-    return base_stocks
+        filtered_df = results_df
+        create_info_box(f"Showing all {len(filtered_df)} scanned stocks")
+    
+    return filtered_df
 
 
 def display_filtered_results(filtered_stocks: pd.DataFrame, selected_base_filter: str) -> None:
@@ -692,10 +708,10 @@ def display_filtered_results(filtered_stocks: pd.DataFrame, selected_base_filter
         create_warning_box("No stocks match the current filter criteria")
         return
 
-    # Display columns already exist from scan - just use them
-    display_cols = ['Analysis_Date', 'Ticker', 'Name', 'HL_Pattern',
-                    'VW_Range_Velocity', 'IBS', 'Relative_Volume',
-                    'MPI_Trend_Emoji', 'MPI_Visual']
+    # Display columns - reordered with Ticker/Name first, then Signal columns
+    display_cols = ['Ticker', 'Name', 'Signal_Bias', 'MPI_Signal_Quality', 'MPI_Entry_Signal',
+                    'HL_Pattern', 'IBS', 'VW_Range_Velocity',
+                    'Relative_Volume', 'RelVol_Velocity', 'RelVol_Trend']
 
     # Add analyst columns if available
     if 'Sentiment_Display' in filtered_stocks.columns:
@@ -710,15 +726,18 @@ def display_filtered_results(filtered_stocks: pd.DataFrame, selected_base_filter
         display_cols.append('Earnings_Reaction')
 
     base_column_config = {
-        'Analysis_Date': st.column_config.TextColumn('Date', width='small'),
+        'Signal_Bias': st.column_config.TextColumn('Signal', width='small', help='🟢 Bullish, 🔴 Bearish, ⚪ Neutral'),
         'Ticker': st.column_config.TextColumn('Ticker', width='small'),
         'Name': st.column_config.TextColumn('Company Name', width='medium'),
         'HL_Pattern': st.column_config.TextColumn('H/L', width='small', help='HHL=Both H&L, HH=Higher H only, -=Neither'),
         'VW_Range_Velocity': st.column_config.NumberColumn('Range Vel', format='%+.4f', help='Daily range expansion velocity'),
         'IBS': st.column_config.NumberColumn('IBS', format='%.3f'),
         'Relative_Volume': st.column_config.NumberColumn('Rel Vol', format='%.1f%%', help='Relative Volume vs 14-day average'),
-        'MPI_Trend_Emoji': st.column_config.TextColumn('📊', width='small', help='MPI Expansion Trend'),
-        'MPI_Visual': st.column_config.TextColumn('MPI Visual', width='medium', help='Visual MPI representation'),
+        'RelVol_Velocity': st.column_config.NumberColumn('Vol Vel', format='%+.1f', help='Day-over-day volume change'),
+        'RelVol_Trend': st.column_config.TextColumn('Vol Trend', width='small', help='Building/Stable/Fading'),
+        'MPI_Signal_Direction': st.column_config.TextColumn('Dir', width='small', help='Signal direction: bullish/bearish/neutral'),
+        'MPI_Signal_Quality': st.column_config.NumberColumn('Quality', width='small', format='%d', help='0-100 score for entry timing quality'),
+        'MPI_Entry_Signal': st.column_config.TextColumn('Entry Signal', width='medium', help='Entry timing classification (bullish or bearish)'),
         'Sentiment_Display': st.column_config.TextColumn('Sentiment', width='small', help='Analyst sentiment score'),
         'Report_Date_Display': st.column_config.TextColumn('Report', width='small', help='Report date'),
         'Report_Count_Display': st.column_config.TextColumn('Reports', width='small', help='Number of reports'),
@@ -732,9 +751,28 @@ def display_filtered_results(filtered_stocks: pd.DataFrame, selected_base_filter
     column_config = create_dynamic_column_config(filtered_stocks, display_cols, base_column_config)
     display_cols = [col for col in display_cols if col in filtered_stocks.columns]
 
+    # Apply default sorting: Signal_Bias (Bullish first) → Quality (Highest first)
+    if 'Signal_Bias' in filtered_stocks.columns and 'MPI_Signal_Quality' in filtered_stocks.columns:
+        # Make explicit copy and convert Signal_Bias to string to avoid categorical issues
+        filtered_stocks_sorted = filtered_stocks.copy()
+        
+        # Convert Signal_Bias to string if it's categorical
+        if pd.api.types.is_categorical_dtype(filtered_stocks_sorted['Signal_Bias']):
+            filtered_stocks_sorted['Signal_Bias'] = filtered_stocks_sorted['Signal_Bias'].astype(str)
+        
+        bias_order = {'🟢 BULLISH': 1, '⚪ NEUTRAL': 2, '🔴 BEARISH': 3}
+        filtered_stocks_sorted['_bias_sort'] = filtered_stocks_sorted['Signal_Bias'].map(bias_order).fillna(4)
+        
+        filtered_stocks_sorted = filtered_stocks_sorted.sort_values(
+            by=['_bias_sort', 'MPI_Signal_Quality'],
+            ascending=[True, False]  # Bullish first, Quality high to low
+        ).drop('_bias_sort', axis=1)
+    else:
+        filtered_stocks_sorted = filtered_stocks
+
     try:
         st.dataframe(
-            filtered_stocks[display_cols],
+            filtered_stocks_sorted[display_cols],
             column_config=column_config,
             use_container_width=True,
             hide_index=True
@@ -786,9 +824,9 @@ def show_full_results_table(results_df: pd.DataFrame) -> None:
         try:
             full_results_cols = [
                 'Analysis_Date', 'Ticker', 'Name', 'Close',
-                'CRT_High', 'CRT_Low', 'HL_Pattern',
-                'VW_Range_Velocity', 'IBS', 'Valid_CRT',
-                'MPI_Trend_Emoji', 'MPI_Trend', 'MPI', 'MPI_Velocity', 'MPI_Visual'
+                'Signal_Bias', 'HL_Pattern',
+                'VW_Range_Velocity', 'IBS',
+                'MPI_Signal_Quality', 'MPI_Entry_Signal', 'MPI', 'MPI_Velocity'
             ]
 
             if 'Sentiment_Display' in results_df.columns:
@@ -801,15 +839,15 @@ def show_full_results_table(results_df: pd.DataFrame) -> None:
                 'Analysis_Date': st.column_config.TextColumn('Date', width='small'),
                 'Ticker': st.column_config.TextColumn('Ticker', width='small'),
                 'Name': st.column_config.TextColumn('Company Name', width='medium'),
+                'Close': st.column_config.NumberColumn('Close', width='small'),
+                'Signal_Bias': st.column_config.TextColumn('Signal', width='small', help='🟢 Bullish, 🔴 Bearish, ⚪ Neutral'),
                 'HL_Pattern': st.column_config.TextColumn('H/L', width='small'),
                 'VW_Range_Velocity': st.column_config.NumberColumn('Range Vel', format='%+.4f'),
                 'IBS': st.column_config.NumberColumn('IBS', format='%.3f'),
-                'Valid_CRT': st.column_config.NumberColumn('CRT', width='small'),
-                'MPI_Trend_Emoji': st.column_config.TextColumn('📊', width='small'),
-                'MPI_Trend': st.column_config.TextColumn('MPI Trend', width='medium'),
-                'MPI': st.column_config.NumberColumn('MPI', format='%.1%'),
-                'MPI_Velocity': st.column_config.NumberColumn('MPI Velocity', format='%+.1%'),
-                'MPI_Visual': st.column_config.TextColumn('MPI Visual', width='medium'),
+                'MPI_Signal_Quality': st.column_config.NumberColumn('Signal Quality', width='small', format='%d', help='0-100 score for entry timing quality'),
+                'MPI_Entry_Signal': st.column_config.TextColumn('Entry Signal', width='medium', help='Entry timing classification'),
+                'MPI': st.column_config.NumberColumn('MPI', format='%.2f', help='Market Position Index (0-1 scale)'),
+                'MPI_Velocity': st.column_config.NumberColumn('MPI Velocity', format='%+.2f', help='Rate of MPI change'),
                 'Sentiment_Display': st.column_config.TextColumn('Sentiment', width='small'),
                 'Report_Date_Display': st.column_config.TextColumn('Report', width='small'),
                 'Report_Count_Display': st.column_config.TextColumn('Reports', width='small'),
