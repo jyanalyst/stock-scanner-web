@@ -23,6 +23,9 @@ from pages.common.performance import (performance_monitor, cached_data_operation
 from pages.common.data_validation import (validate_data_quality, clean_data,
                                         get_validation_summary, DataQualityMetrics)
 from pages.scanner.constants import ScanProgress, ScanScope, ScanDateType
+from core.technical_analysis import (add_enhanced_columns, get_mpi_trend_info, 
+                                     calculate_bullish_signal_quality, calculate_bearish_signal_quality,
+                                     calculate_signal_direction, get_entry_signal_label)
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +43,7 @@ def run_enhanced_stock_scan(stocks_to_scan: List[str], analysis_date: Optional[d
 
     try:
         from core.data_fetcher import DataFetcher, set_global_data_fetcher
-        from core.technical_analysis import add_enhanced_columns, get_mpi_trend_info
+
         from pages.common.error_handler import (safe_execute, with_error_handling,
                                                DataLoadError, DataProcessingError,
                                                validate_data_quality, handle_error, display_user_friendly_error)
@@ -333,15 +336,66 @@ def _create_result_dict(analysis_row: pd.Series, actual_date, ticker: str, fetch
 
     higher_h = safe_int(analysis_row.get('Higher_H', 0))
     higher_hl = safe_int(analysis_row.get('Higher_HL', 0))
+    lower_l = safe_int(analysis_row.get('Lower_L', 0))
+    lower_hl = safe_int(analysis_row.get('Lower_HL', 0))
 
     if higher_hl == 1:
-        hl_pattern = "HHL"
+        hl_pattern = "HHL"  # Higher High & Low
     elif higher_h == 1:
-        hl_pattern = "HH"
+        hl_pattern = "HH"   # Higher High only
+    elif lower_hl == 1:
+        hl_pattern = "LHL"  # Lower High & Low
+    elif lower_l == 1:
+        hl_pattern = "LL"   # Lower Low only
     else:
         hl_pattern = "-"
 
+    # Calculate both bullish and bearish signal quality scores
+    mpi_value = float(analysis_row.get('MPI', 0.5))
+    
+    bullish_quality = calculate_bullish_signal_quality(
+        mpi=mpi_value,
+        velocity=mpi_velocity,
+        higher_h=higher_h
+    )
+    
+    bearish_quality = calculate_bearish_signal_quality(
+        mpi=mpi_value,
+        velocity=mpi_velocity,
+        lower_l=lower_l
+    )
+    
+    # Determine signal direction based on velocity
+    signal_direction = calculate_signal_direction(mpi_velocity)
+    
+    # Select the active signal quality based on direction
+    active_quality = bullish_quality if signal_direction == 'bullish' else bearish_quality
+    
+    # Get the appropriate entry signal label
+    entry_signal = get_entry_signal_label(bullish_quality, bearish_quality, signal_direction)
+    
+    # Determine Signal Bias: MPI primary, IBS fallback
+    ibs_value = round(float(analysis_row['IBS']), 3) if not pd.isna(analysis_row['IBS']) else 0.5
+    
+    def determine_signal_bias(mpi_direction, ibs):
+        """Determine signal bias: MPI primary, IBS fallback"""
+        if mpi_direction == 'bullish':
+            return '🟢 BULLISH'
+        elif mpi_direction == 'bearish':
+            return '🔴 BEARISH'
+        else:
+            # Fallback to IBS
+            if ibs > 0.5:
+                return '🟢 BULLISH'
+            elif ibs < 0.5:
+                return '🔴 BEARISH'
+            else:
+                return '⚪ NEUTRAL'
+    
+    signal_bias = determine_signal_bias(signal_direction, ibs_value)
+    
     result = {
+        'Signal_Bias': signal_bias,
         'Ticker': ticker,
         'Name': company_name,
         'Analysis_Date': actual_date.strftime('%d/%m/%Y') if hasattr(actual_date, 'strftime') else str(actual_date),
@@ -349,24 +403,27 @@ def _create_result_dict(analysis_row: pd.Series, actual_date, ticker: str, fetch
         'High': safe_round(analysis_row['High'], price_decimals),
         'Low': safe_round(analysis_row['Low'], price_decimals),
         'IBS': round(float(analysis_row['IBS']), 3) if not pd.isna(analysis_row['IBS']) else 0,
-        'Valid_CRT': safe_int(analysis_row.get('Valid_CRT', 0)),
         'Higher_H': higher_h,
         'Higher_HL': higher_hl,
+        'Lower_L': lower_l,
+        'Lower_HL': lower_hl,
         'HL_Pattern': hl_pattern,
-        'CRT_Velocity': round(float(analysis_row.get('CRT_Qualifying_Velocity', 0)), 4) if not pd.isna(analysis_row.get('CRT_Qualifying_Velocity', 0)) else 0,
         'VW_Range_Velocity': round(float(analysis_row.get('VW_Range_Velocity', 0)), 4) if not pd.isna(analysis_row.get('VW_Range_Velocity', 0)) else 0,
-        'Weekly_Open': safe_round(analysis_row.get('Weekly_Open', 0), price_decimals),
-        'CRT_High': safe_round(analysis_row.get('CRT_High', 0), price_decimals),
-        'CRT_Low': safe_round(analysis_row.get('CRT_Low', 0), price_decimals),
         'VW_Range_Percentile': round(float(analysis_row.get('VW_Range_Percentile', 0)), 4) if not pd.isna(analysis_row.get('VW_Range_Percentile', 0)) else 0,
         'Rel_Range_Signal': safe_int(analysis_row.get('Rel_Range_Signal', 0)),
-        'MPI': round(float(analysis_row.get('MPI', 0.5)), 4) if not pd.isna(analysis_row.get('MPI', 0.5)) else 0.5,
-        'MPI_Velocity': round(mpi_velocity, 4),
+        'MPI': round(mpi_value, 2),
+        'MPI_Velocity': round(mpi_velocity, 2),
         'MPI_Trend': mpi_trend,
-        'MPI_Trend_Emoji': mpi_trend_info.get('emoji', '❓'),
-        'MPI_Description': mpi_trend_info.get('description', 'Unknown'),
-        'MPI_Visual': format_mpi_visual(analysis_row.get('MPI', 0.5)),
+        'MPI_Bullish_Quality': bullish_quality,
+        'MPI_Bearish_Quality': bearish_quality,
+        'MPI_Signal_Direction': signal_direction,
+        'MPI_Signal_Quality': active_quality,
+        'MPI_Entry_Signal': entry_signal,
         'Relative_Volume': round(float(analysis_row.get('Relative_Volume', 100.0)), 1) if not pd.isna(analysis_row.get('Relative_Volume', 100.0)) else 100.0,
+        'RelVol_Velocity': round(float(analysis_row.get('RelVol_Velocity', 0.0)), 1) if not pd.isna(analysis_row.get('RelVol_Velocity', 0.0)) else 0.0,
+        'RelVol_Trend': str(analysis_row.get('RelVol_Trend', 'Stable')),
+        'RelVol_Percentile': round(float(analysis_row.get('RelVol_Percentile', 0.5)), 4) if not pd.isna(analysis_row.get('RelVol_Percentile', 0.5)) else 0.5,
+        'RelVol_Percentile_Velocity': round(float(analysis_row.get('RelVol_Percentile_Velocity', 0.0)), 4) if not pd.isna(analysis_row.get('RelVol_Percentile_Velocity', 0.0)) else 0.0,
         'High_Rel_Volume_150': safe_int(analysis_row.get('High_Rel_Volume_150', 0)),
         'High_Rel_Volume_200': safe_int(analysis_row.get('High_Rel_Volume_200', 0)),
         'Price_Decimals': price_decimals

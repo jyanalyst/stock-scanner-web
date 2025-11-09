@@ -164,26 +164,37 @@ def calculate_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
     
     # Higher H pattern - NEW: Only requires higher high
     df['Higher_H'] = (df['High'] > df['High'].shift(1)).astype(int)
-    
+
     # Higher H/L pattern - Existing: Requires both higher high AND higher low
     df['Higher_HL'] = (
-        (df['High'] > df['High'].shift(1)) & 
+        (df['High'] > df['High'].shift(1)) &
         (df['Low'] > df['Low'].shift(1))
+    ).astype(int)
+
+    # Lower L pattern - Lower low only
+    df['Lower_L'] = (df['Low'] < df['Low'].shift(1)).astype(int)
+
+    # Lower H/L pattern - Both lower high AND lower low
+    df['Lower_HL'] = (
+        (df['High'] < df['High'].shift(1)) &
+        (df['Low'] < df['Low'].shift(1))
     ).astype(int)
     
     return df
 
 def calculate_relative_volume(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Calculate Relative Volume similar to the website's approach
+    Calculate Relative Volume with Velocity tracking for filtering
+    Enhanced to match VW Range Velocity and MPI Velocity patterns
     
     Relative Volume = (Current Day Volume) / (14-day Average Volume) × 100
+    RelVol Velocity = Day-over-day change in Relative Volume
     
     Args:
         df: DataFrame with OHLCV data
     
     Returns:
-        DataFrame with Relative Volume columns added
+        DataFrame with Relative Volume columns and velocity metrics added
     """
     # Calculate 14-day rolling average volume
     df['Volume_14D_Avg'] = df['Volume'].rolling(14, min_periods=7).mean()
@@ -191,10 +202,31 @@ def calculate_relative_volume(df: pd.DataFrame) -> pd.DataFrame:
     # Calculate relative volume as percentage
     df['Relative_Volume'] = (df['Volume'] / df['Volume_14D_Avg']) * 100
     
-    # Fill NaN values with 100% (neutral)
-    df['Relative_Volume'] = df['Relative_Volume'].fillna(100.0)
+    # NEW: Direct velocity (day-over-day change)
+    df['RelVol_Velocity'] = df['Relative_Volume'] - df['Relative_Volume'].shift(1)
     
-    # High activity flags for reference
+    # NEW: Percentile-based velocity (normalized, comparable across stocks)
+    df['RelVol_Percentile'] = df['Relative_Volume'].rolling(
+        window=50, min_periods=20
+    ).rank(pct=True)
+    df['RelVol_Percentile_Velocity'] = df['RelVol_Percentile'] - df['RelVol_Percentile'].shift(1)
+    
+    # NEW: Volume trend classification (for display and filtering)
+    conditions = [
+        df['RelVol_Velocity'] > 0,    # Building volume
+        df['RelVol_Velocity'] == 0,   # Stable volume
+        df['RelVol_Velocity'] < 0,    # Fading volume
+    ]
+    choices = ['Building', 'Stable', 'Fading']
+    df['RelVol_Trend'] = pd.Series(np.select(conditions, choices, default='Stable'), index=df.index)
+    
+    # Fill NaN values
+    df['Relative_Volume'] = df['Relative_Volume'].fillna(100.0)
+    df['RelVol_Velocity'] = df['RelVol_Velocity'].fillna(0.0)
+    df['RelVol_Percentile'] = df['RelVol_Percentile'].fillna(0.5)
+    df['RelVol_Percentile_Velocity'] = df['RelVol_Percentile_Velocity'].fillna(0.0)
+    
+    # High activity flags for reference (existing)
     df['High_Rel_Volume_150'] = (df['Relative_Volume'] >= 150).astype(int)  # 1.5x average
     df['High_Rel_Volume_200'] = (df['Relative_Volume'] >= 200).astype(int)  # 2x average
     
@@ -374,5 +406,149 @@ def get_mpi_trend_distribution(df: pd.DataFrame) -> pd.DataFrame:
         })
     
     return pd.DataFrame(trends)
+
+def calculate_bullish_signal_quality(mpi: float, velocity: float, higher_h: int = 0) -> int:
+    """
+    Calculate BULLISH signal quality score (0-100) for long entry timing
+
+    Args:
+        mpi: MPI value (0.0 to 1.0)
+        velocity: MPI velocity (-0.1 to +0.1 typically)
+        higher_h: Higher high pattern flag (0 or 1)
+
+    Returns:
+        Score from 0-100 (100 = perfect early long entry)
+    """
+    score = 50  # Start neutral
+
+    # PRIMARY: Velocity (most important for timing)
+    if velocity > 0:       # Expanding momentum = bullish
+        score += 30
+    elif velocity < 0:     # Contracting momentum = bearish warning
+        score -= 40
+    # velocity == 0: No change to score
+
+    # SECONDARY: MPI Level (graduated scoring for timing)
+    if 0.3 <= mpi <= 0.5:      # Sweet spot - early bullish trend
+        score += 20
+    elif 0.5 < mpi <= 0.7:     # Good - maturing bullish trend
+        score += 10
+    elif mpi > 0.7:            # Caution - overbought
+        score -= 20
+    elif mpi < 0.3:            # Weak - risky
+        score -= 10
+
+    # CONFIRMATION: Pattern bonus
+    if higher_h == 1:
+        score += 10
+
+    # Cap between 0-100
+    return max(0, min(100, score))
+
+
+def calculate_bearish_signal_quality(mpi: float, velocity: float, lower_l: int = 0) -> int:
+    """
+    Calculate BEARISH signal quality score (0-100) for short entry timing
+
+    Args:
+        mpi: MPI value (0.0 to 1.0)
+        velocity: MPI velocity (-0.1 to +0.1 typically)
+        lower_l: Lower low pattern flag (0 or 1)
+
+    Returns:
+        Score from 0-100 (100 = perfect early short entry)
+    """
+    score = 50  # Start neutral
+
+    # PRIMARY: Velocity (most important for timing)
+    if velocity < 0:       # Contracting momentum = bearish
+        score += 30
+    elif velocity > 0:     # Expanding momentum = bad for shorts
+        score -= 40
+    # velocity == 0: No change to score
+
+    # SECONDARY: MPI Level (INVERTED for bearish - high MPI = early downtrend opportunity)
+    if 0.5 <= mpi <= 0.7:      # Sweet spot - early bearish trend from high
+        score += 20
+    elif 0.3 <= mpi < 0.5:     # Good - maturing bearish trend
+        score += 10
+    elif mpi < 0.3:            # Caution - oversold, bounce risk
+        score -= 20
+    elif mpi > 0.7:            # Risky - still too strong for shorts
+        score -= 10
+
+    # CONFIRMATION: Pattern bonus
+    if lower_l == 1:
+        score += 10
+
+    # Cap between 0-100
+    return max(0, min(100, score))
+
+
+def calculate_signal_direction(velocity: float) -> str:
+    """
+    Determine if bullish or bearish signal is relevant based on velocity
+
+    Args:
+        velocity: MPI velocity
+
+    Returns:
+        'bullish', 'bearish', or 'neutral'
+    """
+    if velocity > 0:
+        return 'bullish'
+    elif velocity < 0:
+        return 'bearish'
+    else:
+        return 'neutral'
+
+
+def get_entry_signal_label(bullish_score: int, bearish_score: int, direction: str) -> str:
+    """
+    Get appropriate signal label based on direction and score
+
+    Args:
+        bullish_score: Bullish quality score (0-100)
+        bearish_score: Bearish quality score (0-100)
+        direction: 'bullish', 'bearish', or 'neutral'
+
+    Returns:
+        Signal label with emoji
+    """
+    if direction == 'bullish':
+        if bullish_score >= 80:
+            return "🟢 EARLY BUY"
+        elif bullish_score >= 60:
+            return "🟡 GOOD ENTRY"
+        elif bullish_score >= 40:
+            return "⚪ NEUTRAL"
+        elif bullish_score >= 20:
+            return "🟠 LATE/RISKY"
+        else:
+            return "🔴 AVOID"
+    
+    elif direction == 'bearish':
+        if bearish_score >= 80:
+            return "🔴 EARLY SHORT"
+        elif bearish_score >= 60:
+            return "🟠 GOOD SHORT"
+        elif bearish_score >= 40:
+            return "⚪ NEUTRAL"
+        elif bearish_score >= 20:
+            return "🟡 LATE SHORT"
+        else:
+            return "🟢 AVOID SHORT"
+    
+    else:  # neutral
+        return "⚪ NEUTRAL"
+
+
+# Backward compatibility alias
+def calculate_mpi_signal_quality(mpi: float, velocity: float, higher_h: int = 0) -> int:
+    """
+    DEPRECATED: Use calculate_bullish_signal_quality() instead
+    Kept for backward compatibility
+    """
+    return calculate_bullish_signal_quality(mpi, velocity, higher_h)
 
 logger.info("Technical Analysis Module loaded with optimized PURE MPI EXPANSION system (Market Regime removed)")
