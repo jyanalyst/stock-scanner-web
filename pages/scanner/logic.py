@@ -23,9 +23,10 @@ from pages.common.performance import (performance_monitor, cached_data_operation
 from pages.common.data_validation import (validate_data_quality, clean_data,
                                         get_validation_summary, DataQualityMetrics)
 from pages.scanner.constants import ScanProgress, ScanScope, ScanDateType
-from core.technical_analysis import (add_enhanced_columns, get_mpi_trend_info, 
-                                     calculate_bullish_signal_quality, calculate_bearish_signal_quality,
-                                     calculate_signal_direction, get_entry_signal_label)
+from core.technical_analysis import (add_enhanced_columns, get_mpi_trend_info,
+                                     get_mpi_zone, calculate_signal_quality_v2,
+                                     calculate_mpi_position_score, calculate_ibs_confirmation_score,
+                                     calculate_relvol_confirmation_score)
 
 logger = logging.getLogger(__name__)
 
@@ -350,49 +351,40 @@ def _create_result_dict(analysis_row: pd.Series, actual_date, ticker: str, fetch
     else:
         hl_pattern = "-"
 
-    # Calculate both bullish and bearish signal quality scores
+    # Calculate signal using new v2 simplified scoring system
     mpi_value = float(analysis_row.get('MPI', 0.5))
-    
-    bullish_quality = calculate_bullish_signal_quality(
-        mpi=mpi_value,
-        velocity=mpi_velocity,
-        higher_h=higher_h
-    )
-    
-    bearish_quality = calculate_bearish_signal_quality(
-        mpi=mpi_value,
-        velocity=mpi_velocity,
-        lower_l=lower_l
-    )
-    
-    # Determine signal direction based on velocity
-    signal_direction = calculate_signal_direction(mpi_velocity)
-    
-    # Select the active signal quality based on direction
-    active_quality = bullish_quality if signal_direction == 'bullish' else bearish_quality
-    
-    # Get the appropriate entry signal label
-    entry_signal = get_entry_signal_label(bullish_quality, bearish_quality, signal_direction)
-    
-    # Determine Signal Bias: MPI primary, IBS fallback
     ibs_value = round(float(analysis_row['IBS']), 3) if not pd.isna(analysis_row['IBS']) else 0.5
-    
-    def determine_signal_bias(mpi_direction, ibs):
-        """Determine signal bias: MPI primary, IBS fallback"""
-        if mpi_direction == 'bullish':
-            return '🟢 BULLISH'
-        elif mpi_direction == 'bearish':
-            return '🔴 BEARISH'
-        else:
-            # Fallback to IBS
-            if ibs > 0.5:
-                return '🟢 BULLISH'
-            elif ibs < 0.5:
-                return '🔴 BEARISH'
-            else:
-                return '⚪ NEUTRAL'
-    
-    signal_bias = determine_signal_bias(signal_direction, ibs_value)
+    relative_volume = float(analysis_row.get('Relative_Volume', 100.0))
+    relvol_trend = str(analysis_row.get('RelVol_Trend', 'Stable'))
+    relvol_velocity = float(analysis_row.get('RelVol_Velocity', 0.0))
+
+    # Use new v2 scoring system
+    signal_direction, signal_quality, signal_label = calculate_signal_quality_v2(
+        mpi=mpi_value,
+        velocity=mpi_velocity,
+        ibs=ibs_value,
+        relative_volume=relative_volume,
+        relvol_trend=relvol_trend,
+        relvol_velocity=relvol_velocity
+    )
+
+    # Determine Signal Bias based on direction
+    signal_bias_map = {
+        'bullish': '🟢 BULLISH',
+        'bearish': '🔴 BEARISH',
+        'neutral': '⚪ NEUTRAL'
+    }
+    signal_bias = signal_bias_map[signal_direction]
+
+    # Calculate MPI zone for reference
+    mpi_zone = get_mpi_zone(mpi_value)
+
+    # Component scores for transparency
+    position_score = calculate_mpi_position_score(mpi_value, signal_direction)
+    ibs_score = calculate_ibs_confirmation_score(ibs_value, signal_direction)
+    relvol_score = calculate_relvol_confirmation_score(
+        relative_volume, relvol_trend, relvol_velocity, signal_direction
+    )
     
     result = {
         'Signal_Bias': signal_bias,
@@ -414,11 +406,13 @@ def _create_result_dict(analysis_row: pd.Series, actual_date, ticker: str, fetch
         'MPI': round(mpi_value, 2),
         'MPI_Velocity': round(mpi_velocity, 2),
         'MPI_Trend': mpi_trend,
-        'MPI_Bullish_Quality': bullish_quality,
-        'MPI_Bearish_Quality': bearish_quality,
-        'MPI_Signal_Direction': signal_direction,
-        'MPI_Signal_Quality': active_quality,
-        'MPI_Entry_Signal': entry_signal,
+        'MPI_Zone': mpi_zone,  # NEW FIELD
+        'MPI_Signal_Direction': signal_direction,  # UPDATED
+        'MPI_Signal_Quality': signal_quality,  # UPDATED
+        'MPI_Entry_Signal': signal_label,  # UPDATED
+        'MPI_Position_Score': position_score,  # NEW FIELD (for debugging)
+        'MPI_IBS_Score': ibs_score,  # NEW FIELD (for debugging)
+        'MPI_RelVol_Score': relvol_score,  # NEW FIELD (for debugging)
         'Relative_Volume': round(float(analysis_row.get('Relative_Volume', 100.0)), 1) if not pd.isna(analysis_row.get('Relative_Volume', 100.0)) else 100.0,
         'RelVol_Velocity': round(float(analysis_row.get('RelVol_Velocity', 0.0)), 1) if not pd.isna(analysis_row.get('RelVol_Velocity', 0.0)) else 0.0,
         'RelVol_Trend': str(analysis_row.get('RelVol_Trend', 'Stable')),
