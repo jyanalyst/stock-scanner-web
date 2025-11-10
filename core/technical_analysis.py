@@ -551,4 +551,234 @@ def calculate_mpi_signal_quality(mpi: float, velocity: float, higher_h: int = 0)
     """
     return calculate_bullish_signal_quality(mpi, velocity, higher_h)
 
+
+# ===== NEW SIMPLIFIED SCORING SYSTEM (v2) =====
+# Uses discrete MPI velocity as direction gate + quality scoring
+#
+# DESIGN PRINCIPLES:
+# - MPI velocity is discrete (±0.1 or 0) due to 10-day rolling window
+# - Direction determined by velocity: +0.1=bullish, -0.1=bearish, 0=IBS fallback
+# - Quality score (0-100) from 3 components: Position (50pts), IBS (25pts), RelVol (25pts)
+# - No complex velocity magnitude scoring - keeps it simple and robust
+#
+# ZONES: 1=(0.0-0.3), 2=(0.3-0.5), 3=(0.5-0.7), 4=(0.7-1.0)
+# SGX VOLUME THRESHOLDS: Exceptional=1.8x, Strong=1.4x, Above Avg=1.15x
+
+def get_mpi_zone(mpi: float) -> int:
+    """
+    Classify MPI into zones for position quality scoring.
+
+    Zones represent different market conditions:
+    - Zone 1 (0.0-0.3): Strong bearish territory
+    - Zone 2 (0.3-0.5): Weak bearish / transition zone
+    - Zone 3 (0.5-0.7): Weak bullish territory
+    - Zone 4 (0.7-1.0): Strong bullish territory
+
+    Args:
+        mpi: MPI value (0.0 to 1.0) - percentage of positive days over 10-day window
+
+    Returns:
+        Zone number: 1, 2, 3, or 4
+    """
+    if mpi < 0.3:
+        return 1
+    elif mpi < 0.5:
+        return 2
+    elif mpi < 0.7:
+        return 3
+    else:
+        return 4
+
+
+def calculate_mpi_position_score(mpi: float, direction: str) -> int:
+    """
+    Calculate position quality based on MPI zone (0-50 points)
+
+    Args:
+        mpi: MPI value (0.0 to 1.0)
+        direction: 'bullish' or 'bearish'
+
+    Returns:
+        Score from 0-50 points
+    """
+    zone = get_mpi_zone(mpi)
+
+    if direction == 'bullish':
+        # Bullish scoring: favor breakout zone 0.3-0.5
+        zone_scores = {1: 10, 2: 40, 3: 30, 4: 5}
+    else:  # bearish
+        # Bearish scoring: favor topping zone 0.5-0.7
+        zone_scores = {1: 5, 2: 30, 3: 40, 4: 10}
+
+    return zone_scores[zone]
+
+
+def calculate_ibs_confirmation_score(ibs: float, direction: str) -> int:
+    """
+    Calculate IBS confirmation quality (0-25 points)
+
+    Args:
+        ibs: Internal Bar Strength (0.0 to 1.0)
+        direction: 'bullish' or 'bearish'
+
+    Returns:
+        Score from 0-25 points
+    """
+    if direction == 'bullish':
+        if ibs >= 0.8:
+            return 25
+        elif ibs >= 0.7:
+            return 20
+        elif ibs >= 0.6:
+            return 12
+        elif ibs >= 0.5:
+            return 6
+        else:
+            return 0
+    else:  # bearish
+        if ibs <= 0.2:
+            return 25
+        elif ibs <= 0.3:
+            return 20
+        elif ibs <= 0.4:
+            return 12
+        elif ibs <= 0.5:
+            return 6
+        else:
+            return 0
+
+
+def calculate_relvol_confirmation_score(
+    relative_volume: float,
+    relvol_trend: str,
+    relvol_velocity: float,
+    direction: str
+) -> int:
+    """
+    Calculate RelVol confirmation quality (0-25 points)
+
+    Args:
+        relative_volume: Relative volume as percentage (e.g., 150.0 for 1.5x)
+        relvol_trend: 'Building', 'Stable', or 'Fading'
+        relvol_velocity: Day-over-day change in relative volume
+        direction: 'bullish' or 'bearish'
+
+    Returns:
+        Score from 0-25 points (magnitude 0-10, trend 0-10, velocity 0-5)
+    """
+    # Component 1: Magnitude (0-10 points)
+    if relative_volume >= 180.0:
+        magnitude_score = 10
+    elif relative_volume >= 140.0:
+        magnitude_score = 7
+    elif relative_volume >= 115.0:
+        magnitude_score = 4
+    else:
+        magnitude_score = 0
+
+    # Component 2: Trend (0-10 points)
+    trend_scores = {'Building': 10, 'Stable': 5, 'Fading': 0}
+    trend_score = trend_scores.get(relvol_trend, 0)
+
+    # Component 3: Velocity alignment (0-5 points)
+    if direction == 'bullish':
+        velocity_score = 5 if relvol_velocity > 0 else 0
+    else:  # bearish
+        velocity_score = 5 if relvol_velocity < 0 else 0
+
+    return magnitude_score + trend_score + velocity_score
+
+
+def calculate_signal_quality_v2(
+    mpi: float,
+    velocity: float,
+    ibs: float,
+    relative_volume: float,
+    relvol_trend: str,
+    relvol_velocity: float
+) -> Tuple[str, int, str]:
+    """
+    Calculate signal direction and quality score using simplified system
+
+    Args:
+        mpi: MPI value (0.0 to 1.0)
+        velocity: MPI velocity (-0.1, 0, or +0.1)
+        ibs: Internal Bar Strength (0.0 to 1.0)
+        relative_volume: Relative volume as percentage
+        relvol_trend: 'Building', 'Stable', or 'Fading'
+        relvol_velocity: Day-over-day change in relative volume
+
+    Returns:
+        Tuple of (direction, quality_score, signal_label)
+        - direction: 'bullish', 'bearish', or 'neutral'
+        - quality_score: 0-100 points
+        - signal_label: Description like "🟢 STRONG BUY"
+    """
+    # Determine direction from velocity (discrete: -0.1, 0, +0.1)
+    if velocity > 0:
+        direction = 'bullish'
+    elif velocity < 0:
+        direction = 'bearish'
+    else:
+        # Neutral velocity - use IBS as fallback
+        if ibs > 0.5:
+            direction = 'bullish'
+        elif ibs < 0.5:
+            direction = 'bearish'
+        else:
+            direction = 'neutral'
+
+    if direction == 'neutral':
+        return ('neutral', 50, '⚪ NEUTRAL')
+
+    # Calculate quality components
+    position_score = calculate_mpi_position_score(mpi, direction)
+    ibs_score = calculate_ibs_confirmation_score(ibs, direction)
+    relvol_score = calculate_relvol_confirmation_score(
+        relative_volume, relvol_trend, relvol_velocity, direction
+    )
+
+    # Total quality score
+    quality = position_score + ibs_score + relvol_score
+
+    # Determine signal label
+    signal_label = get_signal_label_v2(quality, direction)
+
+    return (direction, quality, signal_label)
+
+
+def get_signal_label_v2(quality: int, direction: str) -> str:
+    """
+    Get signal label based on quality score and direction
+
+    Args:
+        quality: Quality score (0-100)
+        direction: 'bullish' or 'bearish'
+
+    Returns:
+        Signal label with emoji
+    """
+    if direction == 'bullish':
+        if quality >= 80:
+            return "🟢 STRONG BUY"
+        elif quality >= 60:
+            return "🟡 GOOD ENTRY"
+        elif quality >= 40:
+            return "⚪ NEUTRAL"
+        elif quality >= 20:
+            return "🟠 WEAK SETUP"
+        else:
+            return "🔴 AVOID"
+    else:  # bearish
+        if quality >= 80:
+            return "🔴 STRONG SHORT"
+        elif quality >= 60:
+            return "🟠 GOOD SHORT"
+        elif quality >= 40:
+            return "⚪ NEUTRAL"
+        elif quality >= 20:
+            return "🟡 WEAK SHORT"
+        else:
+            return "🟢 AVOID SHORT"
+
 logger.info("Technical Analysis Module loaded with optimized PURE MPI EXPANSION system (Market Regime removed)")

@@ -708,8 +708,8 @@ def display_filtered_results(filtered_stocks: pd.DataFrame, selected_base_filter
         create_warning_box("No stocks match the current filter criteria")
         return
 
-    # Display columns - reordered with Ticker/Name first, then Signal columns
-    display_cols = ['Ticker', 'Name', 'Signal_Bias', 'MPI_Signal_Quality', 'MPI_Entry_Signal',
+    # Display columns - reordered with Date first, then Ticker/Name, then Signal columns
+    display_cols = ['Analysis_Date', 'Ticker', 'Name', 'Signal_Bias', 'MPI_Signal_Quality', 'MPI_Entry_Signal',
                     'HL_Pattern', 'IBS', 'VW_Range_Velocity',
                     'Relative_Volume', 'RelVol_Velocity', 'RelVol_Trend']
 
@@ -726,6 +726,7 @@ def display_filtered_results(filtered_stocks: pd.DataFrame, selected_base_filter
         display_cols.append('Earnings_Reaction')
 
     base_column_config = {
+        'Analysis_Date': st.column_config.TextColumn('Date', width='small', help='Analysis date for the scan'),
         'Signal_Bias': st.column_config.TextColumn('Signal', width='small', help='🟢 Bullish, 🔴 Bearish, ⚪ Neutral'),
         'Ticker': st.column_config.TextColumn('Ticker', width='small'),
         'Name': st.column_config.TextColumn('Company Name', width='medium'),
