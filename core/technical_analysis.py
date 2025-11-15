@@ -326,7 +326,7 @@ def add_enhanced_columns(df_daily: pd.DataFrame, ticker: str, rolling_window: in
         latest_row = df.iloc[-1]
         if latest_row['bullish_reversal'] == 1:
             direction = 'bullish'
-            total_score, component_scores, has_triple = calculate_acceleration_score(
+            total_score, component_scores, pattern_quality = calculate_acceleration_score(
                 latest_row['IBS_Accel'],
                 latest_row['RVol_Accel'],
                 latest_row['RRange_Accel'],
@@ -334,7 +334,7 @@ def add_enhanced_columns(df_daily: pd.DataFrame, ticker: str, rolling_window: in
             )
         elif latest_row['bearish_reversal'] == 1:
             direction = 'bearish'
-            total_score, component_scores, has_triple = calculate_acceleration_score(
+            total_score, component_scores, pattern_quality = calculate_acceleration_score(
                 latest_row['IBS_Accel'],
                 latest_row['RVol_Accel'],
                 latest_row['RRange_Accel'],
@@ -345,15 +345,15 @@ def add_enhanced_columns(df_daily: pd.DataFrame, ticker: str, rolling_window: in
             direction = 'neutral'
             total_score = 0
             component_scores = {'ibs': 0, 'rvol': 0, 'rrange': 0}
-            has_triple = False
+            pattern_quality = '⚪ NEUTRAL'
 
         # Add signal summary columns for scanner
         df['Signal_Bias'] = '🟢 BULLISH' if latest_row['bullish_reversal'] == 1 else (
             '🔴 BEARISH' if latest_row['bearish_reversal'] == 1 else '⚪ NEUTRAL'
         )
-        df['Pattern_Quality'] = get_pattern_quality_label(total_score, has_triple)
+        df['Pattern_Quality'] = pattern_quality  # Use the pattern_quality from calculate_acceleration_score tuple
         df['Total_Score'] = total_score
-        df['Triple_Confirm'] = '🔥 YES' if has_triple else '—'
+        df['Triple_Confirm'] = '🔥 YES' if total_score >= 90 else '—'  # Triple confirm based on exceptional score
         df['IBS_Score'] = component_scores['ibs']
         df['RVol_Score'] = component_scores['rvol']
         df['RRange_Score'] = component_scores['rrange']
@@ -366,13 +366,12 @@ def add_enhanced_columns(df_daily: pd.DataFrame, ticker: str, rolling_window: in
         # Add pattern details for display
         df['Ref_High'] = latest_row.get('ref_high', np.nan)
         df['Ref_Low'] = latest_row.get('ref_low', np.nan)
-        df['Purge_Level'] = (
-            latest_row.get('purge_high', np.nan) if latest_row['bullish_reversal'] == 1
-            else latest_row.get('purge_low', np.nan)
+        df['Purge_Level'] = latest_row.get('reversal_purge_level', np.nan)
+        df['Entry_Level'] = (
+            latest_row['High'] if latest_row['bullish_reversal'] == 1
+            else latest_row['Low'] if latest_row['bearish_reversal'] == 1
+            else np.nan
         )
-        df['Entry_Level'] = latest_row['Close'] if (
-            latest_row['bullish_reversal'] == 1 or latest_row['bearish_reversal'] == 1
-        ) else np.nan
         df['Bars_Since_Break'] = latest_row.get('ref_offset', np.nan)
 
         # Log successful calculation
@@ -1094,6 +1093,7 @@ def detect_reversal_signals(df: pd.DataFrame) -> pd.DataFrame:
             i != df.at[idx, 'active_purge_low_idx']):  # Not the purge candle
 
             df.at[idx, 'bullish_reversal'] = 1
+            df.at[idx, 'reversal_purge_level'] = df.at[idx, 'active_break_low']  # Store purge level
             # Clear the active break after signal generation (use integer position slicing)
             df.iloc[i:, df.columns.get_loc('active_break_low')] = np.nan
             df.iloc[i:, df.columns.get_loc('active_purge_low_idx')] = np.nan
@@ -1106,6 +1106,7 @@ def detect_reversal_signals(df: pd.DataFrame) -> pd.DataFrame:
               i != df.at[idx, 'active_purge_high_idx']):  # Not the purge candle
 
             df.at[idx, 'bearish_reversal'] = 1
+            df.at[idx, 'reversal_purge_level'] = df.at[idx, 'active_break_high']  # Store purge level
             # Clear the active break after signal generation (use integer position slicing)
             df.iloc[i:, df.columns.get_loc('active_break_high')] = np.nan
             df.iloc[i:, df.columns.get_loc('active_purge_high_idx')] = np.nan
@@ -1156,28 +1157,45 @@ def calculate_acceleration_score(
         # Not qualified - return zero score
         return 0, {'ibs': 0, 'rvol': 0, 'rrange': 0}, '🟠 NOT QUALIFIED'
 
-    # SCORING WEIGHTS (for qualified signals only)
-    RVOL_WEIGHT = 45    # Most important (volume validation)
-    RRANGE_WEIGHT = 30  # Medium importance (volatility opportunity)
-    IBS_WEIGHT = 25     # Confirmation role (positioning)
+    # ===== NEW: DYNAMIC PERCENTILE-BASED SCORING =====
+    # Requires at least 2 positive factors + percentile normalization
 
-    # Calculate component scores (linear scaling within qualified range)
-    component_scores = {}
+    # GATE 1: Count positive factors (must have at least 2)
+    positive_factors = sum([
+        rvol_accel > 0.0030,    # RVol threshold
+        rrange_accel > 0.10,    # RRange threshold
+        ibs_accel > 0.10        # IBS threshold
+    ])
 
-    # RVol Score (0-45 pts) - Most important
-    # NEW: Much lower multiplier for proper differentiation (decimal scale)
-    rvol_score = min(RVOL_WEIGHT, max(0, (abs(rvol_accel) - 0.0030) * 10))  # 0.0030 = 0pts, 0.0480 = 45pts
-    component_scores['rvol'] = int(rvol_score)
+    if positive_factors < 2:
+        # Not enough confirmation - score zero
+        return 0, {'ibs': 0, 'rvol': 0, 'rrange': 0}, '🟠 NOT QUALIFIED'
 
-    # RRange Score (0-30 pts) - Medium importance
-    # NEW: Even lower multiplier for much better differentiation
-    rrange_score = min(RRANGE_WEIGHT, max(0, (abs(rrange_accel) - 0.10) * 6))  # 0.10 = 0pts, 5.10 = 30pts
-    component_scores['rrange'] = int(rrange_score)
+    # GATE 2: Percentile-based scoring (dynamic, not arbitrary)
+    # Reference maximums based on typical SGX acceleration ranges
+    RVOL_MAX_REF = 2.0      # 200% volume spike
+    RRANGE_MAX_REF = 5.0    # 500% range expansion
+    IBS_MAX_REF = 1.0       # Max IBS acceleration
 
-    # IBS Score (0-25 pts) - Confirmation role
-    # Keep current multiplier - working well for differentiation
-    ibs_score = min(IBS_WEIGHT, max(0, (abs(ibs_accel) - 0.10) * 25))  # 0.10 = 0pts, 1.10 = 25pts
-    component_scores['ibs'] = int(ibs_score)
+    # Calculate percentiles (0.0 to 1.0)
+    if direction == 'bullish':
+        # BULLISH: Score positive acceleration
+        rvol_pct = max(0.0, min(1.0, (rvol_accel - 0.0030) / (RVOL_MAX_REF - 0.0030)))
+        rrange_pct = max(0.0, min(1.0, (rrange_accel - 0.10) / (RRANGE_MAX_REF - 0.10)))
+        ibs_pct = max(0.0, min(1.0, (ibs_accel - 0.10) / (IBS_MAX_REF - 0.10)))
+    else:  # bearish
+        # BEARISH: Score negative acceleration (flip sign ONLY for IBS)
+        # RVol & RRange stay positive (rising volume/range = good for bearish)
+        rvol_pct = max(0.0, min(1.0, (rvol_accel - 0.0030) / (RVOL_MAX_REF - 0.0030)))
+        rrange_pct = max(0.0, min(1.0, (rrange_accel - 0.10) / (RRANGE_MAX_REF - 0.10)))
+        ibs_pct = max(0.0, min(1.0, (-ibs_accel - 0.10) / (IBS_MAX_REF - 0.10)))
+
+    # Apply weights to percentiles
+    component_scores = {
+        'rvol': int(rvol_pct * 45),      # 0-45 points
+        'rrange': int(rrange_pct * 30),  # 0-30 points
+        'ibs': int(ibs_pct * 25)         # 0-25 points
+    }
 
     # Total score (0-100)
     total_score = component_scores['rvol'] + component_scores['rrange'] + component_scores['ibs']

@@ -663,40 +663,44 @@ def display_scan_summary(results_df: pd.DataFrame) -> None:
 def show_base_pattern_filter(results_df: pd.DataFrame) -> pd.DataFrame:
     """Show base pattern filter with simple bullish/bearish presets"""
     create_section_header("🎯 Pattern Analysis", "")
-    
+
+    # ===== FILTER OUT NOT QUALIFIED SIGNALS =====
+    # Only show signals that meet the 2-factor minimum requirement
+    qualified_signals = results_df[results_df['Pattern_Quality'] != '🟠 NOT QUALIFIED']
+
     # Simplified filter options - signal-based only
     filter_options = [
-        "All Stocks",
+        "All Qualified Stocks",
         "🟢 Bullish Stocks",
         "🔴 Bearish Stocks"
     ]
-    
-    # Radio buttons with default to "All Stocks" (index=0)
+
+    # Radio buttons with default to "All Qualified Stocks" (index=0)
     selected_filter = st.radio(
         "Base Pattern Filter:",
         options=filter_options,
-        index=0,  # Default to "All Stocks"
-        help="Filter stocks by signal bias (bullish/bearish)",
+        index=0,  # Default to "All Qualified Stocks"
+        help="Filter stocks by signal bias (bullish/bearish) - only qualified signals shown",
         horizontal=True
     )
-    
+
     # Store in session state
     st.session_state.base_filter_type = selected_filter
-    
+
     # Apply filtering based on selection
-    if selected_filter == "All Stocks":
-        filtered_df = results_df
-        create_info_box(f"Showing all {len(filtered_df)} scanned stocks")
+    if selected_filter == "All Qualified Stocks":
+        filtered_df = qualified_signals
+        create_info_box(f"Showing all {len(filtered_df)} qualified signals (NOT QUALIFIED filtered out)")
     elif selected_filter == "🟢 Bullish Stocks":
-        filtered_df = results_df[results_df['Signal_Bias'] == '🟢 BULLISH']
-        create_info_box(f"Showing {len(filtered_df)} bullish stocks")
+        filtered_df = qualified_signals[qualified_signals['Signal_Bias'] == '🟢 BULLISH']
+        create_info_box(f"Showing {len(filtered_df)} qualified bullish stocks")
     elif selected_filter == "🔴 Bearish Stocks":
-        filtered_df = results_df[results_df['Signal_Bias'] == '🔴 BEARISH']
-        create_info_box(f"Showing {len(filtered_df)} bearish stocks")
+        filtered_df = qualified_signals[qualified_signals['Signal_Bias'] == '🔴 BEARISH']
+        create_info_box(f"Showing {len(filtered_df)} qualified bearish stocks")
     else:
-        filtered_df = results_df
-        create_info_box(f"Showing all {len(filtered_df)} scanned stocks")
-    
+        filtered_df = qualified_signals
+        create_info_box(f"Showing all {len(filtered_df)} qualified signals")
+
     return filtered_df
 
 
@@ -1561,3 +1565,65 @@ def show_force_update_options():
     except Exception as e:
         handle_error(e, "ForceUpdateOptions")
         st.error(f"❌ Error showing force update options: {str(e)}")
+
+
+def display_error_log_section():
+    """Display error log section at bottom of scanner with session diagnostics"""
+    # Only show if error_logger exists in session state
+    if 'error_logger' not in st.session_state:
+        return
+
+    error_logger = st.session_state.error_logger
+    summary = error_logger.get_summary()
+
+    st.markdown("---")  # Separator
+    create_section_header("📋 Error & Warning Log", "Session diagnostics and troubleshooting")
+
+    # Summary metrics
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("Errors", summary['errors'])
+    with col2:
+        st.metric("Warnings", summary['warnings'])
+    with col3:
+        st.metric("Debug Entries", summary['debug_entries'])
+    with col4:
+        st.metric("Performance Logs", summary['performance_metrics'])
+
+    # Show success message if no issues
+    if summary['errors'] == 0 and summary['warnings'] == 0 and summary['debug_entries'] == 0:
+        create_success_box("✅ No errors or warnings - scan completed successfully!")
+    else:
+        # Display errors/warnings with existing method
+        error_logger.display_errors_in_streamlit()
+
+    # Action buttons
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        if st.button("🔄 Clear Log", help="Clear all logged errors and warnings for new scan"):
+            error_logger.clear()
+            st.success("Error log cleared!")
+            time.sleep(1)
+            st.rerun()
+
+    with col2:
+        # Export logs as JSON
+        log_export = error_logger.export_logs(format="json")
+        st.download_button(
+            "📥 Download JSON Log",
+            data=log_export,
+            file_name=f"scanner_error_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+            mime="application/json",
+            help="Download detailed error log in JSON format for troubleshooting"
+        )
+
+    with col3:
+        # Export logs as text
+        log_export_text = error_logger.export_logs(format="text")
+        st.download_button(
+            "📥 Download Text Log",
+            data=log_export_text,
+            file_name=f"scanner_error_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
+            mime="text/plain",
+            help="Download simplified error log in text format"
+        )

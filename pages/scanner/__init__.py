@@ -12,7 +12,8 @@ from pages.scanner.ui import (
     execute_scan_button, display_scan_summary, show_base_pattern_filter,
     display_filtered_results, show_full_results_table, show_mpi_insights,
     show_force_update_options,
-    display_detailed_analyst_reports, display_detailed_earnings_reports
+    display_detailed_analyst_reports, display_detailed_earnings_reports,
+    display_error_log_section
 )
 from pages.scanner.logic import run_enhanced_stock_scan
 from pages.scanner.data import apply_dynamic_filters
@@ -43,6 +44,9 @@ def display_scan_results(results_df):
         # Note: These functions are now implemented and enabled
         display_detailed_analyst_reports(results_df)
         display_detailed_earnings_reports(results_df)
+
+        # Display error log section at the bottom
+        display_error_log_section()
 
     except Exception as e:
         st.session_state.error_logger.log_error("Results Display", e)
