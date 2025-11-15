@@ -78,6 +78,7 @@ def get_backup_dir():
 # Convenience exports
 DATA_DIR = get_data_dir()
 STOCK_DATA_DIR = get_stock_data_dir()  # Your existing Historical_Data
+HISTORICAL_DATA_DIR = get_stock_data_dir()  # Alias for backward compatibility
 EOD_DATA_DIR = get_eod_data_dir()      # Your existing EOD_Data
 ANALYST_REPORTS_DIR = get_analyst_reports_dir()
 ANALYST_PDF_DIR = get_analyst_pdf_dir()
