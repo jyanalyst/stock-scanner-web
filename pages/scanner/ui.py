@@ -708,10 +708,23 @@ def display_filtered_results(filtered_stocks: pd.DataFrame, selected_base_filter
         create_warning_box("No stocks match the current filter criteria")
         return
 
-    # Display columns - reordered with Date first, then Ticker/Name, then Signal columns
-    display_cols = ['Analysis_Date', 'Ticker', 'Name', 'Signal_Bias', 'MPI_Signal_Quality', 'MPI_Entry_Signal',
-                    'HL_Pattern', 'IBS', 'VW_Range_Velocity',
-                    'Relative_Volume', 'RelVol_Velocity', 'RelVol_Trend']
+    # Display columns - optimized for Break & Reversal pattern trading
+    display_cols = [
+        # IDENTITY (3 columns)
+        'Analysis_Date', 'Ticker', 'Name',
+
+        # PRIMARY SIGNAL (4 columns)
+        'Signal_Bias', 'Pattern_Quality', 'Total_Score', 'MPI_Position',
+
+        # ACCELERATION SCORES (3 columns) - Ordered by importance
+        'RVol_Score', 'RRange_Score', 'IBS_Score',
+
+        # PATTERN TIMING (3 columns)
+        'Entry_Level', 'Purge_Level', 'Bars_Since_Break',
+
+        # CURRENT STATE (5 columns)
+        'IBS', 'VW_Range_Velocity', 'Relative_Volume', 'RelVol_Velocity', 'RelVol_Trend'
+    ]
 
     # Add analyst columns if available
     if 'Sentiment_Display' in filtered_stocks.columns:
@@ -726,19 +739,35 @@ def display_filtered_results(filtered_stocks: pd.DataFrame, selected_base_filter
         display_cols.append('Earnings_Reaction')
 
     base_column_config = {
-        'Analysis_Date': st.column_config.TextColumn('Date', width='small', help='Analysis date for the scan'),
-        'Signal_Bias': st.column_config.TextColumn('Signal', width='small', help='🟢 Bullish, 🔴 Bearish, ⚪ Neutral'),
+        # IDENTITY
+        'Analysis_Date': st.column_config.TextColumn('📅 Date', width='small', help='Analysis date for the scan'),
         'Ticker': st.column_config.TextColumn('Ticker', width='small'),
-        'Name': st.column_config.TextColumn('Company Name', width='medium'),
-        'HL_Pattern': st.column_config.TextColumn('H/L', width='small', help='HHL=Both H&L, HH=Higher H only, -=Neither'),
-        'VW_Range_Velocity': st.column_config.NumberColumn('Range Vel', format='%+.4f', help='Daily range expansion velocity'),
-        'IBS': st.column_config.NumberColumn('IBS', format='%.3f'),
-        'Relative_Volume': st.column_config.NumberColumn('Rel Vol', format='%.1f%%', help='Relative Volume vs 14-day average'),
+        'Name': st.column_config.TextColumn('Company', width='medium'),
+
+        # PRIMARY SIGNAL
+        'Signal_Bias': st.column_config.TextColumn('🎯 Signal', width='small', help='🟢 BULLISH / 🔴 BEARISH / ⚪ NEUTRAL'),
+        'Pattern_Quality': st.column_config.TextColumn('📊 Quality', width='medium', help='🔥 EXCEPTIONAL / 🟢 STRONG / 🟡 GOOD / ⚪ MODERATE / 🟠 WEAK / 🔴 POOR'),
+        'Total_Score': st.column_config.NumberColumn('Score', width='small', format='%d', help='0-100 acceleration score (higher = stronger momentum)'),
+        'MPI_Position': st.column_config.TextColumn('📍 Stage', width='medium', help='📍 EARLY STAGE / ⚠️ MID STAGE / 🚨 LATE STAGE / ❌ TOO WEAK'),
+
+        # ACCELERATION SCORES
+        'IBS_Score': st.column_config.NumberColumn('IBS Pts', width='small', format='%d', help='IBS contribution to total score (0-35)'),
+        'RVol_Score': st.column_config.NumberColumn('RVol Pts', width='small', format='%d', help='RVol contribution to total score (0-35)'),
+        'RRange_Score': st.column_config.NumberColumn('RRng Pts', width='small', format='%d', help='RRange contribution to total score (0-30)'),
+
+        # PATTERN TIMING
+        'Entry_Level': st.column_config.NumberColumn('Entry', width='small', help='Price where reversal signal triggered'),
+        'Purge_Level': st.column_config.NumberColumn('Purge', width='small', help='Extreme price of the break candle'),
+        'Bars_Since_Break': st.column_config.NumberColumn('Bars', width='tiny', help='Days since break occurred'),
+
+        # CURRENT STATE
+        'IBS': st.column_config.NumberColumn('IBS', format='%.3f', help='Internal Bar Strength (0-1)'),
+        'VW_Range_Velocity': st.column_config.NumberColumn('Range Vel', format='%+.4f', help='Volume-weighted range velocity'),
+        'Relative_Volume': st.column_config.NumberColumn('Rel Vol', format='%.1f%%', help='Volume relative to 14-day average'),
         'RelVol_Velocity': st.column_config.NumberColumn('Vol Vel', format='%+.1f', help='Day-over-day volume change'),
         'RelVol_Trend': st.column_config.TextColumn('Vol Trend', width='small', help='Building/Stable/Fading'),
-        'MPI_Signal_Direction': st.column_config.TextColumn('Dir', width='small', help='Signal direction: bullish/bearish/neutral'),
-        'MPI_Signal_Quality': st.column_config.NumberColumn('Quality', width='small', format='%d', help='0-100 score for entry timing quality'),
-        'MPI_Entry_Signal': st.column_config.TextColumn('Entry Signal', width='medium', help='Entry timing classification (bullish or bearish)'),
+
+        # ANALYST & EARNINGS (legacy columns)
         'Sentiment_Display': st.column_config.TextColumn('Sentiment', width='small', help='Analyst sentiment score'),
         'Report_Date_Display': st.column_config.TextColumn('Report', width='small', help='Report date'),
         'Report_Count_Display': st.column_config.TextColumn('Reports', width='small', help='Number of reports'),
@@ -790,7 +819,9 @@ def show_tradingview_export(filtered_stocks: pd.DataFrame, selected_base_filter:
     """Show TradingView export section"""
     create_section_header("📋 TradingView Export (Filtered)", "")
 
-    tv_tickers = [f"SGX:{ticker.replace('.SG', '')}" for ticker in filtered_stocks['Ticker'].tolist()]
+    # Sort by Total_Score descending for better trading priority
+    sorted_stocks = filtered_stocks.sort_values('Total_Score', ascending=False)
+    tv_tickers = [f"SGX:{ticker.replace('.SG', '')}" for ticker in sorted_stocks['Ticker'].tolist()]
     tv_string = ','.join(tv_tickers)
 
     mpi_summary = ""
@@ -820,53 +851,166 @@ def show_tradingview_export(filtered_stocks: pd.DataFrame, selected_base_filter:
 
 
 def show_full_results_table(results_df: pd.DataFrame) -> None:
-    """Show the full results table in an expander"""
-    with st.expander("📋 Full Analysis Results", expanded=False):
+    """Show the full results table in an expander with comprehensive Break & Reversal Pattern data"""
+    with st.expander("📋 Full Analysis Results (Break & Reversal Pattern System)", expanded=False):
         try:
+            # ===== COMPREHENSIVE COLUMN ORGANIZATION =====
+            # Following the trading flow: Signal → Pattern → Score → Context
             full_results_cols = [
+                # 1. Core Identification
                 'Analysis_Date', 'Ticker', 'Name', 'Close',
-                'Signal_Bias', 'HL_Pattern',
-                'VW_Range_Velocity', 'IBS',
-                'MPI_Signal_Quality', 'MPI_Entry_Signal', 'MPI', 'MPI_Velocity'
+
+                # 2. Primary Signal (Dual Layer)
+                'Signal_Bias', 'Pattern_Quality', 'MPI_Position', 'Total_Score', 'Triple_Confirm',
+
+                # 3. Pattern Details
+                'Ref_High', 'Ref_Low', 'Purge_Level', 'Entry_Level', 'Bars_Since_Break',
+
+                # 4. Acceleration Metrics (Primary Scoring)
+                'IBS_Accel', 'IBS_Score',
+                'RVol_Accel', 'RVol_Score',
+                'RRange_Accel', 'RRange_Score',
+
+                # 5. Context: Price Action
+                'High', 'Low', 'IBS',
+                'Higher_H', 'Higher_HL', 'Lower_L', 'Lower_HL', 'HL_Pattern',
+
+                # 6. Context: Volatility/Range
+                'VW_Range_Velocity', 'VW_Range_Percentile', 'Rel_Range_Signal',
+
+                # 7. Context: Volume
+                'Relative_Volume', 'RelVol_Velocity', 'RelVol_Trend',
+                'High_Rel_Volume_150', 'High_Rel_Volume_200',
+
+                # 8. Context: MPI Indicators
+                'MPI', 'MPI_Velocity', 'MPI_Trend', 'MPI_Zone',
+
+                # 9. Analyst Reports (if available)
+                'Sentiment_Display', 'Report_Date_Display', 'Report_Count_Display',
+
+                # 10. Earnings Reports (if available)
+                'Earnings_Period', 'Guidance_Display', 'Rev_YoY_Display', 'EPS_DPU_Display',
+                'Earnings_Reaction'
             ]
 
-            if 'Sentiment_Display' in results_df.columns:
-                full_results_cols.extend(['Sentiment_Display', 'Report_Date_Display', 'Report_Count_Display'])
-
-            if 'Earnings_Period' in results_df.columns:
-                full_results_cols.extend(['Earnings_Period', 'Guidance_Display', 'Rev_YoY_Display', 'EPS_DPU_Display'])
-
+            # ===== COMPREHENSIVE COLUMN CONFIGURATION =====
             base_full_results_config = {
-                'Analysis_Date': st.column_config.TextColumn('Date', width='small'),
+                # === CORE IDENTIFICATION ===
+                'Analysis_Date': st.column_config.TextColumn('📅 Date', width='small', help='Analysis date for the scan'),
                 'Ticker': st.column_config.TextColumn('Ticker', width='small'),
-                'Name': st.column_config.TextColumn('Company Name', width='medium'),
+                'Name': st.column_config.TextColumn('Company', width='medium'),
                 'Close': st.column_config.NumberColumn('Close', width='small'),
-                'Signal_Bias': st.column_config.TextColumn('Signal', width='small', help='🟢 Bullish, 🔴 Bearish, ⚪ Neutral'),
-                'HL_Pattern': st.column_config.TextColumn('H/L', width='small'),
-                'VW_Range_Velocity': st.column_config.NumberColumn('Range Vel', format='%+.4f'),
-                'IBS': st.column_config.NumberColumn('IBS', format='%.3f'),
-                'MPI_Signal_Quality': st.column_config.NumberColumn('Signal Quality', width='small', format='%d', help='0-100 score for entry timing quality'),
-                'MPI_Entry_Signal': st.column_config.TextColumn('Entry Signal', width='medium', help='Entry timing classification'),
-                'MPI': st.column_config.NumberColumn('MPI', format='%.2f', help='Market Position Index (0-1 scale)'),
-                'MPI_Velocity': st.column_config.NumberColumn('MPI Velocity', format='%+.2f', help='Rate of MPI change'),
-                'Sentiment_Display': st.column_config.TextColumn('Sentiment', width='small'),
-                'Report_Date_Display': st.column_config.TextColumn('Report', width='small'),
+
+                # === PRIMARY SIGNAL (BREAK & REVERSAL PATTERN) ===
+                'Signal_Bias': st.column_config.TextColumn('🎯 Bias', width='small', help='🟢 BULLISH / 🔴 BEARISH / ⚪ NEUTRAL'),
+                'Pattern_Quality': st.column_config.TextColumn('📊 Pattern', width='medium', help='🔥 EXCEPTIONAL / 🟢 STRONG / 🟡 GOOD / ⚪ MODERATE / 🟠 WEAK / 🔴 POOR'),
+                'MPI_Position': st.column_config.TextColumn('📍 Stage', width='medium', help='📍 EARLY STAGE / ⚠️ MID STAGE / 🚨 LATE STAGE / ❌ TOO WEAK'),
+                'Total_Score': st.column_config.NumberColumn('Score', width='small', format='%d', help='0-100 acceleration score (higher = stronger momentum)'),
+                'Triple_Confirm': st.column_config.TextColumn('🔥', width='tiny', help='🔥 YES = All 3 accelerations met thresholds'),
+
+                # === PATTERN DETAILS ===
+                'Ref_High': st.column_config.NumberColumn('Ref High', width='small', help='Reference high level that was broken'),
+                'Ref_Low': st.column_config.NumberColumn('Ref Low', width='small', help='Reference low level that was broken'),
+                'Purge_Level': st.column_config.NumberColumn('Purge', width='small', help='Extreme price of the break candle'),
+                'Entry_Level': st.column_config.NumberColumn('Entry', width='small', help='Price where reversal signal triggered'),
+                'Bars_Since_Break': st.column_config.NumberColumn('Bars', width='tiny', help='Bars since break occurred'),
+
+                # === ACCELERATION METRICS (PRIMARY SCORING) ===
+                'IBS_Accel': st.column_config.NumberColumn('IBS Accel', format='%+.3f', help='IBS 3-bar acceleration (momentum in price positioning)'),
+                'IBS_Score': st.column_config.NumberColumn('IBS Pts', format='%d', help='IBS contribution to total score (0-35)'),
+                'RVol_Accel': st.column_config.NumberColumn('RVol Accel', format='%+.3f', help='Relative Volume 3-bar acceleration (participation momentum)'),
+                'RVol_Score': st.column_config.NumberColumn('RVol Pts', format='%d', help='RVol contribution to total score (0-35)'),
+                'RRange_Accel': st.column_config.NumberColumn('RRng Accel', format='%+.3f', help='Relative Range 3-bar acceleration (volatility momentum)'),
+                'RRange_Score': st.column_config.NumberColumn('RRng Pts', format='%d', help='RRange contribution to total score (0-30)'),
+
+                # === CONTEXT: PRICE ACTION ===
+                'High': st.column_config.NumberColumn('High', width='small'),
+                'Low': st.column_config.NumberColumn('Low', width='small'),
+                'IBS': st.column_config.NumberColumn('IBS', format='%.3f', help='Internal Bar Strength (0-1)'),
+                'Higher_H': st.column_config.NumberColumn('HH', width='tiny', help='Higher High pattern'),
+                'Higher_HL': st.column_config.NumberColumn('HHL', width='tiny', help='Higher High & Low pattern'),
+                'Lower_L': st.column_config.NumberColumn('LL', width='tiny', help='Lower Low pattern'),
+                'Lower_HL': st.column_config.NumberColumn('LHL', width='tiny', help='Lower High & Low pattern'),
+                'HL_Pattern': st.column_config.TextColumn('H/L', width='small', help='HHL=Both H&L, HH=Higher H only, LHL=Both L&L, LL=Lower L only'),
+
+                # === CONTEXT: VOLATILITY/RANGE ===
+                'VW_Range_Velocity': st.column_config.NumberColumn('VW Range Vel', format='%+.4f', help='Volume-weighted range velocity'),
+                'VW_Range_Percentile': st.column_config.NumberColumn('VW Range Pct', format='%.3f', help='Volume-weighted range percentile (0-1)'),
+                'Rel_Range_Signal': st.column_config.NumberColumn('Range Signal', width='tiny', help='Range expansion signal'),
+
+                # === CONTEXT: VOLUME ===
+                'Relative_Volume': st.column_config.NumberColumn('Rel Vol', format='%.1f%%', help='Volume relative to 14-day average'),
+                'RelVol_Velocity': st.column_config.NumberColumn('Vol Vel', format='%+.1f', help='Day-over-day volume change'),
+                'RelVol_Trend': st.column_config.TextColumn('Vol Trend', width='small', help='Building/Stable/Fading'),
+                'High_Rel_Volume_150': st.column_config.NumberColumn('Vol>150%', width='tiny', help='Volume > 150% of average'),
+                'High_Rel_Volume_200': st.column_config.NumberColumn('Vol>200%', width='tiny', help='Volume > 200% of average'),
+
+                # === CONTEXT: MPI INDICATORS ===
+                'MPI': st.column_config.NumberColumn('MPI', format='%.2f', help='Market Positivity Index (0-1 scale)'),
+                'MPI_Velocity': st.column_config.NumberColumn('MPI Vel', format='%+.2f', help='Rate of MPI change'),
+                'MPI_Trend': st.column_config.TextColumn('MPI Trend', width='small', help='Expanding/Flat/Contracting'),
+                'MPI_Zone': st.column_config.NumberColumn('MPI Zone', width='tiny', help='1=Weak, 2=Transition, 3=Bullish, 4=Strong'),
+
+                # === ANALYST REPORTS ===
+                'Sentiment_Display': st.column_config.TextColumn('Sentiment', width='small', help='Analyst sentiment score'),
+                'Report_Date_Display': st.column_config.TextColumn('Report Date', width='small'),
                 'Report_Count_Display': st.column_config.TextColumn('Reports', width='small'),
-                'Earnings_Period': st.column_config.TextColumn('Period', width='small'),
-                'Guidance_Display': st.column_config.TextColumn('Guidance', width='small'),
-                'Rev_YoY_Display': st.column_config.TextColumn('Rev YoY', width='small'),
-                'EPS_DPU_Display': st.column_config.TextColumn('EPS/DPU', width='small')
+
+                # === EARNINGS REPORTS ===
+                'Earnings_Period': st.column_config.TextColumn('Period', width='small', help='Earnings period (Q1/Q2/FY etc.)'),
+                'Guidance_Display': st.column_config.TextColumn('Guidance', width='small', help='Management guidance tone'),
+                'Rev_YoY_Display': st.column_config.TextColumn('Rev YoY', width='small', help='Revenue year-over-year change'),
+                'EPS_DPU_Display': st.column_config.TextColumn('EPS/DPU', width='small', help='EPS or DPU year-over-year change'),
+                'Earnings_Reaction': st.column_config.TextColumn('Earn React', width='medium', help='Historical win rate after earnings releases')
             }
 
+            # Create dynamic column config and filter to available columns
             full_results_column_config = create_dynamic_column_config(results_df, full_results_cols, base_full_results_config)
-            full_results_cols = [col for col in full_results_cols if col in results_df.columns]
+            available_cols = [col for col in full_results_cols if col in results_df.columns]
 
+            # Add informational header
+            st.markdown("""
+            **📊 Break & Reversal Pattern Analysis Results**
+
+            **Column Organization:**
+            - 🎯 **Primary Signal**: Break & Reversal pattern detection
+            - 📊 **Pattern Details**: Reference levels and timing
+            - 🚀 **Acceleration Metrics**: Momentum scoring (primary ranking)
+            - 📈 **Context**: Supporting technical indicators
+            - 📊 **Reports**: Analyst and earnings data
+
+            **Signal Quality Guide:**
+            - 🔥 **EXCEPTIONAL**: Triple confirmation + strong acceleration
+            - 🟢 **STRONG**: 2-3 accelerations met, good quality
+            - 🟡 **GOOD**: 1-2 accelerations met
+            - ⚪ **MODERATE**: Weak accelerations
+            - 🟠 **WEAK**: Barely qualified
+            - 🔴 **POOR**: Below thresholds
+            """)
+
+            # Display the comprehensive dataframe
             st.dataframe(
-                results_df[full_results_cols],
+                results_df[available_cols],
                 column_config=full_results_column_config,
                 use_container_width=True,
                 hide_index=True
             )
+
+            # Show summary statistics
+            if len(results_df) > 0:
+                col1, col2, col3, col4 = st.columns(4)
+                with col1:
+                    bullish_count = (results_df['Signal_Bias'] == '🟢 BULLISH').sum()
+                    st.metric("🟢 Bullish Signals", bullish_count)
+                with col2:
+                    bearish_count = (results_df['Signal_Bias'] == '🔴 BEARISH').sum()
+                    st.metric("🔴 Bearish Signals", bearish_count)
+                with col3:
+                    exceptional_count = (results_df['Pattern_Quality'] == '🔥 EXCEPTIONAL').sum()
+                    st.metric("🔥 Exceptional", exceptional_count)
+                with col4:
+                    triple_count = (results_df['Triple_Confirm'] == '🔥 YES').sum()
+                    st.metric("Triple Confirm", triple_count)
 
         except Exception as e:
             create_error_box(f"❌ Error displaying full results: {str(e)}")
