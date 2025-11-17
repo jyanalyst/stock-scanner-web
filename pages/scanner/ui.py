@@ -529,15 +529,76 @@ def show_advanced_settings() -> Tuple[int, int]:
     return days_back, rolling_window
 
 
+def show_confirmation_filters() -> Tuple[bool, bool, bool, str, float, float, float]:
+    """Display confirmation filter settings (matching Pine Script)"""
+    with st.expander("🎯 Confirmation Filters (Optional)", expanded=False):
+        st.info("⚙️ By default, ALL reversal signals are shown. Enable filters below to require specific confirmations.")
+
+        # Checkboxes for which metrics to use
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            use_ibs = st.checkbox("Use IBS Confirmation", value=False,
+                help="Require IBS acceleration to meet threshold")
+        with col2:
+            use_rvol = st.checkbox("Use RVol Confirmation", value=False,
+                help="Require RVol acceleration to meet threshold")
+        with col3:
+            use_rrange = st.checkbox("Use RRange Confirmation", value=False,
+                help="Require RRange acceleration to meet threshold")
+
+        # AND/OR logic (only show if at least one is checked)
+        if use_ibs or use_rvol or use_rrange:
+            confirmation_logic = st.radio(
+                "Confirmation Logic:",
+                options=["OR", "AND"],
+                index=0,  # Default OR
+                horizontal=True,
+                help="OR = Any selected metric can pass | AND = ALL selected must pass"
+            )
+        else:
+            confirmation_logic = "OR"  # Default when nothing selected
+
+        # Threshold inputs (only show when relevant)
+        if use_ibs or use_rvol or use_rrange:
+            st.markdown("**Thresholds:**")
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                ibs_threshold = st.number_input("IBS", value=0.10, step=0.01, format="%.2f") if use_ibs else 0.10
+            with col2:
+                rvol_threshold = st.number_input("RVol", value=0.20, step=0.01, format="%.2f") if use_rvol else 0.20
+            with col3:
+                rrange_threshold = st.number_input("RRange", value=0.30, step=0.01, format="%.2f") if use_rrange else 0.30
+        else:
+            ibs_threshold = 0.10
+            rvol_threshold = 0.20
+            rrange_threshold = 0.30
+
+    return (use_ibs, use_rvol, use_rrange, confirmation_logic,
+            ibs_threshold, rvol_threshold, rrange_threshold)
+
+
 def execute_scan_button(scan_scope: str, selected_stock: Optional[str],
                        scan_date_type: str, historical_date: Optional[date],
-                       days_back: int, rolling_window: int) -> None:
+                       days_back: int, rolling_window: int,
+                       # NEW: Confirmation filter parameters
+                       use_ibs: bool = False, use_rvol: bool = False, use_rrange: bool = False,
+                       confirmation_logic: str = "OR",
+                       ibs_threshold: float = 0.10, rvol_threshold: float = 0.20, rrange_threshold: float = 0.30) -> None:
     """Handle scan execution button and logic"""
     if st.button("🚀 Execute Scan", type="primary", use_container_width=True):
         # Initialize error logger if not exists
         if 'error_logger' not in st.session_state:
             from pages.common.error_handler import ErrorLogger
             st.session_state.error_logger = ErrorLogger()
+
+        # Store confirmation filter settings in session state for later use
+        st.session_state.use_ibs = use_ibs
+        st.session_state.use_rvol = use_rvol
+        st.session_state.use_rrange = use_rrange
+        st.session_state.confirmation_logic = confirmation_logic
+        st.session_state.ibs_threshold = ibs_threshold
+        st.session_state.rvol_threshold = rvol_threshold
+        st.session_state.rrange_threshold = rrange_threshold
 
         try:
             from pages.scanner.logic import run_enhanced_stock_scan
@@ -554,7 +615,15 @@ def execute_scan_button(scan_scope: str, selected_stock: Optional[str],
                 stocks_to_scan=stocks_to_scan,
                 analysis_date=analysis_date,
                 days_back=days_back,
-                rolling_window=rolling_window
+                rolling_window=rolling_window,
+                # NEW: Pass confirmation parameters
+                use_ibs=use_ibs,
+                use_rvol=use_rvol,
+                use_rrange=use_rrange,
+                confirmation_logic=confirmation_logic,
+                ibs_threshold=ibs_threshold,
+                rvol_threshold=rvol_threshold,
+                rrange_threshold=rrange_threshold
             )
 
         except ImportError as e:
@@ -661,13 +730,108 @@ def display_scan_summary(results_df: pd.DataFrame) -> None:
 
 
 def show_base_pattern_filter(results_df: pd.DataFrame) -> pd.DataFrame:
-    """Show base pattern filter with simple bullish/bearish presets"""
-    create_section_header("🎯 Pattern Analysis", "")
+    """Show base pattern filter with confirmation settings"""
+    create_section_header("🎯 Pattern Analysis & Filters", "")
 
     # ===== FILTER OUT NOT QUALIFIED SIGNALS =====
     # Only show signals that meet the 2-factor minimum requirement
     qualified_signals = results_df[results_df['Pattern_Quality'] != '🟠 NOT QUALIFIED']
 
+    # ===== CONFIRMATION FILTERING CONTROLS =====
+    # Always show confirmation controls since confirmation is always calculated
+    st.markdown("**Confirmation Settings:**")
+    st.info("⚙️ All signals are calculated with confirmation status. Use these controls to filter by confirmation criteria.")
+
+    # Checkboxes for which metrics to use
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        use_ibs = st.checkbox("Use IBS Confirmation", value=False,
+            help="Require IBS acceleration to meet threshold")
+    with col2:
+        use_rvol = st.checkbox("Use RVol Confirmation", value=False,
+            help="Require RVol acceleration to meet threshold")
+    with col3:
+        use_rrange = st.checkbox("Use RRange Confirmation", value=False,
+            help="Require RRange acceleration to meet threshold")
+
+    # AND/OR logic (only show if at least one is checked)
+    if use_ibs or use_rvol or use_rrange:
+        confirmation_logic = st.radio(
+            "Confirmation Logic:",
+            options=["OR", "AND"],
+            index=0,  # Default OR
+            horizontal=True,
+            help="OR = Any selected metric can pass | AND = ALL selected must pass"
+        )
+    else:
+        confirmation_logic = "OR"  # Default when nothing selected
+
+    # Threshold inputs (only show when relevant)
+    if use_ibs or use_rvol or use_rrange:
+        st.markdown("**Thresholds:**")
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            ibs_threshold = st.number_input("IBS", value=0.10, step=0.01, format="%.2f", key="ibs_threshold_filter") if use_ibs else 0.10
+        with col2:
+            rvol_threshold = st.number_input("RVol", value=0.20, step=0.01, format="%.2f", key="rvol_threshold_filter") if use_rvol else 0.20
+        with col3:
+            rrange_threshold = st.number_input("RRange", value=0.30, step=0.01, format="%.2f", key="rrange_threshold_filter") if use_rrange else 0.30
+    else:
+        ibs_threshold = 0.10
+        rvol_threshold = 0.20
+        rrange_threshold = 0.30
+
+    # Show confirmation filter toggle
+    show_confirmed_only = st.checkbox(
+        "✅ Show Confirmed Signals Only",
+        value=False,  # Default to showing all qualified signals
+        help="When enabled, only shows signals that passed the confirmation filters above. When disabled, shows all qualified signals."
+    )
+
+    # Apply confirmation filtering if enabled
+    if show_confirmed_only and (use_ibs or use_rvol or use_rrange):
+        # Calculate confirmation for each signal based on current settings
+        confirmed_signals = qualified_signals.copy()
+
+        # Build confirmation conditions based on user selections
+        confirmation_conditions = []
+        if use_ibs:
+            if confirmation_logic == "AND":
+                # For AND logic, IBS must meet threshold for bullish (positive accel) or bearish (negative accel)
+                confirmed_signals['ibs_confirmed'] = (
+                    ((confirmed_signals['Signal_Bias'] == '🟢 BULLISH') & (confirmed_signals['IBS_Accel'] >= ibs_threshold)) |
+                    ((confirmed_signals['Signal_Bias'] == '🔴 BEARISH') & (confirmed_signals['IBS_Accel'] <= -ibs_threshold))
+                )
+            else:  # OR logic
+                confirmed_signals['ibs_confirmed'] = (
+                    ((confirmed_signals['Signal_Bias'] == '🟢 BULLISH') & (confirmed_signals['IBS_Accel'] >= ibs_threshold)) |
+                    ((confirmed_signals['Signal_Bias'] == '🔴 BEARISH') & (confirmed_signals['IBS_Accel'] <= -ibs_threshold))
+                )
+            confirmation_conditions.append('ibs_confirmed')
+
+        if use_rvol:
+            confirmed_signals['rvol_confirmed'] = confirmed_signals['RVol_Accel'] >= rvol_threshold
+            confirmation_conditions.append('rvol_confirmed')
+
+        if use_rrange:
+            confirmed_signals['rrange_confirmed'] = confirmed_signals['RRange_Accel'] >= rrange_threshold
+            confirmation_conditions.append('rrange_confirmed')
+
+        # Apply logic
+        if confirmation_logic == "AND":
+            # All selected conditions must be true
+            confirmed_signals['is_confirmed_dynamic'] = confirmed_signals[confirmation_conditions].all(axis=1)
+        else:  # OR
+            # Any selected condition must be true
+            confirmed_signals['is_confirmed_dynamic'] = confirmed_signals[confirmation_conditions].any(axis=1)
+
+        # Filter to confirmed signals
+        qualified_signals = confirmed_signals[confirmed_signals['is_confirmed_dynamic'] == True]
+        st.info(f"🔍 **Confirmation Filters Active** - Showing {len(qualified_signals)} confirmed signals out of {len(confirmed_signals)} qualified signals")
+    else:
+        st.info(f"📊 **All Qualified Signals** - Showing {len(qualified_signals)} qualified signals (confirmation filters bypassed)")
+
+    # ===== PATTERN FILTERING =====
     # Simplified filter options - signal-based only
     filter_options = [
         "All Qualified Stocks",
@@ -677,7 +841,7 @@ def show_base_pattern_filter(results_df: pd.DataFrame) -> pd.DataFrame:
 
     # Radio buttons with default to "All Qualified Stocks" (index=0)
     selected_filter = st.radio(
-        "Base Pattern Filter:",
+        "Pattern Filter:",
         options=filter_options,
         index=0,  # Default to "All Qualified Stocks"
         help="Filter stocks by signal bias (bullish/bearish) - only qualified signals shown",
@@ -687,7 +851,7 @@ def show_base_pattern_filter(results_df: pd.DataFrame) -> pd.DataFrame:
     # Store in session state
     st.session_state.base_filter_type = selected_filter
 
-    # Apply filtering based on selection
+    # Apply pattern filtering based on selection
     if selected_filter == "All Qualified Stocks":
         filtered_df = qualified_signals
         create_info_box(f"Showing all {len(filtered_df)} qualified signals (NOT QUALIFIED filtered out)")
@@ -712,69 +876,68 @@ def display_filtered_results(filtered_stocks: pd.DataFrame, selected_base_filter
         create_warning_box("No stocks match the current filter criteria")
         return
 
-    # Display columns - optimized for Break & Reversal pattern trading
+    # Display columns - matching CSV export order for comprehensive view
     display_cols = [
-        # IDENTITY (3 columns)
+        # Core Identity (3)
         'Analysis_Date', 'Ticker', 'Name',
 
-        # PRIMARY SIGNAL (4 columns)
-        'Signal_Bias', 'Pattern_Quality', 'Total_Score', 'MPI_Position',
+        # Primary Signal (4)
+        'Signal_Bias', 'Total_Score', 'Pattern_Quality', 'MPI_Position',
 
-        # ACCELERATION SCORES (3 columns) - Ordered by importance
-        'RVol_Score', 'RRange_Score', 'IBS_Score',
+        # Acceleration Details (6)
+        'RVol_Accel', 'RVol_Score', 'RRange_Accel', 'RRange_Score', 'IBS_Accel', 'IBS_Score',
 
-        # PATTERN TIMING (3 columns)
+        # Pattern Timing (3)
         'Entry_Level', 'Purge_Level', 'Bars_Since_Break',
 
-        # CURRENT STATE (5 columns)
-        'IBS', 'VW_Range_Velocity', 'Relative_Volume', 'RelVol_Velocity', 'RelVol_Trend'
+        # Current State (5)
+        'IBS', 'VW_Range_Velocity', 'Relative_Volume', 'RelVol_Velocity', 'RelVol_Trend',
+
+        # Analyst Reports (3)
+        'Sentiment_Display', 'Report_Date_Display', 'Report_Count_Display',
+
+        # Earnings Reports (5)
+        'Earnings_Period', 'Guidance_Display', 'Rev_YoY_Display', 'EPS_DPU_Display', 'Earnings_Reaction'
     ]
 
-    # Add analyst columns if available
-    if 'Sentiment_Display' in filtered_stocks.columns:
-        display_cols.extend(['Sentiment_Display', 'Report_Date_Display', 'Report_Count_Display'])
-
-    # Add earnings columns if available
-    if 'Earnings_Period' in filtered_stocks.columns:
-        display_cols.extend(['Earnings_Period', 'Guidance_Display', 'Rev_YoY_Display', 'EPS_DPU_Display'])
-
-    # Add earnings reaction column if available
-    if 'Earnings_Reaction' in filtered_stocks.columns:
-        display_cols.append('Earnings_Reaction')
-
     base_column_config = {
-        # IDENTITY
+        # Core Identity (3)
         'Analysis_Date': st.column_config.TextColumn('📅 Date', width='small', help='Analysis date for the scan'),
         'Ticker': st.column_config.TextColumn('Ticker', width='small'),
         'Name': st.column_config.TextColumn('Company', width='medium'),
 
-        # PRIMARY SIGNAL
+        # Primary Signal (4)
         'Signal_Bias': st.column_config.TextColumn('🎯 Signal', width='small', help='🟢 BULLISH / 🔴 BEARISH / ⚪ NEUTRAL'),
-        'Pattern_Quality': st.column_config.TextColumn('📊 Quality', width='medium', help='🔥 EXCEPTIONAL / 🟢 STRONG / 🟡 GOOD / ⚪ MODERATE / 🟠 WEAK / 🔴 POOR'),
         'Total_Score': st.column_config.NumberColumn('Score', width='small', format='%d', help='0-100 acceleration score (higher = stronger momentum)'),
+        'Pattern_Quality': st.column_config.TextColumn('📊 Quality', width='medium', help='🔥 EXCEPTIONAL / 🟢 STRONG / 🟡 GOOD / ⚪ MODERATE / 🟠 WEAK / 🔴 POOR'),
         'MPI_Position': st.column_config.TextColumn('📍 Stage', width='medium', help='📍 EARLY STAGE / ⚠️ MID STAGE / 🚨 LATE STAGE / ❌ TOO WEAK'),
 
-        # ACCELERATION SCORES
-        'IBS_Score': st.column_config.NumberColumn('IBS Pts', width='small', format='%d', help='IBS contribution to total score (0-35)'),
-        'RVol_Score': st.column_config.NumberColumn('RVol Pts', width='small', format='%d', help='RVol contribution to total score (0-35)'),
-        'RRange_Score': st.column_config.NumberColumn('RRng Pts', width='small', format='%d', help='RRange contribution to total score (0-30)'),
+        # Acceleration Details (6)
+        'RVol_Accel': st.column_config.NumberColumn('RVol Accel', format='%+.3f', help='Relative Volume 3-bar acceleration (participation momentum)'),
+        'RVol_Score': st.column_config.NumberColumn('RVol Pts', format='%d', help='RVol contribution to total score (0-35)'),
+        'RRange_Accel': st.column_config.NumberColumn('RRng Accel', format='%+.3f', help='Relative Range 3-bar acceleration (volatility momentum)'),
+        'RRange_Score': st.column_config.NumberColumn('RRng Pts', format='%d', help='RRange contribution to total score (0-30)'),
+        'IBS_Accel': st.column_config.NumberColumn('IBS Accel', format='%+.3f', help='IBS 3-bar acceleration (momentum in price positioning)'),
+        'IBS_Score': st.column_config.NumberColumn('IBS Pts', format='%d', help='IBS contribution to total score (0-35)'),
 
-        # PATTERN TIMING
+        # Pattern Timing (3)
         'Entry_Level': st.column_config.NumberColumn('Entry', width='small', help='Price where reversal signal triggered'),
         'Purge_Level': st.column_config.NumberColumn('Purge', width='small', help='Extreme price of the break candle'),
         'Bars_Since_Break': st.column_config.NumberColumn('Bars', width='tiny', help='Days since break occurred'),
 
-        # CURRENT STATE
+        # Current State (5)
         'IBS': st.column_config.NumberColumn('IBS', format='%.3f', help='Internal Bar Strength (0-1)'),
         'VW_Range_Velocity': st.column_config.NumberColumn('Range Vel', format='%+.4f', help='Volume-weighted range velocity'),
         'Relative_Volume': st.column_config.NumberColumn('Rel Vol', format='%.1f%%', help='Volume relative to 14-day average'),
         'RelVol_Velocity': st.column_config.NumberColumn('Vol Vel', format='%+.1f', help='Day-over-day volume change'),
         'RelVol_Trend': st.column_config.TextColumn('Vol Trend', width='small', help='Building/Stable/Fading'),
 
-        # ANALYST & EARNINGS (legacy columns)
+        # Analyst Reports (3)
         'Sentiment_Display': st.column_config.TextColumn('Sentiment', width='small', help='Analyst sentiment score'),
         'Report_Date_Display': st.column_config.TextColumn('Report', width='small', help='Report date'),
         'Report_Count_Display': st.column_config.TextColumn('Reports', width='small', help='Number of reports'),
+
+        # Earnings Reports (5)
         'Earnings_Period': st.column_config.TextColumn('Period', width='small', help='Earnings period (Q1/Q2/FY etc.)'),
         'Guidance_Display': st.column_config.TextColumn('Guidance', width='small', help='Management guidance tone'),
         'Rev_YoY_Display': st.column_config.TextColumn('Rev YoY', width='small', help='Revenue year-over-year change'),

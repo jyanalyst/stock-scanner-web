@@ -272,7 +272,11 @@ def calculate_crt_levels(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 @cached_computation("technical_analysis")
-def add_enhanced_columns(df_daily: pd.DataFrame, ticker: str, rolling_window: int = 20) -> pd.DataFrame:
+def add_enhanced_columns(df_daily: pd.DataFrame, ticker: str, rolling_window: int = 20,
+                        # NEW: Confirmation filter parameters
+                        use_ibs: bool = False, use_rvol: bool = False, use_rrange: bool = False,
+                        confirmation_logic: str = "OR",
+                        ibs_threshold: float = 0.10, rvol_threshold: float = 0.20, rrange_threshold: float = 0.30) -> pd.DataFrame:
     """
     Add enhanced columns with BREAK & REVERSAL PATTERN system
     Includes MPI expansion, Relative Volume, and acceleration metrics
@@ -326,24 +330,41 @@ def add_enhanced_columns(df_daily: pd.DataFrame, ticker: str, rolling_window: in
         latest_row = df.iloc[-1]
         if latest_row['bullish_reversal'] == 1:
             direction = 'bullish'
-            total_score, component_scores, pattern_quality = calculate_acceleration_score(
+            total_score, is_confirmed, component_scores, pattern_quality = calculate_acceleration_score(
                 latest_row['IBS_Accel'],
                 latest_row['RVol_Accel'],
                 latest_row['RRange_Accel'],
-                direction
+                direction,
+                # NEW: Pass confirmation parameters
+                use_ibs=use_ibs,
+                use_rvol=use_rvol,
+                use_rrange=use_rrange,
+                confirmation_logic=confirmation_logic,
+                ibs_threshold=ibs_threshold,
+                rvol_threshold=rvol_threshold,
+                rrange_threshold=rrange_threshold
             )
         elif latest_row['bearish_reversal'] == 1:
             direction = 'bearish'
-            total_score, component_scores, pattern_quality = calculate_acceleration_score(
+            total_score, is_confirmed, component_scores, pattern_quality = calculate_acceleration_score(
                 latest_row['IBS_Accel'],
                 latest_row['RVol_Accel'],
                 latest_row['RRange_Accel'],
-                direction
+                direction,
+                # NEW: Pass confirmation parameters
+                use_ibs=use_ibs,
+                use_rvol=use_rvol,
+                use_rrange=use_rrange,
+                confirmation_logic=confirmation_logic,
+                ibs_threshold=ibs_threshold,
+                rvol_threshold=rvol_threshold,
+                rrange_threshold=rrange_threshold
             )
         else:
             # No signal today - use neutral values
             direction = 'neutral'
             total_score = 0
+            is_confirmed = True  # No signal = no filtering needed
             component_scores = {'ibs': 0, 'rvol': 0, 'rrange': 0}
             pattern_quality = '⚪ NEUTRAL'
 
@@ -357,6 +378,10 @@ def add_enhanced_columns(df_daily: pd.DataFrame, ticker: str, rolling_window: in
         df['IBS_Score'] = component_scores['ibs']
         df['RVol_Score'] = component_scores['rvol']
         df['RRange_Score'] = component_scores['rrange']
+
+        # ===== CONFIRMATION FILTERING =====
+        # Store confirmation status for filtering
+        df['Is_Confirmed'] = is_confirmed
 
         # Add MPI position context
         mpi_zone = get_mpi_zone(latest_row['MPI'])
@@ -1124,26 +1149,40 @@ def calculate_acceleration_score(
     rvol_accel: float,
     rrange_accel: float,
     direction: str,
-    thresholds: dict = None
-) -> Tuple[int, dict, str]:
+    # NEW: Confirmation filter parameters
+    use_ibs: bool = False,
+    use_rvol: bool = False,
+    use_rrange: bool = False,
+    confirmation_logic: str = "OR",
+    ibs_threshold: float = 0.10,
+    rvol_threshold: float = 0.20,
+    rrange_threshold: float = 0.30
+) -> Tuple[int, bool, dict, str]:
     """
-    Calculate acceleration-based score for break & reversal signals with refined gating
+    Calculate acceleration-based score for break & reversal signals with confirmation filtering
 
     NEW SYSTEM:
-    - Qualification: RVol > 0.30 AND (IBS > 0.10 OR RRange > 0.10)
-    - Scoring: Weighted system (RVol=45, RRange=30, IBS=25)
-    - Classification: Score tiers (no arbitrary "triple confirm")
+    - Scoring: Percentile-based 0-100 points (always calculated for ranking)
+    - Confirmation: Optional threshold-based filtering (AND/OR logic)
+    - Direction: IBS bidirectional, RVol/RRange unidirectional
 
     Args:
         ibs_accel: IBS 3-bar acceleration
         rvol_accel: RVol 3-bar acceleration
         rrange_accel: RRange 3-bar acceleration
         direction: 'bullish' or 'bearish'
-        thresholds: Qualification thresholds (not used for scoring)
+        use_ibs: Whether to use IBS for confirmation filtering
+        use_rvol: Whether to use RVol for confirmation filtering
+        use_rrange: Whether to use RRange for confirmation filtering
+        confirmation_logic: "AND" or "OR" for combining filters
+        ibs_threshold: IBS acceleration threshold
+        rvol_threshold: RVol acceleration threshold
+        rrange_threshold: RRange acceleration threshold
 
     Returns:
-        Tuple of (total_score, component_scores, pattern_quality)
-        - total_score: 0-100 points (0 if not qualified)
+        Tuple of (total_score, is_confirmed, component_scores, pattern_quality)
+        - total_score: 0-100 percentile-based score (always calculated)
+        - is_confirmed: True if passed confirmation filters (or no filters active)
         - component_scores: dict with individual scores
         - pattern_quality: quality tier string
     """
@@ -1200,6 +1239,30 @@ def calculate_acceleration_score(
     # Total score (0-100)
     total_score = component_scores['rvol'] + component_scores['rrange'] + component_scores['ibs']
 
+    # ===== CONFIRMATION FILTERING (NEW) =====
+    # Check if signal passes user-defined confirmation filters
+    if not (use_ibs or use_rvol or use_rrange):
+        # No filters enabled - all signals pass
+        is_confirmed = True
+    else:
+        # Apply threshold checks based on direction
+        if direction == 'bullish':
+            # BULLISH: IBS positive, RVol/RRange positive
+            ibs_pass = (ibs_accel >= ibs_threshold) if use_ibs else True
+            rvol_pass = (rvol_accel >= rvol_threshold) if use_rvol else True
+            rrange_pass = (rrange_accel >= rrange_threshold) if use_rrange else True
+        else:  # bearish
+            # BEARISH: IBS negative, RVol/RRange positive (volume/range expansion)
+            ibs_pass = (ibs_accel <= -ibs_threshold) if use_ibs else True
+            rvol_pass = (rvol_accel >= rvol_threshold) if use_rvol else True
+            rrange_pass = (rrange_accel >= rrange_threshold) if use_rrange else True
+
+        # Apply AND/OR logic
+        if confirmation_logic == "AND":
+            is_confirmed = ibs_pass and rvol_pass and rrange_pass
+        else:  # OR
+            is_confirmed = ibs_pass or rvol_pass or rrange_pass
+
     # SCORE TIERS (Non-arbitrary classification)
     if total_score >= 90:
         pattern_quality = '🔥 EXCEPTIONAL'
@@ -1212,7 +1275,7 @@ def calculate_acceleration_score(
     else:
         pattern_quality = '🟠 WEAK'
 
-    return total_score, component_scores, pattern_quality
+    return total_score, is_confirmed, component_scores, pattern_quality
 
 
 def get_pattern_quality_label(score: int, has_triple: bool = False) -> str:
