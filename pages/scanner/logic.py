@@ -33,7 +33,11 @@ logger = logging.getLogger(__name__)
 
 @performance_monitor("stock_scan")
 def run_enhanced_stock_scan(stocks_to_scan: List[str], analysis_date: Optional[date] = None,
-                           days_back: int = 59, rolling_window: int = 20) -> None:
+                           days_back: int = 59, rolling_window: int = 20,
+                           # NEW: Confirmation filter parameters
+                           use_ibs: bool = False, use_rvol: bool = False, use_rrange: bool = False,
+                           confirmation_logic: str = "OR",
+                           ibs_threshold: float = 0.10, rvol_threshold: float = 0.20, rrange_threshold: float = 0.30) -> None:
     """
     Execute the enhanced stock scanning process from local files
     CORRECTED: Creates display columns immediately after merging reports
@@ -102,6 +106,11 @@ def run_enhanced_stock_scan(stocks_to_scan: List[str], analysis_date: Optional[d
 
                 # Process stock data with error handling
                 df_enhanced = safe_execute(add_enhanced_columns, df_raw, ticker, rolling_window,
+                                          # NEW: Pass confirmation parameters
+                                          use_ibs=use_ibs, use_rvol=use_rvol, use_rrange=use_rrange,
+                                          confirmation_logic=confirmation_logic,
+                                          ibs_threshold=ibs_threshold, rvol_threshold=rvol_threshold,
+                                          rrange_threshold=rrange_threshold,
                                           component="TechnicalAnalysis", fallback_value=None)
                 if df_enhanced is None or df_enhanced.empty:
                     processing_errors.append(f"{ticker}: Technical analysis failed")
@@ -332,6 +341,10 @@ def _create_result_dict(analysis_row: pd.Series, actual_date, ticker: str, fetch
     pattern_quality = str(analysis_row.get('Pattern_Quality', '🔴 POOR'))
     total_score = int(analysis_row.get('Total_Score', 0))
     triple_confirm = str(analysis_row.get('Triple_Confirm', '—'))
+
+    # ===== CONFIRMATION FILTERING =====
+    # Add confirmation status (True if signal passed filters, False if filtered out)
+    is_confirmed = bool(analysis_row.get('Is_Confirmed', True))  # Default True for backward compatibility
 
     # Component scores from acceleration metrics
     ibs_score = int(analysis_row.get('IBS_Score', 0))

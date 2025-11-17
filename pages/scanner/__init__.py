@@ -9,7 +9,7 @@ import streamlit as st
 # Import the modular components
 from pages.scanner.ui import (
     show_update_prompt, show_scanning_configuration, show_advanced_settings,
-    execute_scan_button, display_scan_summary, show_base_pattern_filter,
+    show_confirmation_filters, execute_scan_button, display_scan_summary, show_base_pattern_filter,
     display_filtered_results, show_full_results_table, show_mpi_insights,
     show_force_update_options,
     display_detailed_analyst_reports, display_detailed_earnings_reports,
@@ -192,8 +192,12 @@ def show():
 
     st.subheader("🚀 Execute Scan")
 
+    # Always calculate confirmation with default settings (matching Pine Script behavior)
     execute_scan_button(scan_scope, selected_stock, scan_date_type, historical_date,
-                       days_back, rolling_window)
+                       days_back, rolling_window,
+                       # Always calculate confirmation with default thresholds
+                       use_ibs=True, use_rvol=True, use_rrange=True, confirmation_logic="OR",
+                       ibs_threshold=0.10, rvol_threshold=0.20, rrange_threshold=0.30)
 
     if 'last_scan_time' in st.session_state:
         st.info(f"📊 Last scan completed: {st.session_state.last_scan_time}")
