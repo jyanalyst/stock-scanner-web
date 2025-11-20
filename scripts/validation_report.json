@@ -1,0 +1,107 @@
+{
+  "analysis_date": "2025-11-20T01:34:43.275996",
+  "total_signals": 200,
+  "stocks_analyzed": 12,
+  "lookback_days": 252,
+  "correlation_matrix": {
+    "IBS_Accel": {
+      "IBS_Accel": 1.0,
+      "RVol_Accel": -0.0036942199491126317,
+      "RRange_Accel": 0.1379284795763312,
+      "Flow_Velocity": NaN,
+      "Volume_Conviction": -0.0849400098325927
+    },
+    "RVol_Accel": {
+      "IBS_Accel": -0.0036942199491126317,
+      "RVol_Accel": 1.0,
+      "RRange_Accel": -0.002615384656686863,
+      "Flow_Velocity": NaN,
+      "Volume_Conviction": -0.19373391067543552
+    },
+    "RRange_Accel": {
+      "IBS_Accel": 0.1379284795763312,
+      "RVol_Accel": -0.002615384656686863,
+      "RRange_Accel": 1.0,
+      "Flow_Velocity": NaN,
+      "Volume_Conviction": 0.006466254236435106
+    },
+    "Flow_Velocity": {
+      "IBS_Accel": NaN,
+      "RVol_Accel": NaN,
+      "RRange_Accel": NaN,
+      "Flow_Velocity": NaN,
+      "Volume_Conviction": NaN
+    },
+    "Volume_Conviction": {
+      "IBS_Accel": -0.0849400098325927,
+      "RVol_Accel": -0.19373391067543552,
+      "RRange_Accel": 0.006466254236435106,
+      "Flow_Velocity": NaN,
+      "Volume_Conviction": 1.0
+    }
+  },
+  "pca_explained_variance": [
+    0.30437117659554824,
+    0.2813900674136586,
+    0.22053985099145854,
+    0.19369890499933462,
+    0.0
+  ],
+  "pca_loadings": {
+    "PC1": {
+      "IBS_Accel": -0.39294618348953714,
+      "RVol_Accel": -0.5883014966015293,
+      "RRange_Accel": -0.22218351907586106,
+      "Flow_Velocity": 0.0,
+      "Volume_Conviction": 0.6709166340376976
+    },
+    "PC2": {
+      "IBS_Accel": 0.591492240336929,
+      "RVol_Accel": -0.3859123880577849,
+      "RRange_Accel": 0.66962932729387,
+      "Flow_Velocity": 0.0,
+      "Volume_Conviction": 0.2297936517676175
+    },
+    "PC3": {
+      "IBS_Accel": -0.5638235170018077,
+      "RVol_Accel": 0.4289146478498278,
+      "RRange_Accel": 0.6550354298332185,
+      "Flow_Velocity": 0.0,
+      "Volume_Conviction": 0.2628000232092472
+    },
+    "PC4": {
+      "IBS_Accel": 0.42170281974148555,
+      "RVol_Accel": 0.566573210361906,
+      "RRange_Accel": -0.2704803755214711,
+      "Flow_Velocity": 0.0,
+      "Volume_Conviction": 0.6542185380895654
+    },
+    "PC5": {
+      "IBS_Accel": -0.0,
+      "RVol_Accel": -0.0,
+      "RRange_Accel": -0.0,
+      "Flow_Velocity": 1.0,
+      "Volume_Conviction": -0.0
+    }
+  },
+  "empirical_weights": {
+    "IBS_Accel": 1.504074691221881,
+    "RVol_Accel": 86.51893805609176,
+    "RRange_Accel": 11.287476669432388,
+    "Flow_Velocity": 0.0,
+    "Volume_Conviction": 0.6895105832539811
+  },
+  "final_weights": {
+    "IBS_Accel": 1.5040746912218808,
+    "RVol_Accel": 86.51893805609174,
+    "RRange_Accel": 11.287476669432387,
+    "Flow_Velocity": 0.0,
+    "Volume_Conviction": 0.689510583253981
+  },
+  "signal_quality": {
+    "win_rate": 0.465,
+    "avg_return": 0.4945413445550152,
+    "positive_flow_signals": 0,
+    "negative_flow_signals": 0
+  }
+}

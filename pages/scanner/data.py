@@ -426,15 +426,15 @@ def show_filter_statistics(component_name: str, data: Optional[pd.Series], base_
     with st.expander(f"{component_name} Statistics", expanded=False):
         if component_name == "VW Range Velocity" and data is not None and len(data) > 0:
             stats_df = create_filter_statistics_dataframe(data, component_name)
-            st.dataframe(stats_df, hide_index=True, use_container_width=True)
+            st.dataframe(stats_df, hide_index=True, width="stretch")
 
         elif component_name == "IBS" and data is not None and len(data) > 0:
             stats_df = create_filter_statistics_dataframe(data, component_name)
-            st.dataframe(stats_df, hide_index=True, use_container_width=True)
+            st.dataframe(stats_df, hide_index=True, width="stretch")
 
         elif component_name == "Relative Volume" and data is not None and len(data) > 0:
             stats_df = create_filter_statistics_dataframe(data, component_name)
-            st.dataframe(stats_df, hide_index=True, use_container_width=True)
+            st.dataframe(stats_df, hide_index=True, width="stretch")
 
         elif component_name == "Break H/L" and base_stocks is not None:
             # Count all patterns
@@ -485,7 +485,7 @@ def show_filter_statistics(component_name: str, data: Optional[pd.Series], base_
                     "All stocks"
                 ]
             })
-            st.dataframe(stats, hide_index=True, use_container_width=True)
+            st.dataframe(stats, hide_index=True, width="stretch")
 
         elif component_name == "MPI Trend" and base_stocks is not None and 'MPI_Trend' in base_stocks.columns:
             trend_counts = base_stocks['MPI_Trend'].value_counts()
@@ -508,7 +508,7 @@ def show_filter_statistics(component_name: str, data: Optional[pd.Series], base_
                     })
 
             if trend_stats_data:
-                st.dataframe(pd.DataFrame(trend_stats_data), hide_index=True, use_container_width=True)
+                st.dataframe(pd.DataFrame(trend_stats_data), hide_index=True, width="stretch")
 
 
 def apply_dynamic_filters(base_stocks: pd.DataFrame, results_df: pd.DataFrame) -> pd.DataFrame:

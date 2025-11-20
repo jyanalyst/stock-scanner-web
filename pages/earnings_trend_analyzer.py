@@ -504,20 +504,20 @@ def show():
             if 'revenue' in earnings_df.columns:
                 fig_rev = create_trend_chart(earnings_df, 'revenue', 'Revenue Trend')
                 if fig_rev:
-                    st.plotly_chart(fig_rev, use_container_width=True)
+                    st.plotly_chart(fig_rev, width="stretch")
 
             # DPU trend
             if 'dpu' in earnings_df.columns:
                 fig_dpu = create_trend_chart(earnings_df, 'dpu', 'DPU Trend')
                 if fig_dpu:
-                    st.plotly_chart(fig_dpu, use_container_width=True)
+                    st.plotly_chart(fig_dpu, width="stretch")
 
             # YoY changes
             st.markdown("### Year-over-Year Changes")
             yoy_cols = ['revenue_yoy_change', 'dpu_yoy_change', 'eps_yoy_change']
             yoy_data = earnings_df[['report_date', 'report_type'] + [col for col in yoy_cols if col in earnings_df.columns]].copy()
             if len(yoy_data.columns) > 1:
-                st.dataframe(yoy_data, use_container_width=True, hide_index=True)
+                st.dataframe(yoy_data, width="stretch", hide_index=True)
 
         with tab2:
             st.markdown("### Balance Sheet Health Trends")
@@ -528,7 +528,7 @@ def show():
                 if col in earnings_df.columns:
                     fig = create_trend_chart(earnings_df, col, col.replace('_', ' ').title())
                     if fig:
-                        st.plotly_chart(fig, use_container_width=True)
+                        st.plotly_chart(fig, width="stretch")
 
         with tab3:
             st.markdown("### Qualitative Analysis")
@@ -626,7 +626,7 @@ def show():
                             'guidance_tone': st.column_config.TextColumn('Guidance', width='small'),
                             'status': st.column_config.TextColumn('Status', width='small')
                         },
-                        use_container_width=True,
+                        width="stretch",
                         hide_index=True
                     )
 
@@ -654,7 +654,7 @@ def show():
                         showlegend=False
                     )
 
-                    st.plotly_chart(fig, use_container_width=True)
+                    st.plotly_chart(fig, width="stretch")
 
                     # Pattern insights
                     st.markdown("### 🔍 Pattern Insights")
@@ -681,7 +681,7 @@ def show():
         st.markdown("---")
         st.markdown("### 📊 Multi-Metric Comparison")
         comparison_fig = create_comparison_chart(earnings_df)
-        st.plotly_chart(comparison_fig, use_container_width=True)
+        st.plotly_chart(comparison_fig, width="stretch")
 
 
 if __name__ == "__main__":

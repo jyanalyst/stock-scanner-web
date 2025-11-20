@@ -348,6 +348,10 @@ def get_stock_price_on_date(ticker_sgx: str, target_date: date) -> tuple:
         # Load CSV and filter to target date
         df = pd.read_csv(csv_file, parse_dates=['Date'])
 
+        # Ensure Date column is datetime (fallback conversion if parse_dates failed)
+        if not pd.api.types.is_datetime64_any_dtype(df['Date']):
+            df['Date'] = pd.to_datetime(df['Date'])
+
         # Look for exact date first
         price_row = df[df['Date'].dt.date == target_date]
 

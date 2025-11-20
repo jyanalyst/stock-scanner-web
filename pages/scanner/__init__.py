@@ -40,10 +40,9 @@ def display_scan_results(results_df):
         show_full_results_table(results_df)
         show_mpi_insights(results_df)
 
-        # CRITICAL: These functions now display with dropdown selection
-        # Note: These functions are now implemented and enabled
-        display_detailed_analyst_reports(results_df)
-        display_detailed_earnings_reports(results_df)
+        # NOTE: Analyst and Earnings report analysis moved to dedicated pages:
+        # - "Analysis (Analyst Reports)" page for comprehensive analyst report analysis
+        # - "Analysis (Earnings Reports)" page for comprehensive earnings report analysis
 
         # Display error log section at the bottom
         display_error_log_section()

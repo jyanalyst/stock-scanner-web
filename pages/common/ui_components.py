@@ -199,7 +199,7 @@ def create_download_button(data: Any, filename: str, label: str = "📥 Download
         file_name=filename,
         mime=mime_type,
         help=help_text,
-        use_container_width=True
+        width="stretch"
     )
 
 
@@ -216,7 +216,7 @@ def display_chart(fig: go.Figure, title: str = None, height: int = 400):
         st.subheader(title)
 
     fig.update_layout(height=height)
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
 
 def create_info_box(message: str, icon: str = "ℹ️"):
