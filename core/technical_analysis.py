@@ -330,42 +330,52 @@ def add_enhanced_columns(df_daily: pd.DataFrame, ticker: str, rolling_window: in
         latest_row = df.iloc[-1]
         if latest_row['bullish_reversal'] == 1:
             direction = 'bullish'
-            total_score, is_confirmed, component_scores, pattern_quality = calculate_acceleration_score(
-                latest_row['IBS_Accel'],
-                latest_row['RVol_Accel'],
-                latest_row['RRange_Accel'],
-                direction,
-                # NEW: Pass confirmation parameters
-                use_ibs=use_ibs,
-                use_rvol=use_rvol,
-                use_rrange=use_rrange,
-                confirmation_logic=confirmation_logic,
-                ibs_threshold=ibs_threshold,
-                rvol_threshold=rvol_threshold,
-                rrange_threshold=rrange_threshold
+            # Use percentile-based scoring with Phase 0 weights
+            phase0_weights = {
+                'IBS_Accel': 1.5,
+                'RVol_Accel': 86.5,
+                'RRange_Accel': 11.3,
+                'Flow_Velocity': 0.0,  # Monitor this
+                'Volume_Conviction': 0.7
+            }
+            total_score, component_scores, pattern_quality = calculate_acceleration_score_v3(
+                direction=direction,
+                ibs_pct=latest_row['IBS_Bullish_Pct'],
+                rvol_pct=latest_row['RVol_Accel_Percentile'],
+                rrange_pct=latest_row['RRange_Accel_Percentile'],
+                flow_pct=latest_row['Flow_Bullish_Pct'],
+                conviction_pct=latest_row['Volume_Conviction_Percentile'],
+                weights=phase0_weights
             )
+            # LEGACY: Keep old confirmation logic for backward compatibility
+            is_confirmed = True  # Percentile system doesn't use gates
         elif latest_row['bearish_reversal'] == 1:
             direction = 'bearish'
-            total_score, is_confirmed, component_scores, pattern_quality = calculate_acceleration_score(
-                latest_row['IBS_Accel'],
-                latest_row['RVol_Accel'],
-                latest_row['RRange_Accel'],
-                direction,
-                # NEW: Pass confirmation parameters
-                use_ibs=use_ibs,
-                use_rvol=use_rvol,
-                use_rrange=use_rrange,
-                confirmation_logic=confirmation_logic,
-                ibs_threshold=ibs_threshold,
-                rvol_threshold=rvol_threshold,
-                rrange_threshold=rrange_threshold
+            # Use percentile-based scoring with Phase 0 weights
+            phase0_weights = {
+                'IBS_Accel': 1.5,
+                'RVol_Accel': 86.5,
+                'RRange_Accel': 11.3,
+                'Flow_Velocity': 0.0,  # Monitor this
+                'Volume_Conviction': 0.7
+            }
+            total_score, component_scores, pattern_quality = calculate_acceleration_score_v3(
+                direction=direction,
+                ibs_pct=latest_row['IBS_Bearish_Pct'],
+                rvol_pct=latest_row['RVol_Accel_Percentile'],
+                rrange_pct=latest_row['RRange_Accel_Percentile'],
+                flow_pct=latest_row['Flow_Bearish_Pct'],
+                conviction_pct=latest_row['Volume_Conviction_Percentile'],
+                weights=phase0_weights
             )
+            # LEGACY: Keep old confirmation logic for backward compatibility
+            is_confirmed = True  # Percentile system doesn't use gates
         else:
             # No signal today - use neutral values
             direction = 'neutral'
             total_score = 0
             is_confirmed = True  # No signal = no filtering needed
-            component_scores = {'ibs': 0, 'rvol': 0, 'rrange': 0}
+            component_scores = {'ibs': 0, 'rvol': 0, 'rrange': 0, 'flow': 0, 'conviction': 0}
             pattern_quality = '⚪ NEUTRAL'
 
         # Add signal summary columns for scanner
@@ -552,6 +562,70 @@ def get_mpi_zone(mpi: float) -> int:
         return 3
     else:
         return 4
+
+
+def calculate_acceleration_score_v3(
+    direction: str,
+    ibs_pct: float,
+    rvol_pct: float,
+    rrange_pct: float,
+    flow_pct: float,
+    conviction_pct: float,
+    weights: dict = None
+) -> Tuple[int, dict, str]:
+    """
+    Pure percentile-based scoring with data-driven weights
+    NO GATES, NO THRESHOLDS - Every signal gets scored
+
+    Args:
+        direction: 'bullish' or 'bearish'
+        ibs_pct: IBS percentile rank (0.0 to 1.0)
+        rvol_pct: RVol percentile rank (0.0 to 1.0)
+        rrange_pct: RRange percentile rank (0.0 to 1.0)
+        flow_pct: Flow percentile rank (0.0 to 1.0)
+        conviction_pct: Conviction percentile rank (0.0 to 1.0)
+        weights: Data-driven weights from Phase 0 analysis
+
+    Returns:
+        Tuple of (total_score, component_scores, quality_label)
+        - total_score: 0-100 points
+        - component_scores: dict with individual component scores
+        - quality_label: descriptive label
+    """
+    # Use data-driven weights from Phase 0 analysis
+    if weights is None:
+        # Fallback to balanced weights if not provided
+        weights = {
+            'IBS_Accel': 1.5,
+            'RVol_Accel': 86.5,
+            'RRange_Accel': 11.3,
+            'Flow_Velocity': 0.0,  # Monitor this
+            'Volume_Conviction': 0.7
+        }
+
+    # Direct percentile to points conversion
+    component_scores = {
+        'ibs': int(ibs_pct * weights['IBS_Accel']),
+        'rvol': int(rvol_pct * weights['RVol_Accel']),
+        'rrange': int(rrange_pct * weights['RRange_Accel']),
+        'flow': int(flow_pct * weights['Flow_Velocity']),
+        'conviction': int(conviction_pct * weights['Volume_Conviction'])
+    }
+
+    # Total score (0-100)
+    total_score = sum(component_scores.values())
+
+    # Quality label based on percentile ranking (not arbitrary tiers)
+    if total_score >= 80:
+        quality_label = '🔥 TOP 20%'
+    elif total_score >= 60:
+        quality_label = '🟢 TOP 40%'
+    elif total_score >= 40:
+        quality_label = '🟡 AVERAGE'
+    else:
+        quality_label = '🟠 BELOW AVERAGE'
+
+    return total_score, component_scores, quality_label
 
 
 # ===== BREAK & REVERSAL PATTERN FUNCTIONS =====
