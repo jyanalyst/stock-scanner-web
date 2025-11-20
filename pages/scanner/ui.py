@@ -31,6 +31,7 @@ from pages.common.error_handler import (handle_error, safe_execute, with_error_h
 from pages.common.performance import get_performance_stats
 from pages.common.data_validation import validate_data_quality, get_validation_summary
 from utils import analyst_reports
+from pages.scanner.ui_flow_analysis import show_institutional_flow_analysis
 
 
 def show_update_prompt() -> Optional[bool]:
@@ -60,7 +61,7 @@ def show_update_prompt() -> Optional[bool]:
                 st.metric("Latest EOD File", eod_filename)
                 st.metric("EOD Date", eod_date.strftime('%d/%m/%Y') if eod_date else 'Unknown')
 
-                if st.button("🔄 Update from EOD File", type="primary", use_container_width=True, key="eod_update_btn"):
+                if st.button("🔄 Update from EOD File", type="primary", width="stretch", key="eod_update_btn"):
                     result = perform_eod_update(loader, force=False)
                     if result:
                         st.rerun()
@@ -75,7 +76,7 @@ def show_update_prompt() -> Optional[bool]:
                     gap_days = (current_working_day - last_historical_date).days
                     st.caption(f"Gap: {gap_days} day(s)")
 
-                if st.button("📥 Download Missing Data", type="secondary", use_container_width=True, key="download_missing_btn"):
+                if st.button("📥 Download Missing Data", type="secondary", width='stretch', key="download_missing_btn"):
                     if last_historical_date and current_working_day:
                         start_date = last_historical_date + timedelta(days=1)
                         result = perform_yfinance_download(loader, start_date, current_working_day)
@@ -87,7 +88,7 @@ def show_update_prompt() -> Optional[bool]:
                         return False
 
             # Skip button
-            if st.button("⏭️ Skip Updates", use_container_width=True, key="skip_both_btn"):
+            if st.button("⏭️ Skip Updates", width='stretch', key="skip_both_btn"):
                 st.info("Skipped updates. You can update later.")
                 return True
 
@@ -108,14 +109,14 @@ def show_update_prompt() -> Optional[bool]:
             col_update, col_skip = st.columns(2)
 
             with col_update:
-                if st.button("🔄 Update Now", type="primary", use_container_width=True, key="eod_only_update_btn"):
+                if st.button("🔄 Update Now", type="primary", width='stretch', key="eod_only_update_btn"):
                     result = perform_eod_update(loader, force=False)
                     if result:
                         st.rerun()
                     return result
 
             with col_skip:
-                if st.button("⏭️ Skip This Time", use_container_width=True, key="eod_only_skip_btn"):
+                if st.button("⏭️ Skip This Time", width='stretch', key="eod_only_skip_btn"):
                     st.info("Skipped update. You can update later using the buttons below.")
                     return True
 
@@ -140,7 +141,7 @@ def show_update_prompt() -> Optional[bool]:
             col_download, col_skip = st.columns(2)
 
             with col_download:
-                if st.button("📥 Download Missing Data", type="primary", use_container_width=True, key="gap_only_download_btn"):
+                if st.button("📥 Download Missing Data", type="primary", width='stretch', key="gap_only_download_btn"):
                     if last_historical_date and current_working_day:
                         start_date = last_historical_date + timedelta(days=1)
                         result = perform_yfinance_download(loader, start_date, current_working_day)
@@ -152,7 +153,7 @@ def show_update_prompt() -> Optional[bool]:
                         return False
 
             with col_skip:
-                if st.button("⏭️ Skip for Now", use_container_width=True, key="gap_only_skip_btn"):
+                if st.button("⏭️ Skip for Now", width='stretch', key="gap_only_skip_btn"):
                     st.info("Skipped download. Data gap remains.")
                     return True
 
@@ -187,7 +188,7 @@ def show_update_prompt() -> Optional[bool]:
                     - Preserve all other historical data
                     """)
 
-                    if st.button("🔄 Force Update from EOD", type="secondary", use_container_width=True, key="force_eod_button"):
+                    if st.button("🔄 Force Update from EOD", type="secondary", width='stretch', key="force_eod_button"):
                         result = perform_eod_update(loader, force=True)
                         if result:
                             st.success("Force EOD update completed!")
@@ -206,7 +207,7 @@ def show_update_prompt() -> Optional[bool]:
                             options=eod_files,
                             key="force_eod_select"
                         )
-                        if st.button("🔄 Force Update Selected EOD", type="secondary", use_container_width=True, key="force_selected_eod_button"):
+                        if st.button("🔄 Force Update Selected EOD", type="secondary", width='stretch', key="force_selected_eod_button"):
                             # Import the function that handles specific file updates
                             from core.local_file_loader import LocalFileLoader
                             # Create a temporary loader instance to handle specific file
@@ -267,7 +268,7 @@ def show_update_prompt() -> Optional[bool]:
 
                             st.info(f"📥 Will download: **{force_start_date.strftime('%d/%m/%Y')}** to **{force_end_date.strftime('%d/%m/%Y')}**")
 
-                            if st.button("📥 Force Download Latest Data", type="secondary", use_container_width=True, key="force_download_button"):
+                            if st.button("📥 Force Download Latest Data", type="secondary", width='stretch', key="force_download_button"):
                                 result = perform_yfinance_download(loader, force_start_date, force_end_date, force_mode=True)
                                 if result:
                                     st.success("Force download completed!")
@@ -585,7 +586,7 @@ def execute_scan_button(scan_scope: str, selected_stock: Optional[str],
                        confirmation_logic: str = "OR",
                        ibs_threshold: float = 0.10, rvol_threshold: float = 0.20, rrange_threshold: float = 0.30) -> None:
     """Handle scan execution button and logic"""
-    if st.button("🚀 Execute Scan", type="primary", use_container_width=True):
+    if st.button("🚀 Execute Scan", type="primary", width='stretch'):
         # Initialize error logger if not exists
         if 'error_logger' not in st.session_state:
             from pages.common.error_handler import ErrorLogger
@@ -727,6 +728,105 @@ def display_scan_summary(results_df: pd.DataFrame) -> None:
                 st.metric("➖ Neutral", neutral_guidance, delta="Neutral")
             with col5:
                 st.metric("📉 Negative", negative_guidance, delta="Bearish")
+
+    # ===== PHASE 1: INSTITUTIONAL FLOW METRICS SUMMARY =====
+    if 'Flow_10D' in results_df.columns:
+        st.markdown("---")
+        create_section_header("🏦 Institutional Flow Analysis", "Phase 1: Enhanced scanner with institutional order flow metrics")
+
+        # Flow regime distribution
+        if 'Flow_Regime' in results_df.columns:
+            flow_regimes = results_df['Flow_Regime'].value_counts()
+            st.markdown("#### 🌊 Flow Regime Distribution")
+            col1, col2, col3, col4, col5 = st.columns(5)
+            with col1:
+                strong_acc = flow_regimes.get('Strong Accumulation', 0)
+                st.metric("🔥 Strong Acc", strong_acc, delta=f"{strong_acc/total_stocks*100:.1f}%")
+            with col2:
+                acc = flow_regimes.get('Accumulation', 0)
+                st.metric("📈 Accumulation", acc, delta=f"{acc/total_stocks*100:.1f}%")
+            with col3:
+                neutral = flow_regimes.get('Neutral', 0)
+                st.metric("➖ Neutral", neutral, delta=f"{neutral/total_stocks*100:.1f}%")
+            with col4:
+                dist = flow_regimes.get('Distribution', 0)
+                st.metric("📉 Distribution", dist, delta=f"{dist/total_stocks*100:.1f}%")
+            with col5:
+                strong_dist = flow_regimes.get('Strong Distribution', 0)
+                st.metric("💥 Strong Dist", strong_dist, delta=f"{strong_dist/total_stocks*100:.1f}%")
+
+        # Conviction and divergence metrics
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            avg_conviction = results_df['Volume_Conviction'].mean()
+            st.metric("🎯 Avg Conviction", f"{avg_conviction:.3f}", help="Volume ratio: up-day vs down-day volume (1.0=neutral)")
+        with col2:
+            avg_flow = results_df['Flow_10D'].mean()
+            st.metric("🌊 Avg Flow 10D", f"{avg_flow:+.2f}", help="10-day cumulative institutional flow")
+        with col3:
+            avg_divergence = results_df['Divergence_Severity'].mean()
+            st.metric("📊 Avg Divergence", f"{avg_divergence:.1f}", help="Price-flow divergence severity (0-100)")
+
+        # Flow velocity analysis
+        if 'Flow_Velocity' in results_df.columns:
+            st.markdown("#### ⚡ Flow Velocity Analysis")
+            flow_vel_positive = (results_df['Flow_Velocity'] > 0).sum()
+            flow_vel_negative = (results_df['Flow_Velocity'] < 0).sum()
+            flow_vel_neutral = (results_df['Flow_Velocity'] == 0).sum()
+
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("📈 Accelerating", flow_vel_positive, delta=f"{flow_vel_positive/total_stocks*100:.1f}%")
+            with col2:
+                st.metric("📉 Decelerating", flow_vel_negative, delta=f"{flow_vel_negative/total_stocks*100:.1f}%")
+            with col3:
+                st.metric("➖ Stable", flow_vel_neutral, delta=f"{flow_vel_neutral/total_stocks*100:.1f}%")
+
+        # Divergence signals
+        if 'Divergence_Gap' in results_df.columns:
+            st.markdown("#### 📈 Price-Flow Divergence Signals")
+            bullish_divergence = (results_df['Divergence_Gap'] < -10).sum()  # Price weak, flow strong
+            bearish_divergence = (results_df['Divergence_Gap'] > 10).sum()   # Price strong, flow weak
+            neutral_divergence = ((results_df['Divergence_Gap'] >= -10) & (results_df['Divergence_Gap'] <= 10)).sum()
+
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("🟢 Bullish Divergence", bullish_divergence, help="Price weak, flow strong (potential reversal up)")
+            with col2:
+                st.metric("🔴 Bearish Divergence", bearish_divergence, help="Price strong, flow weak (potential reversal down)")
+            with col3:
+                st.metric("⚪ Neutral", neutral_divergence, help="Price and flow aligned")
+
+        # Key insights
+        st.markdown("#### 🎯 Institutional Flow Insights")
+        insights = []
+
+        # Flow regime bias
+        total_accumulation = flow_regimes.get('Strong Accumulation', 0) + flow_regimes.get('Accumulation', 0)
+        total_distribution = flow_regimes.get('Strong Distribution', 0) + flow_regimes.get('Distribution', 0)
+
+        if total_accumulation > total_distribution:
+            insights.append(f"📈 **Accumulation Bias**: {total_accumulation} stocks showing institutional buying vs {total_distribution} distribution")
+        elif total_distribution > total_accumulation:
+            insights.append(f"📉 **Distribution Bias**: {total_distribution} stocks showing institutional selling vs {total_accumulation} accumulation")
+
+        # Conviction analysis
+        high_conviction = (results_df['Volume_Conviction'] > 1.2).sum()
+        low_conviction = (results_df['Volume_Conviction'] < 0.8).sum()
+
+        if high_conviction > 0:
+            insights.append(f"🎯 **High Conviction**: {high_conviction} stocks with strong up-day volume participation")
+
+        # Divergence warnings
+        severe_divergence = (results_df['Divergence_Severity'] > 50).sum()
+        if severe_divergence > 0:
+            insights.append(f"⚠️ **Severe Divergence**: {severe_divergence} stocks showing extreme price-flow misalignment")
+
+        if insights:
+            for insight in insights:
+                st.info(insight)
+        else:
+            st.info("📊 Flow analysis complete - no significant institutional patterns detected")
 
 
 def show_base_pattern_filter(results_df: pd.DataFrame) -> pd.DataFrame:
@@ -876,28 +976,22 @@ def display_filtered_results(filtered_stocks: pd.DataFrame, selected_base_filter
         create_warning_box("No stocks match the current filter criteria")
         return
 
-    # Display columns - matching CSV export order for comprehensive view
+    # Display columns - Essential columns only (14 columns)
     display_cols = [
         # Core Identity (3)
         'Analysis_Date', 'Ticker', 'Name',
 
-        # Primary Signal (4)
-        'Signal_Bias', 'Total_Score', 'Pattern_Quality', 'MPI_Position',
+        # Core Signal (5) - includes Flow_Regime for institutional flow context
+        'Signal_Bias', 'Total_Score', 'Pattern_Quality', 'MPI_Position', 'Flow_Regime',
 
-        # Acceleration Details (6)
-        'RVol_Accel', 'RVol_Score', 'RRange_Accel', 'RRange_Score', 'IBS_Accel', 'IBS_Score',
+        # Entry Price (1)
+        'Entry_Level',
 
-        # Pattern Timing (3)
-        'Entry_Level', 'Purge_Level', 'Bars_Since_Break',
+        # Key Context (3)
+        'IBS', 'VW_Range_Velocity', 'RelVol_Trend',
 
-        # Current State (5)
-        'IBS', 'VW_Range_Velocity', 'Relative_Volume', 'RelVol_Velocity', 'RelVol_Trend',
-
-        # Analyst Reports (3)
-        'Sentiment_Display', 'Report_Date_Display', 'Report_Count_Display',
-
-        # Earnings Reports (5)
-        'Earnings_Period', 'Guidance_Display', 'Rev_YoY_Display', 'EPS_DPU_Display', 'Earnings_Reaction'
+        # Reports Summary (2)
+        'Sentiment_Display', 'Guidance_Display'
     ]
 
     base_column_config = {
@@ -931,6 +1025,23 @@ def display_filtered_results(filtered_stocks: pd.DataFrame, selected_base_filter
         'Relative_Volume': st.column_config.NumberColumn('Rel Vol', format='%.1f%%', help='Volume relative to 14-day average'),
         'RelVol_Velocity': st.column_config.NumberColumn('Vol Vel', format='%+.1f', help='Day-over-day volume change'),
         'RelVol_Trend': st.column_config.TextColumn('Vol Trend', width='small', help='Building/Stable/Fading'),
+
+        # ===== PHASE 1: INSTITUTIONAL FLOW METRICS =====
+        # Flow Analysis (4)
+        'Daily_Flow': st.column_config.NumberColumn('Daily Flow', format='%+.1f', help='Volume-weighted directional flow (+buy/-sell pressure)'),
+        'Flow_10D': st.column_config.NumberColumn('Flow 10D', format='%+.1f', help='10-day cumulative institutional flow'),
+        'Flow_Velocity': st.column_config.NumberColumn('Flow Vel', format='%+.2f', help='Day-over-day flow change (acceleration)'),
+        'Flow_Regime': st.column_config.TextColumn('Flow Regime', width='medium', help='Strong Accumulation/Accumulation/Neutral/Distribution/Strong Distribution'),
+
+        # Conviction Analysis (3)
+        'Volume_Conviction': st.column_config.NumberColumn('Conviction', format='%.2f', help='Ratio of up-day vs down-day volume (1.0=neutral)'),
+        'Conviction_Velocity': st.column_config.NumberColumn('Conv Vel', format='%+.3f', help='Day-over-day conviction change'),
+        'Avg_Vol_Up_10D': st.column_config.NumberColumn('Up Vol Avg', format='%.0f', help='Average volume on up days (10-day)'),
+
+        # Divergence Analysis (3)
+        'Divergence_Gap': st.column_config.NumberColumn('Div Gap', format='%+.2f', help='Price percentile - Flow percentile (+bearish/-bullish divergence)'),
+        'Divergence_Severity': st.column_config.NumberColumn('Div Severity', format='%.1f', help='Absolute divergence magnitude (0-100 scale)'),
+        'Price_Percentile': st.column_config.NumberColumn('Price Pct', format='%.2f', help='Price ranking vs 252-day history (0-1)'),
 
         # Analyst Reports (3)
         'Sentiment_Display': st.column_config.TextColumn('Sentiment', width='small', help='Analyst sentiment score'),
@@ -971,11 +1082,14 @@ def display_filtered_results(filtered_stocks: pd.DataFrame, selected_base_filter
         st.dataframe(
             filtered_stocks_sorted[display_cols],
             column_config=column_config,
-            use_container_width=True,
+            width='stretch',
             hide_index=True
         )
 
         show_tradingview_export(filtered_stocks, selected_base_filter)
+
+        # ===== PHASE 1: INSTITUTIONAL FLOW ANALYSIS (SEPARATE EXPANDER) =====
+        show_institutional_flow_analysis(filtered_stocks)
 
     except Exception as e:
         create_error_box(f"❌ Error displaying filtered results: {str(e)}")
@@ -1047,7 +1161,6 @@ def show_full_results_table(results_df: pd.DataFrame) -> None:
 
                 # 7. Context: Volume
                 'Relative_Volume', 'RelVol_Velocity', 'RelVol_Trend',
-                'High_Rel_Volume_150', 'High_Rel_Volume_200',
 
                 # 8. Context: MPI Indicators
                 'MPI', 'MPI_Velocity', 'MPI_Trend', 'MPI_Zone',
@@ -1109,8 +1222,6 @@ def show_full_results_table(results_df: pd.DataFrame) -> None:
                 'Relative_Volume': st.column_config.NumberColumn('Rel Vol', format='%.1f%%', help='Volume relative to 14-day average'),
                 'RelVol_Velocity': st.column_config.NumberColumn('Vol Vel', format='%+.1f', help='Day-over-day volume change'),
                 'RelVol_Trend': st.column_config.TextColumn('Vol Trend', width='small', help='Building/Stable/Fading'),
-                'High_Rel_Volume_150': st.column_config.NumberColumn('Vol>150%', width='tiny', help='Volume > 150% of average'),
-                'High_Rel_Volume_200': st.column_config.NumberColumn('Vol>200%', width='tiny', help='Volume > 200% of average'),
 
                 # === CONTEXT: MPI INDICATORS ===
                 'MPI': st.column_config.NumberColumn('MPI', format='%.2f', help='Market Positivity Index (0-1 scale)'),
@@ -1159,7 +1270,7 @@ def show_full_results_table(results_df: pd.DataFrame) -> None:
             st.dataframe(
                 results_df[available_cols],
                 column_config=full_results_column_config,
-                use_container_width=True,
+                width='stretch',
                 hide_index=True
             )
 
@@ -1222,7 +1333,7 @@ def show_mpi_insights(results_df: pd.DataFrame) -> None:
                 })
 
         if trend_summary:
-            st.dataframe(pd.DataFrame(trend_summary), hide_index=True, use_container_width=True)
+            st.dataframe(pd.DataFrame(trend_summary), hide_index=True, width='stretch')
 
 
 def get_mpi_expansion_description(trend: str) -> str:
@@ -1407,7 +1518,7 @@ def display_analyst_report_details(stock_data: pd.Series) -> None:
                         'price_target': st.column_config.NumberColumn('Price Target', format='$%.2f')
                     },
                     hide_index=True,
-                    use_container_width=True
+                    width='stretch'
                 )
         except Exception as e:
             st.warning(f"Could not load report history: {e}")
@@ -1633,7 +1744,7 @@ def show_force_update_options():
                 - Preserve all other historical data
                 """)
 
-                if st.button("🔄 Force Update from EOD", type="secondary", use_container_width=True, key="force_eod_button"):
+                if st.button("🔄 Force Update from EOD", type="secondary", width='stretch', key="force_eod_button"):
                     result = perform_eod_update(loader, force=True)
                     if result:
                         st.success("Force EOD update completed!")
@@ -1652,7 +1763,7 @@ def show_force_update_options():
                         options=eod_files,
                         key="force_eod_select"
                     )
-                    if st.button("🔄 Force Update Selected EOD", type="secondary", use_container_width=True, key="force_selected_eod_button"):
+                    if st.button("🔄 Force Update Selected EOD", type="secondary", width='stretch', key="force_selected_eod_button"):
                         # Import the function that handles specific file updates
                         from core.local_file_loader import LocalFileLoader
                         # Create a temporary loader instance to handle specific file
@@ -1713,7 +1824,7 @@ def show_force_update_options():
 
                         st.info(f"📥 Will download: **{force_start_date.strftime('%d/%m/%Y')}** to **{force_end_date.strftime('%d/%m/%Y')}**")
 
-                        if st.button("📥 Force Download Latest Data", type="secondary", use_container_width=True, key="force_download_button"):
+                        if st.button("📥 Force Download Latest Data", type="secondary", width='stretch', key="force_download_button"):
                             result = perform_yfinance_download(loader, force_start_date, force_end_date, force_mode=True)
                             if result:
                                 st.success("Force download completed!")

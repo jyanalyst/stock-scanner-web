@@ -24,9 +24,7 @@ from pages.common.data_validation import (validate_data_quality, clean_data,
                                         get_validation_summary, DataQualityMetrics)
 from pages.scanner.constants import ScanProgress, ScanScope, ScanDateType
 from core.technical_analysis import (add_enhanced_columns, get_mpi_trend_info,
-                                     get_mpi_zone, calculate_signal_quality_v2,
-                                     calculate_mpi_position_score, calculate_ibs_confirmation_score,
-                                     calculate_relvol_confirmation_score)
+                                     get_mpi_zone)
 
 logger = logging.getLogger(__name__)
 
@@ -404,9 +402,7 @@ def _create_result_dict(analysis_row: pd.Series, actual_date, ticker: str, fetch
     vw_range_percentile = round(float(analysis_row.get('VW_Range_Percentile', 0)), 4)
     rel_range_signal = safe_int(analysis_row.get('Rel_Range_Signal', 0))
 
-    # Volume flags
-    high_rel_vol_150 = safe_int(analysis_row.get('High_Rel_Volume_150', 0))
-    high_rel_vol_200 = safe_int(analysis_row.get('High_Rel_Volume_200', 0))
+    # Volume flags removed - users can derive from Relative_Volume directly
 
     # Build comprehensive result dictionary
     result = {
@@ -457,26 +453,36 @@ def _create_result_dict(analysis_row: pd.Series, actual_date, ticker: str, fetch
         'Relative_Volume': relative_volume,
         'RelVol_Velocity': relvol_velocity,
         'RelVol_Trend': relvol_trend,
-        'High_Rel_Volume_150': high_rel_vol_150,
-        'High_Rel_Volume_200': high_rel_vol_200,
 
-        # ===== CONTEXT: MPI INDICATORS =====
-        'MPI': round(mpi_value, 2),
-        'MPI_Velocity': round(mpi_velocity, 2),
-        'MPI_Trend': mpi_trend,
-        'MPI_Zone': mpi_zone,
+    # ===== CONTEXT: MPI INDICATORS =====
+    'MPI': round(mpi_value, 2),
+    'MPI_Velocity': round(mpi_velocity, 2),
+    'MPI_Trend': mpi_trend,
+    'MPI_Zone': mpi_zone,
 
-        # ===== LEGACY FIELDS (for backward compatibility) =====
-        'MPI_Signal_Direction': 'bullish' if signal_bias == '🟢 BULLISH' else ('bearish' if signal_bias == '🔴 BEARISH' else 'neutral'),
-        'MPI_Signal_Quality': total_score,  # Now represents acceleration score
-        'MPI_Entry_Signal': pattern_quality,  # Now represents pattern quality
-        'MPI_Position_Score': 0,  # Legacy - no longer used
-        'MPI_IBS_Score': ibs_score,  # Now represents IBS acceleration score
-        'MPI_RelVol_Score': rvol_score,  # Now represents RVol acceleration score
+    # ===== PHASE 1: INSTITUTIONAL FLOW METRICS =====
+    'Daily_Flow': round(float(analysis_row.get('Daily_Flow', 0.0)), 1),
+    'Flow_10D': round(float(analysis_row.get('Flow_10D', 0.0)), 1),
+    'Flow_Velocity': round(float(analysis_row.get('Flow_Velocity', 0.0)), 2),
+    'Flow_Regime': str(analysis_row.get('Flow_Regime', 'Neutral')),
+    'Volume_Conviction': round(float(analysis_row.get('Volume_Conviction', 1.0)), 2),
+    'Conviction_Velocity': round(float(analysis_row.get('Conviction_Velocity', 0.0)), 3),
+    'Avg_Vol_Up_10D': round(float(analysis_row.get('Avg_Vol_Up_10D', 0.0)), 0),
+    'Divergence_Gap': round(float(analysis_row.get('Divergence_Gap', 0.0)), 2),
+    'Divergence_Severity': round(float(analysis_row.get('Divergence_Severity', 0.0)), 1),
+    'Price_Percentile': round(float(analysis_row.get('Price_Percentile', 0.5)), 2),
 
-        # ===== UTILITY =====
-        'Price_Decimals': price_decimals
-    }
+    # ===== LEGACY FIELDS (for backward compatibility) =====
+    'MPI_Signal_Direction': 'bullish' if signal_bias == '🟢 BULLISH' else ('bearish' if signal_bias == '🔴 BEARISH' else 'neutral'),
+    'MPI_Signal_Quality': total_score,  # Now represents acceleration score
+    'MPI_Entry_Signal': pattern_quality,  # Now represents pattern quality
+    'MPI_Position_Score': 0,  # Legacy - no longer used
+    'MPI_IBS_Score': ibs_score,  # Now represents IBS acceleration score
+    'MPI_RelVol_Score': rvol_score,  # Now represents RVol acceleration score
+
+    # ===== UTILITY =====
+    'Price_Decimals': price_decimals
+}
 
     return result
 

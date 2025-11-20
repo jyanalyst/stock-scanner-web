@@ -878,13 +878,13 @@ def display_factor_results(results_df: pd.DataFrame, factor_analysis: Dict, figu
         # Display data table
         st.dataframe(
             factor_analysis['mpi_trend'],
-            use_container_width=True,
+            width="stretch",
             hide_index=True
         )
         
         # Display chart
         if 'mpi_success_rate' in figures:
-            st.plotly_chart(figures['mpi_success_rate'], use_container_width=True)
+            st.plotly_chart(figures['mpi_success_rate'], width="stretch")
         
         # Key insights
         mpi_data = factor_analysis['mpi_trend']
@@ -915,17 +915,17 @@ def display_factor_results(results_df: pd.DataFrame, factor_analysis: Dict, figu
         display_columns = ['combination', 'mpi_trends_included', 'Breakout_Count', 'Success_Rate', 'Avg_Return', 'Target_Hit_Rate']
         st.dataframe(
             combo_data[display_columns],
-            use_container_width=True,
+            width="stretch",
             hide_index=True
         )
         
         # Display scatter plot
         if 'best_combinations' in figures:
-            st.plotly_chart(figures['best_combinations'], use_container_width=True)
+            st.plotly_chart(figures['best_combinations'], width="stretch")
         
         # Display target hit rates
         if 'target_hit_rates' in figures:
-            st.plotly_chart(figures['target_hit_rates'], use_container_width=True)
+            st.plotly_chart(figures['target_hit_rates'], width="stretch")
         
         # Key insights
         if len(combo_data) > 0:
@@ -949,7 +949,7 @@ def display_factor_results(results_df: pd.DataFrame, factor_analysis: Dict, figu
     # Return Distribution
     if 'return_distribution' in figures:
         st.subheader("📊 Return Distribution (1% Profit Target)")
-        st.plotly_chart(figures['return_distribution'], use_container_width=True)
+        st.plotly_chart(figures['return_distribution'], width="stretch")
 
 # File: pages/factor_analysis.py
 # Part 3 of 3
@@ -1147,7 +1147,7 @@ def show():
     # Execute analysis button
     st.subheader("🚀 Execute 1% Profit Target Analysis")
     
-    if st.button("🚀 Run 1% Target Factor Analysis", type="primary", use_container_width=True):
+    if st.button("🚀 Run 1% Target Factor Analysis", type="primary", width="stretch"):
         # Reset completion state
         st.session_state.simple_analysis_completed = False
         
