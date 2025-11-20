@@ -310,6 +310,10 @@ def add_enhanced_columns(df_daily: pd.DataFrame, ticker: str, rolling_window: in
         df = calculate_rrange_acceleration(df)
         df = calculate_rvol_acceleration(df)
 
+        # Add placeholder metrics for Phase 0 compatibility (Flow_Velocity=0 weight, Volume_Conviction=minimal weight)
+        df['Flow_Velocity'] = 0.0  # Neutral flow (zero weight in Phase 0)
+        df['Volume_Conviction'] = 1.0  # Neutral conviction (minimal weight in Phase 0)
+
         # Calculate percentile ranks for scoring (Phase 2 integration)
         df = calculate_percentile_ranks(df)
 
