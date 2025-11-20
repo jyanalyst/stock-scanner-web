@@ -310,6 +310,9 @@ def add_enhanced_columns(df_daily: pd.DataFrame, ticker: str, rolling_window: in
         df = calculate_rrange_acceleration(df)
         df = calculate_rvol_acceleration(df)
 
+        # Calculate percentile ranks for scoring (Phase 2 integration)
+        df = calculate_percentile_ranks(df)
+
         # Detect break events and reversal signals (with error handling)
         try:
             df = detect_break_events(df, lookback=10)
@@ -562,6 +565,68 @@ def get_mpi_zone(mpi: float) -> int:
         return 3
     else:
         return 4
+
+
+def calculate_percentile_ranks(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Calculate percentile ranks for acceleration metrics used in scoring
+    Creates direction-specific percentiles for IBS and Flow metrics
+
+    Args:
+        df: DataFrame with acceleration metrics (IBS_Accel, RVol_Accel, etc.)
+
+    Returns:
+        DataFrame with percentile rank columns added
+    """
+    df = df.copy()
+
+    # Calculate basic percentile ranks (0-1 scale)
+    df['IBS_Accel_Percentile'] = df['IBS_Accel'].rolling(window=50, min_periods=20).rank(pct=True)
+    df['RVol_Accel_Percentile'] = df['RVol_Accel'].rolling(window=50, min_periods=20).rank(pct=True)
+    df['RRange_Accel_Percentile'] = df['RRange_Accel'].rolling(window=50, min_periods=20).rank(pct=True)
+    df['Flow_Velocity_Percentile'] = df['Flow_Velocity'].rolling(window=50, min_periods=20).rank(pct=True)
+    df['Volume_Conviction_Percentile'] = df['Volume_Conviction'].rolling(window=50, min_periods=20).rank(pct=True)
+
+    # Direction-specific IBS percentiles
+    # When IBS_Accel > 0: bullish_pct = percentile, bearish_pct = 0
+    # When IBS_Accel < 0: bearish_pct = percentile, bullish_pct = 0
+    # When IBS_Accel = 0: both = 0.5 (neutral)
+    df['IBS_Bullish_Pct'] = np.where(
+        df['IBS_Accel'] > 0,
+        df['IBS_Accel_Percentile'],
+        np.where(df['IBS_Accel'] == 0, 0.5, 0.0)
+    )
+    df['IBS_Bearish_Pct'] = np.where(
+        df['IBS_Accel'] < 0,
+        df['IBS_Accel_Percentile'],
+        np.where(df['IBS_Accel'] == 0, 0.5, 0.0)
+    )
+
+    # Direction-specific Flow percentiles
+    # Same logic as IBS but for Flow_Velocity
+    df['Flow_Bullish_Pct'] = np.where(
+        df['Flow_Velocity'] > 0,
+        df['Flow_Velocity_Percentile'],
+        np.where(df['Flow_Velocity'] == 0, 0.5, 0.0)
+    )
+    df['Flow_Bearish_Pct'] = np.where(
+        df['Flow_Velocity'] < 0,
+        df['Flow_Velocity_Percentile'],
+        np.where(df['Flow_Velocity'] == 0, 0.5, 0.0)
+    )
+
+    # Fill NaN values with neutral values
+    percentile_cols = [
+        'IBS_Accel_Percentile', 'IBS_Bullish_Pct', 'IBS_Bearish_Pct',
+        'RVol_Accel_Percentile', 'RRange_Accel_Percentile',
+        'Flow_Velocity_Percentile', 'Flow_Bullish_Pct', 'Flow_Bearish_Pct',
+        'Volume_Conviction_Percentile'
+    ]
+
+    for col in percentile_cols:
+        df[col] = df[col].fillna(0.5)  # Neutral percentile
+
+    return df
 
 
 def calculate_acceleration_score_v3(
