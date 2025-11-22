@@ -189,7 +189,7 @@ def calculate_moving_averages(df: pd.DataFrame, price_col: str = 'Close',
 
     for window in windows:
         df[f'MA_{window}'] = df[price_col].rolling(window=window, min_periods=1).mean()
-        df[f'MA_{window}_Slope'] = df[f'MA_{window}'].pct_change(window)
+        df[f'MA_{window}_Slope'] = df[f'MA_{window}'].pct_change(periods=window)
 
     return df
 

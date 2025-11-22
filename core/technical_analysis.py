@@ -901,44 +901,55 @@ def detect_reversal_signals(df: pd.DataFrame) -> pd.DataFrame:
     # For each row, check if it's a valid reversal signal
     for i, idx in enumerate(df.index):
         # Skip if this is a flat candle
-        if df.at[idx, 'is_current_flat']:
+        is_current_flat = df.at[idx, 'is_current_flat']
+        if is_current_flat:
             continue
 
         # CRITICAL FIX: Update active levels when NEW breaks occur
         # This mimics Pine Script's array.set() behavior
-        if df.at[idx, 'break_high'] == 1:
+        break_high = df.at[idx, 'break_high']
+        break_low = df.at[idx, 'break_low']
+
+        if break_high == 1:
             # New high break - update active level immediately
             new_level = df.at[idx, 'break_high_level']
             df.loc[idx:, 'active_break_high'] = new_level
             df.loc[idx:, 'active_purge_high_idx'] = df.at[idx, 'purge_bar_pos']
 
-        if df.at[idx, 'break_low'] == 1:
+        if break_low == 1:
             # New low break - update active level immediately
             new_level = df.at[idx, 'break_low_level']
             df.loc[idx:, 'active_break_low'] = new_level
             df.loc[idx:, 'active_purge_low_idx'] = df.at[idx, 'purge_bar_pos']
 
+        # Get values for reversal checks (ensure scalar values)
+        active_break_low = df.at[idx, 'active_break_low']
+        active_purge_low_idx = df.at[idx, 'active_purge_low_idx']
+        active_break_high = df.at[idx, 'active_break_high']
+        active_purge_high_idx = df.at[idx, 'active_purge_high_idx']
+        close_price = df.at[idx, 'Close']
+
         # Check bullish reversal: Close above active low break level
-        if (not pd.isna(df.at[idx, 'active_break_low']) and
-            not pd.isna(df.at[idx, 'active_purge_low_idx']) and
-            df.at[idx, 'Close'] > df.at[idx, 'active_break_low'] and
-            i != df.at[idx, 'active_purge_low_idx']):  # Not the purge candle
+        if (not pd.isna(active_break_low) and
+            not pd.isna(active_purge_low_idx) and
+            close_price > active_break_low and
+            i != active_purge_low_idx):  # Not the purge candle
 
             df.at[idx, 'bullish_reversal'] = 1
-            df.at[idx, 'reversal_purge_level'] = df.at[idx, 'active_break_low']  # Store purge level
+            df.at[idx, 'reversal_purge_level'] = active_break_low  # Store purge level
             # Clear the active break after signal generation (use integer position slicing)
             df.iloc[i:, df.columns.get_loc('active_break_low')] = np.nan
             df.iloc[i:, df.columns.get_loc('active_purge_low_idx')] = np.nan
             # Continue loop - allow multiple break→reversal sequences
 
         # Check bearish reversal: Close below active high break level
-        elif (not pd.isna(df.at[idx, 'active_break_high']) and
-              not pd.isna(df.at[idx, 'active_purge_high_idx']) and
-              df.at[idx, 'Close'] < df.at[idx, 'active_break_high'] and
-              i != df.at[idx, 'active_purge_high_idx']):  # Not the purge candle
+        elif (not pd.isna(active_break_high) and
+              not pd.isna(active_purge_high_idx) and
+              close_price < active_break_high and
+              i != active_purge_high_idx):  # Not the purge candle
 
             df.at[idx, 'bearish_reversal'] = 1
-            df.at[idx, 'reversal_purge_level'] = df.at[idx, 'active_break_high']  # Store purge level
+            df.at[idx, 'reversal_purge_level'] = active_break_high  # Store purge level
             # Clear the active break after signal generation (use integer position slicing)
             df.iloc[i:, df.columns.get_loc('active_break_high')] = np.nan
             df.iloc[i:, df.columns.get_loc('active_purge_high_idx')] = np.nan
