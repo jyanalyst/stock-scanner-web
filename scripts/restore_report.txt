@@ -1,0 +1,169 @@
+2025-11-22 18:34:52,939 - INFO - Found 56 backup files
+2025-11-22 18:34:52,952 - INFO - Latest backup for 1E3.csv: 1E3.backup_20251122_182242.csv (2025-11-22 18:22:42)
+2025-11-22 18:34:52,953 - INFO - Latest backup for 41O.csv: 41O.backup_20251122_182242.csv (2025-11-22 18:22:42)
+2025-11-22 18:34:52,953 - INFO - Latest backup for 544.csv: 544.backup_20251122_182242.csv (2025-11-22 18:22:42)
+2025-11-22 18:34:52,953 - INFO - Latest backup for 558.csv: 558.backup_20251122_182242.csv (2025-11-22 18:22:42)
+2025-11-22 18:34:52,953 - INFO - Latest backup for 5E2.csv: 5E2.backup_20251122_182242.csv (2025-11-22 18:22:42)
+2025-11-22 18:34:52,953 - INFO - Latest backup for 5LY.csv: 5LY.backup_20251122_182242.csv (2025-11-22 18:22:42)
+2025-11-22 18:34:52,953 - INFO - Latest backup for 5TP.csv: 5TP.backup_20251122_182242.csv (2025-11-22 18:22:42)
+2025-11-22 18:34:52,954 - INFO - Latest backup for 5WH.csv: 5WH.backup_20251122_182242.csv (2025-11-22 18:22:42)
+2025-11-22 18:34:52,954 - INFO - Latest backup for 8C8U.csv: 8C8U.backup_20251122_182242.csv (2025-11-22 18:22:42)
+2025-11-22 18:34:52,954 - INFO - Latest backup for 8YZ.csv: 8YZ.backup_20251122_182242.csv (2025-11-22 18:22:42)
+2025-11-22 18:34:52,954 - INFO - Latest backup for 9CI.csv: 9CI.backup_20251122_182242.csv (2025-11-22 18:22:42)
+2025-11-22 18:34:52,954 - INFO - Latest backup for A17U.csv: A17U.backup_20251122_182242.csv (2025-11-22 18:22:42)
+2025-11-22 18:34:52,954 - INFO - Latest backup for AJBU.csv: AJBU.backup_20251122_182242.csv (2025-11-22 18:22:42)
+2025-11-22 18:34:52,954 - INFO - Latest backup for AP4.csv: AP4.backup_20251122_182242.csv (2025-11-22 18:22:42)
+2025-11-22 18:34:52,954 - INFO - Latest backup for AU8U.csv: AU8U.backup_20251122_182242.csv (2025-11-22 18:22:42)
+2025-11-22 18:34:52,955 - INFO - Latest backup for AWX.csv: AWX.backup_20251122_182242.csv (2025-11-22 18:22:42)
+2025-11-22 18:34:52,955 - INFO - Latest backup for BN2.csv: BN2.backup_20251122_182242.csv (2025-11-22 18:22:42)
+2025-11-22 18:34:52,955 - INFO - Latest backup for BS6.csv: BS6.backup_20251122_182242.csv (2025-11-22 18:22:42)
+2025-11-22 18:34:52,955 - INFO - Latest backup for BUOU.csv: BUOU.backup_20251122_182242.csv (2025-11-22 18:22:42)
+2025-11-22 18:34:52,955 - INFO - Latest backup for C38U.csv: C38U.backup_20251122_182242.csv (2025-11-22 18:22:42)
+2025-11-22 18:34:52,955 - INFO - Latest backup for C52.csv: C52.backup_20251122_182242.csv (2025-11-22 18:22:42)
+2025-11-22 18:34:52,955 - INFO - Latest backup for CLN.csv: CLN.backup_20251122_182242.csv (2025-11-22 18:22:42)
+2025-11-22 18:34:52,956 - INFO - Latest backup for DCRU.csv: DCRU.backup_20251122_182242.csv (2025-11-22 18:22:42)
+2025-11-22 18:34:52,956 - INFO - Latest backup for DU4.csv: DU4.backup_20251122_182242.csv (2025-11-22 18:22:42)
+2025-11-22 18:34:52,956 - INFO - Latest backup for E28.csv: E28.backup_20251122_182242.csv (2025-11-22 18:22:42)
+2025-11-22 18:34:52,957 - INFO - Latest backup for E3B.csv: E3B.backup_20251122_182242.csv (2025-11-22 18:22:42)
+2025-11-22 18:34:52,957 - INFO - Latest backup for EB5.csv: EB5.backup_20251122_182242.csv (2025-11-22 18:22:42)
+2025-11-22 18:34:52,957 - INFO - Latest backup for ER0.csv: ER0.backup_20251122_182242.csv (2025-11-22 18:22:42)
+2025-11-22 18:34:52,957 - INFO - Latest backup for F34.csv: F34.backup_20251122_182242.csv (2025-11-22 18:22:42)
+2025-11-22 18:34:52,957 - INFO - Latest backup for F9D.csv: F9D.backup_20251122_182242.csv (2025-11-22 18:22:42)
+2025-11-22 18:34:52,957 - INFO - Latest backup for G13.csv: G13.backup_20251122_182242.csv (2025-11-22 18:22:42)
+2025-11-22 18:34:52,957 - INFO - Latest backup for G92.csv: G92.backup_20251122_182242.csv (2025-11-22 18:22:42)
+2025-11-22 18:34:52,958 - INFO - Latest backup for HMN.csv: HMN.backup_20251122_182242.csv (2025-11-22 18:22:42)
+2025-11-22 18:34:52,958 - INFO - Latest backup for J69U.csv: J69U.backup_20251122_182242.csv (2025-11-22 18:22:42)
+2025-11-22 18:34:52,958 - INFO - Latest backup for JYEU.csv: JYEU.backup_20251122_182242.csv (2025-11-22 18:22:42)
+2025-11-22 18:34:52,958 - INFO - Latest backup for K71U.csv: K71U.backup_20251122_182242.csv (2025-11-22 18:22:42)
+2025-11-22 18:34:52,959 - INFO - Latest backup for LCC.csv: LCC.backup_20251122_182242.csv (2025-11-22 18:22:42)
+2025-11-22 18:34:52,959 - INFO - Latest backup for M44U.csv: M44U.backup_20251122_182242.csv (2025-11-22 18:22:42)
+2025-11-22 18:34:52,959 - INFO - Latest backup for ME8U.csv: ME8U.backup_20251122_182242.csv (2025-11-22 18:22:42)
+2025-11-22 18:34:52,959 - INFO - Latest backup for MZH.csv: MZH.backup_20251122_182242.csv (2025-11-22 18:22:42)
+2025-11-22 18:34:52,959 - INFO - Latest backup for N2IU.csv: N2IU.backup_20251122_182242.csv (2025-11-22 18:22:42)
+2025-11-22 18:34:52,959 - INFO - Latest backup for NTDU.csv: NTDU.backup_20251122_182242.csv (2025-11-22 18:22:42)
+2025-11-22 18:34:52,959 - INFO - Latest backup for OU8.csv: OU8.backup_20251122_182242.csv (2025-11-22 18:22:42)
+2025-11-22 18:34:52,959 - INFO - Latest backup for OV8.csv: OV8.backup_20251122_182242.csv (2025-11-22 18:22:42)
+2025-11-22 18:34:52,960 - INFO - Latest backup for OYY.csv: OYY.backup_20251122_182242.csv (2025-11-22 18:22:42)
+2025-11-22 18:34:52,960 - INFO - Latest backup for P52.csv: P52.backup_20251122_182242.csv (2025-11-22 18:22:42)
+2025-11-22 18:34:52,960 - INFO - Latest backup for P8Z.csv: P8Z.backup_20251122_182242.csv (2025-11-22 18:22:42)
+2025-11-22 18:34:52,960 - INFO - Latest backup for QES.csv: QES.backup_20251122_182242.csv (2025-11-22 18:22:42)
+2025-11-22 18:34:52,960 - INFO - Latest backup for RE4.csv: RE4.backup_20251122_182242.csv (2025-11-22 18:22:42)
+2025-11-22 18:34:52,960 - INFO - Latest backup for RXS.csv: RXS.backup_20251122_182242.csv (2025-11-22 18:22:42)
+2025-11-22 18:34:52,960 - INFO - Latest backup for S08.csv: S08.backup_20251122_182242.csv (2025-11-22 18:22:42)
+2025-11-22 18:34:52,961 - INFO - Latest backup for S56.csv: S56.backup_20251122_182242.csv (2025-11-22 18:22:42)
+2025-11-22 18:34:52,961 - INFO - Latest backup for S58.csv: S58.backup_20251122_182242.csv (2025-11-22 18:22:42)
+2025-11-22 18:34:52,961 - INFO - Latest backup for YF8.csv: YF8.backup_20251122_182242.csv (2025-11-22 18:22:42)
+2025-11-22 18:34:52,961 - INFO - Latest backup for Z25.csv: Z25.backup_20251122_182242.csv (2025-11-22 18:22:42)
+2025-11-22 18:34:52,961 - INFO - Latest backup for Z74.csv: Z74.backup_20251122_182242.csv (2025-11-22 18:22:42)
+2025-11-22 18:34:52,966 - INFO - Backed up current 1E3.csv to 1E3.pre_restore_20251122_183452.csv
+2025-11-22 18:34:52,969 - INFO - Restored 1E3.csv from backup
+2025-11-22 18:34:52,970 - INFO - Backed up current 41O.csv to 41O.pre_restore_20251122_183452.csv
+2025-11-22 18:34:52,971 - INFO - Restored 41O.csv from backup
+2025-11-22 18:34:52,972 - INFO - Backed up current 544.csv to 544.pre_restore_20251122_183452.csv
+2025-11-22 18:34:52,974 - INFO - Restored 544.csv from backup
+2025-11-22 18:34:52,974 - INFO - Backed up current 558.csv to 558.pre_restore_20251122_183452.csv
+2025-11-22 18:34:52,976 - INFO - Restored 558.csv from backup
+2025-11-22 18:34:52,977 - INFO - Backed up current 5E2.csv to 5E2.pre_restore_20251122_183452.csv
+2025-11-22 18:34:52,978 - INFO - Restored 5E2.csv from backup
+2025-11-22 18:34:52,979 - INFO - Backed up current 5LY.csv to 5LY.pre_restore_20251122_183452.csv
+2025-11-22 18:34:52,980 - INFO - Restored 5LY.csv from backup
+2025-11-22 18:34:52,981 - INFO - Backed up current 5TP.csv to 5TP.pre_restore_20251122_183452.csv
+2025-11-22 18:34:52,982 - INFO - Restored 5TP.csv from backup
+2025-11-22 18:34:52,983 - INFO - Backed up current 5WH.csv to 5WH.pre_restore_20251122_183452.csv
+2025-11-22 18:34:52,985 - INFO - Restored 5WH.csv from backup
+2025-11-22 18:34:52,985 - INFO - Backed up current 8C8U.csv to 8C8U.pre_restore_20251122_183452.csv
+2025-11-22 18:34:52,987 - INFO - Restored 8C8U.csv from backup
+2025-11-22 18:34:52,988 - INFO - Backed up current 8YZ.csv to 8YZ.pre_restore_20251122_183452.csv
+2025-11-22 18:34:52,989 - INFO - Restored 8YZ.csv from backup
+2025-11-22 18:34:52,990 - INFO - Backed up current 9CI.csv to 9CI.pre_restore_20251122_183452.csv
+2025-11-22 18:34:52,991 - INFO - Restored 9CI.csv from backup
+2025-11-22 18:34:52,992 - INFO - Backed up current A17U.csv to A17U.pre_restore_20251122_183452.csv
+2025-11-22 18:34:52,993 - INFO - Restored A17U.csv from backup
+2025-11-22 18:34:52,994 - INFO - Backed up current AJBU.csv to AJBU.pre_restore_20251122_183452.csv
+2025-11-22 18:34:52,995 - INFO - Restored AJBU.csv from backup
+2025-11-22 18:34:52,996 - INFO - Backed up current AP4.csv to AP4.pre_restore_20251122_183452.csv
+2025-11-22 18:34:52,997 - INFO - Restored AP4.csv from backup
+2025-11-22 18:34:52,998 - INFO - Backed up current AU8U.csv to AU8U.pre_restore_20251122_183452.csv
+2025-11-22 18:34:52,999 - INFO - Restored AU8U.csv from backup
+2025-11-22 18:34:53,000 - INFO - Backed up current AWX.csv to AWX.pre_restore_20251122_183453.csv
+2025-11-22 18:34:53,002 - INFO - Restored AWX.csv from backup
+2025-11-22 18:34:53,002 - INFO - Backed up current BN2.csv to BN2.pre_restore_20251122_183453.csv
+2025-11-22 18:34:53,004 - INFO - Restored BN2.csv from backup
+2025-11-22 18:34:53,005 - INFO - Backed up current BS6.csv to BS6.pre_restore_20251122_183453.csv
+2025-11-22 18:34:53,006 - INFO - Restored BS6.csv from backup
+2025-11-22 18:34:53,007 - INFO - Backed up current BUOU.csv to BUOU.pre_restore_20251122_183453.csv
+2025-11-22 18:34:53,008 - INFO - Restored BUOU.csv from backup
+2025-11-22 18:34:53,009 - INFO - Backed up current C38U.csv to C38U.pre_restore_20251122_183453.csv
+2025-11-22 18:34:53,010 - INFO - Restored C38U.csv from backup
+2025-11-22 18:34:53,011 - INFO - Backed up current C52.csv to C52.pre_restore_20251122_183453.csv
+2025-11-22 18:34:53,012 - INFO - Restored C52.csv from backup
+2025-11-22 18:34:53,013 - INFO - Backed up current CLN.csv to CLN.pre_restore_20251122_183453.csv
+2025-11-22 18:34:53,014 - INFO - Restored CLN.csv from backup
+2025-11-22 18:34:53,015 - INFO - Backed up current DCRU.csv to DCRU.pre_restore_20251122_183453.csv
+2025-11-22 18:34:53,017 - INFO - Restored DCRU.csv from backup
+2025-11-22 18:34:53,018 - INFO - Backed up current DU4.csv to DU4.pre_restore_20251122_183453.csv
+2025-11-22 18:34:53,019 - INFO - Restored DU4.csv from backup
+2025-11-22 18:34:53,020 - INFO - Backed up current E28.csv to E28.pre_restore_20251122_183453.csv
+2025-11-22 18:34:53,021 - INFO - Restored E28.csv from backup
+2025-11-22 18:34:53,022 - INFO - Backed up current E3B.csv to E3B.pre_restore_20251122_183453.csv
+2025-11-22 18:34:53,023 - INFO - Restored E3B.csv from backup
+2025-11-22 18:34:53,024 - INFO - Backed up current EB5.csv to EB5.pre_restore_20251122_183453.csv
+2025-11-22 18:34:53,025 - INFO - Restored EB5.csv from backup
+2025-11-22 18:34:53,026 - INFO - Backed up current ER0.csv to ER0.pre_restore_20251122_183453.csv
+2025-11-22 18:34:53,027 - INFO - Restored ER0.csv from backup
+2025-11-22 18:34:53,028 - INFO - Backed up current F34.csv to F34.pre_restore_20251122_183453.csv
+2025-11-22 18:34:53,030 - INFO - Restored F34.csv from backup
+2025-11-22 18:34:53,031 - INFO - Backed up current F9D.csv to F9D.pre_restore_20251122_183453.csv
+2025-11-22 18:34:53,032 - INFO - Restored F9D.csv from backup
+2025-11-22 18:34:53,033 - INFO - Backed up current G13.csv to G13.pre_restore_20251122_183453.csv
+2025-11-22 18:34:53,034 - INFO - Restored G13.csv from backup
+2025-11-22 18:34:53,035 - INFO - Backed up current G92.csv to G92.pre_restore_20251122_183453.csv
+2025-11-22 18:34:53,037 - INFO - Restored G92.csv from backup
+2025-11-22 18:34:53,038 - INFO - Backed up current HMN.csv to HMN.pre_restore_20251122_183453.csv
+2025-11-22 18:34:53,039 - INFO - Restored HMN.csv from backup
+2025-11-22 18:34:53,040 - INFO - Backed up current J69U.csv to J69U.pre_restore_20251122_183453.csv
+2025-11-22 18:34:53,041 - INFO - Restored J69U.csv from backup
+2025-11-22 18:34:53,042 - INFO - Backed up current JYEU.csv to JYEU.pre_restore_20251122_183453.csv
+2025-11-22 18:34:53,043 - INFO - Restored JYEU.csv from backup
+2025-11-22 18:34:53,044 - INFO - Backed up current K71U.csv to K71U.pre_restore_20251122_183453.csv
+2025-11-22 18:34:53,045 - INFO - Restored K71U.csv from backup
+2025-11-22 18:34:53,046 - INFO - Backed up current LCC.csv to LCC.pre_restore_20251122_183453.csv
+2025-11-22 18:34:53,047 - INFO - Restored LCC.csv from backup
+2025-11-22 18:34:53,048 - INFO - Backed up current M44U.csv to M44U.pre_restore_20251122_183453.csv
+2025-11-22 18:34:53,049 - INFO - Restored M44U.csv from backup
+2025-11-22 18:34:53,050 - INFO - Backed up current ME8U.csv to ME8U.pre_restore_20251122_183453.csv
+2025-11-22 18:34:53,052 - INFO - Restored ME8U.csv from backup
+2025-11-22 18:34:53,053 - INFO - Backed up current MZH.csv to MZH.pre_restore_20251122_183453.csv
+2025-11-22 18:34:53,054 - INFO - Restored MZH.csv from backup
+2025-11-22 18:34:53,055 - INFO - Backed up current N2IU.csv to N2IU.pre_restore_20251122_183453.csv
+2025-11-22 18:34:53,056 - INFO - Restored N2IU.csv from backup
+2025-11-22 18:34:53,057 - INFO - Backed up current NTDU.csv to NTDU.pre_restore_20251122_183453.csv
+2025-11-22 18:34:53,058 - INFO - Restored NTDU.csv from backup
+2025-11-22 18:34:53,059 - INFO - Backed up current OU8.csv to OU8.pre_restore_20251122_183453.csv
+2025-11-22 18:34:53,060 - INFO - Restored OU8.csv from backup
+2025-11-22 18:34:53,061 - INFO - Backed up current OV8.csv to OV8.pre_restore_20251122_183453.csv
+2025-11-22 18:34:53,062 - INFO - Restored OV8.csv from backup
+2025-11-22 18:34:53,063 - INFO - Backed up current OYY.csv to OYY.pre_restore_20251122_183453.csv
+2025-11-22 18:34:53,064 - INFO - Restored OYY.csv from backup
+2025-11-22 18:34:53,065 - INFO - Backed up current P52.csv to P52.pre_restore_20251122_183453.csv
+2025-11-22 18:34:53,066 - INFO - Restored P52.csv from backup
+2025-11-22 18:34:53,067 - INFO - Backed up current P8Z.csv to P8Z.pre_restore_20251122_183453.csv
+2025-11-22 18:34:53,068 - INFO - Restored P8Z.csv from backup
+2025-11-22 18:34:53,069 - INFO - Backed up current QES.csv to QES.pre_restore_20251122_183453.csv
+2025-11-22 18:34:53,071 - INFO - Restored QES.csv from backup
+2025-11-22 18:34:53,072 - INFO - Backed up current RE4.csv to RE4.pre_restore_20251122_183453.csv
+2025-11-22 18:34:53,073 - INFO - Restored RE4.csv from backup
+2025-11-22 18:34:53,074 - INFO - Backed up current RXS.csv to RXS.pre_restore_20251122_183453.csv
+2025-11-22 18:34:53,075 - INFO - Restored RXS.csv from backup
+2025-11-22 18:34:53,075 - INFO - Backed up current S08.csv to S08.pre_restore_20251122_183453.csv
+2025-11-22 18:34:53,077 - INFO - Restored S08.csv from backup
+2025-11-22 18:34:53,077 - INFO - Backed up current S56.csv to S56.pre_restore_20251122_183453.csv
+2025-11-22 18:34:53,079 - INFO - Restored S56.csv from backup
+2025-11-22 18:34:53,080 - INFO - Backed up current S58.csv to S58.pre_restore_20251122_183453.csv
+2025-11-22 18:34:53,081 - INFO - Restored S58.csv from backup
+2025-11-22 18:34:53,082 - INFO - Backed up current YF8.csv to YF8.pre_restore_20251122_183453.csv
+2025-11-22 18:34:53,083 - INFO - Restored YF8.csv from backup
+2025-11-22 18:34:53,084 - INFO - Backed up current Z25.csv to Z25.pre_restore_20251122_183453.csv
+2025-11-22 18:34:53,085 - INFO - Restored Z25.csv from backup
+2025-11-22 18:34:53,086 - INFO - Backed up current Z74.csv to Z74.pre_restore_20251122_183453.csv
+2025-11-22 18:34:53,087 - INFO - Restored Z74.csv from backup

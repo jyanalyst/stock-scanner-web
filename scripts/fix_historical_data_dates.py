@@ -126,8 +126,8 @@ class DateFormatFixer:
             parts = date_str.split('/')
             if len(parts) == 3:
                 day, month, year = map(int, parts)
-                # Convert to MM/DD/YYYY
-                return "02d"
+                # Convert to MM/DD/YYYY format
+                return f"{month}/{day}/{year}"
         except (ValueError, IndexError):
             pass
 
