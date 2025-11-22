@@ -294,6 +294,9 @@ def optimize_memory_usage():
 
 def get_performance_stats() -> Dict[str, Any]:
     """Get comprehensive performance statistics"""
+    # Ensure cleanup thread is started (lazy initialization)
+    ensure_cleanup_thread()
+
     with _metrics_lock:
         # Calculate averages for operation times
         operation_stats = {}
@@ -349,7 +352,19 @@ def _start_cleanup_thread():
     thread = threading.Thread(target=cleanup_worker, daemon=True)
     thread.start()
 
-# Start cleanup thread on module import
-_start_cleanup_thread()
+# Lazy initialization for cleanup thread (prevents circular import deadlock)
+_cleanup_thread_started = False
+_thread_lock = threading.RLock()
+
+def ensure_cleanup_thread():
+    """Ensure cleanup thread is started (lazy initialization)"""
+    global _cleanup_thread_started
+    with _thread_lock:
+        if not _cleanup_thread_started:
+            _start_cleanup_thread()
+            _cleanup_thread_started = True
+
+# Remove auto-start at module level to prevent circular import deadlock
+# _start_cleanup_thread()  # REMOVED: This was causing deadlock during import
 
 logger.info("Performance optimization module initialized")
