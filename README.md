@@ -19,6 +19,7 @@ cd /workspaces/stock-scanner-web
 python scripts/import_analyst_txt.py
 python scripts/import_earnings_txt.py
 python scripts/append_historical_data.py
+python scripts/fix_historical_data_dates.py
 
 #Commit to github from VS Code
 # Stage all changes
