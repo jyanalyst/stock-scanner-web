@@ -310,9 +310,12 @@ def add_enhanced_columns(df_daily: pd.DataFrame, ticker: str, rolling_window: in
         df = calculate_rrange_acceleration(df)
         df = calculate_rvol_acceleration(df)
 
-        # Add placeholder metrics for Phase 0 compatibility (Flow_Velocity=0 weight, Volume_Conviction=minimal weight)
-        df['Flow_Velocity'] = 0.0  # Neutral flow (zero weight in Phase 0)
-        df['Volume_Conviction'] = 1.0  # Neutral conviction (minimal weight in Phase 0)
+        # ===== PHASE 1: INSTITUTIONAL FLOW ANALYSIS =====
+        # Calculate real institutional flow metrics (replacing Phase 0 placeholders)
+        df = calculate_institutional_flow(df)
+        df = classify_flow_regime(df)
+        df = calculate_volume_conviction(df)
+        df = calculate_price_flow_divergence(df)
 
         # Calculate percentile ranks for scoring (Phase 2 integration)
         df = calculate_percentile_ranks(df)
@@ -1014,6 +1017,185 @@ def get_mpi_position_label(mpi_zone: int, direction: str) -> str:
         }
 
     return zone_labels.get(mpi_zone, "❓ UNKNOWN")
+
+
+# ===== INSTITUTIONAL FLOW ANALYSIS FUNCTIONS =====
+# Phase 1: Core institutional flow metrics implementation
+
+def calculate_institutional_flow(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Calculate volume-weighted directional institutional flow metrics
+
+    Core Concept: Track institutional buying/selling pressure through volume-weighted flow
+    - Daily_Flow: Volume-weighted directional pressure (+buy/-sell)
+    - Flow_10D: 10-day cumulative institutional flow
+    - Flow_Velocity: Day-over-day flow acceleration/deceleration
+
+    Args:
+        df: DataFrame with OHLCV data
+
+    Returns:
+        DataFrame with institutional flow columns added
+    """
+    # Calculate price change and direction
+    df['Price_Change'] = df['Close'] - df['Open']
+    df['Price_Direction'] = np.sign(df['Price_Change'])
+
+    # Handle flat candles (no price change)
+    df['Price_Direction'] = np.where(
+        df['Price_Change'] == 0,
+        0,  # Neutral for flat candles
+        df['Price_Direction']
+    )
+
+    # Volume-weighted directional flow
+    # Positive flow = buying pressure, negative flow = selling pressure
+    df['Daily_Flow'] = (
+        df['Volume'] *
+        df['Price_Direction'] *
+        (abs(df['Price_Change']) / df['Close'])  # Normalize by price
+    )
+
+    # 10-day cumulative flow (rolling sum)
+    df['Flow_10D'] = df['Daily_Flow'].rolling(10, min_periods=5).sum()
+
+    # Flow velocity (acceleration/deceleration)
+    df['Flow_Velocity'] = df['Flow_10D'] - df['Flow_10D'].shift(1)
+
+    # Fill NaN values
+    df['Daily_Flow'] = df['Daily_Flow'].fillna(0.0)
+    df['Flow_10D'] = df['Flow_10D'].fillna(0.0)
+    df['Flow_Velocity'] = df['Flow_Velocity'].fillna(0.0)
+
+    return df
+
+
+def classify_flow_regime(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Classify institutional flow into regime categories based on strength and direction
+
+    Regimes:
+    - Strong Accumulation: Top 20% of positive flow
+    - Accumulation: Top 40% of positive flow
+    - Neutral: Middle 20% around zero
+    - Distribution: Bottom 40% of negative flow
+    - Strong Distribution: Bottom 20% of negative flow
+
+    Args:
+        df: DataFrame with Flow_10D column
+
+    Returns:
+        DataFrame with Flow_Regime column added
+    """
+    # Calculate flow percentiles for classification
+    df['Flow_Percentile'] = df['Flow_10D'].rolling(window=50, min_periods=20).rank(pct=True)
+
+    # Classify based on percentile thresholds
+    conditions = [
+        df['Flow_Percentile'] >= 0.8,  # Strong Accumulation (top 20%)
+        df['Flow_Percentile'] >= 0.6,  # Accumulation (top 40%)
+        df['Flow_Percentile'] >= 0.4,  # Neutral (middle 20%)
+        df['Flow_Percentile'] >= 0.2,  # Distribution (bottom 40%)
+        True                            # Strong Distribution (bottom 20%)
+    ]
+
+    choices = [
+        'Strong Accumulation',
+        'Accumulation',
+        'Neutral',
+        'Distribution',
+        'Strong Distribution'
+    ]
+
+    df['Flow_Regime'] = pd.Series(np.select(conditions, choices, default='Neutral'), index=df.index)
+
+    # Fill NaN values
+    df['Flow_Percentile'] = df['Flow_Percentile'].fillna(0.5)
+    df['Flow_Regime'] = df['Flow_Regime'].fillna('Neutral')
+
+    return df
+
+
+def calculate_volume_conviction(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Calculate volume conviction metrics showing institutional commitment
+
+    Core Concept: Track ratio of up-day vs down-day volume participation
+    - Volume_Conviction: Ratio of up-day to down-day volume (>1.0 = bullish, <1.0 = bearish)
+    - Avg_Vol_Up_10D: Average volume on up days over 10-day period
+    - Conviction_Velocity: Day-over-day conviction change
+
+    Args:
+        df: DataFrame with OHLCV data
+
+    Returns:
+        DataFrame with volume conviction columns added
+    """
+    # Identify up and down days
+    df['Is_Up_Day'] = (df['Close'] > df['Open']).astype(int)
+    df['Is_Down_Day'] = (df['Close'] < df['Open']).astype(int)
+
+    # Separate volume by direction
+    df['Volume_Up'] = np.where(df['Is_Up_Day'] == 1, df['Volume'], 0)
+    df['Volume_Down'] = np.where(df['Is_Down_Day'] == 1, df['Volume'], 0)
+
+    # 10-day average volumes by direction
+    df['Avg_Vol_Up_10D'] = df['Volume_Up'].rolling(10, min_periods=5).mean()
+    df['Avg_Vol_Down_10D'] = df['Volume_Down'].rolling(10, min_periods=5).mean()
+
+    # Volume conviction ratio (up-day vs down-day volume)
+    # >1.0 = bullish conviction, <1.0 = bearish conviction, =1.0 = neutral
+    df['Volume_Conviction'] = np.where(
+        df['Avg_Vol_Down_10D'] > 0,
+        df['Avg_Vol_Up_10D'] / df['Avg_Vol_Down_10D'],
+        1.0  # Neutral if no down-day volume
+    )
+
+    # Conviction velocity (day-over-day change)
+    df['Conviction_Velocity'] = df['Volume_Conviction'] - df['Volume_Conviction'].shift(1)
+
+    # Fill NaN values
+    df['Volume_Conviction'] = df['Volume_Conviction'].fillna(1.0)  # Neutral default
+    df['Conviction_Velocity'] = df['Conviction_Velocity'].fillna(0.0)
+    df['Avg_Vol_Up_10D'] = df['Avg_Vol_Up_10D'].fillna(0.0)
+
+    return df
+
+
+def calculate_price_flow_divergence(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Calculate price-flow divergence signals
+
+    Core Concept: Identify misalignment between price action and institutional flow
+    - Price_Percentile: Where price sits in 252-day historical range
+    - Divergence_Gap: Price percentile - Flow percentile
+    - Divergence_Severity: Absolute magnitude of divergence (0-100 scale)
+
+    Positive gap = Bearish divergence (price strong, flow weak)
+    Negative gap = Bullish divergence (price weak, flow strong)
+
+    Args:
+        df: DataFrame with price and flow data
+
+    Returns:
+        DataFrame with divergence columns added
+    """
+    # Price percentile (where price sits in historical range)
+    df['Price_Percentile'] = df['Close'].rolling(252, min_periods=60).rank(pct=True)
+
+    # Flow percentile (already calculated in classify_flow_regime)
+    # Divergence gap: Price percentile - Flow percentile
+    df['Divergence_Gap'] = (df['Price_Percentile'] - df['Flow_Percentile']) * 100
+
+    # Divergence severity (absolute magnitude, 0-100 scale)
+    df['Divergence_Severity'] = abs(df['Divergence_Gap'])
+
+    # Fill NaN values
+    df['Price_Percentile'] = df['Price_Percentile'].fillna(0.5)
+    df['Divergence_Gap'] = df['Divergence_Gap'].fillna(0.0)
+    df['Divergence_Severity'] = df['Divergence_Severity'].fillna(0.0)
+
+    return df
 
 
 logger.info("Technical Analysis Module loaded with optimized PURE MPI EXPANSION system (Market Regime removed)")

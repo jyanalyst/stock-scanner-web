@@ -976,13 +976,14 @@ def display_filtered_results(filtered_stocks: pd.DataFrame, selected_base_filter
         create_warning_box("No stocks match the current filter criteria")
         return
 
-    # Display columns - Essential columns only (14 columns)
+    # Display columns - Essential columns only (16 columns)
     display_cols = [
         # Core Identity (3)
         'Analysis_Date', 'Ticker', 'Name',
 
-        # Core Signal (5) - includes Flow_Regime for institutional flow context
-        'Signal_Bias', 'Total_Score', 'Pattern_Quality', 'MPI_Position', 'Flow_Regime',
+        # Core Signal (7) - includes Flow percentiles for institutional flow context
+        'Signal_Bias', 'Total_Score', 'Pattern_Quality', 'MPI_Position', 
+        'Flow_Percentile', 'Flow_Velocity_Percentile',
 
         # Entry Price (1)
         'Entry_Level',
@@ -1027,10 +1028,12 @@ def display_filtered_results(filtered_stocks: pd.DataFrame, selected_base_filter
         'RelVol_Trend': st.column_config.TextColumn('Vol Trend', width='small', help='Building/Stable/Fading'),
 
         # ===== PHASE 1: INSTITUTIONAL FLOW METRICS =====
-        # Flow Analysis (4)
+        # Flow Analysis (5)
         'Daily_Flow': st.column_config.NumberColumn('Daily Flow', format='%+.1f', help='Volume-weighted directional flow (+buy/-sell pressure)'),
         'Flow_10D': st.column_config.NumberColumn('Flow 10D', format='%+.1f', help='10-day cumulative institutional flow'),
         'Flow_Velocity': st.column_config.NumberColumn('Flow Vel', format='%+.2f', help='Day-over-day flow change (acceleration)'),
+        'Flow_Percentile': st.column_config.NumberColumn('Flow %ile', width='small', format='%.1f', help='Cross-stock percentile (0-100): Higher = stronger accumulation vs peers TODAY'),
+        'Flow_Velocity_Percentile': st.column_config.NumberColumn('Vel %ile', width='small', format='%.1f', help='Cross-stock velocity percentile (0-100): Higher = faster acceleration vs peers'),
         'Flow_Regime': st.column_config.TextColumn('Flow Regime', width='medium', help='Strong Accumulation/Accumulation/Neutral/Distribution/Strong Distribution'),
 
         # Conviction Analysis (3)
@@ -1120,14 +1123,51 @@ def show_tradingview_export(filtered_stocks: pd.DataFrame, selected_base_filter:
         help="Copy and paste into TradingView watchlist. Sorted by MPI Expansion trends."
     )
 
-    csv_data = filtered_stocks.to_csv(index=False)
+    # ===== ENHANCED CSV EXPORT WITH NORMALIZED DATA =====
+    # Create export dataframe with both raw and normalized institutional flow metrics
+    export_df = filtered_stocks.copy()
+
+    # Add percentile columns for cross-stock comparison (if available)
+    percentile_columns = {
+        'Flow_Percentile': 'Flow_Pct',
+        'Flow_Velocity_Percentile': 'Flow_Vel_Pct',
+        'Volume_Conviction_Percentile': 'Conviction_Pct',
+        'Price_Percentile': 'Price_Pct'
+    }
+
+    # Rename percentile columns for clarity in export
+    for original_col, export_col in percentile_columns.items():
+        if original_col in export_df.columns:
+            export_df[export_col] = export_df[original_col]
+
+    # Create CSV data with enhanced institutional flow columns
+    csv_data = export_df.to_csv(index=False)
     filename_prefix = selected_base_filter.lower().replace(' ', '_').replace('+', 'and')
+
+    # Enhanced help text explaining the data
+    help_text = """
+    Download complete analysis with institutional flow metrics.
+
+    RAW VALUES (stock-specific):
+    - Daily_Flow, Flow_10D, Flow_Velocity: Absolute institutional pressure
+    - Volume_Conviction: Up/down volume ratio
+    - Divergence_Gap: Price vs flow misalignment
+
+    NORMALIZED VALUES (cross-stock comparison):
+    - Flow_Pct, Flow_Vel_Pct: Percentile rankings (0-1 scale)
+    - Conviction_Pct: Volume conviction percentile
+    - Price_Pct: Price position vs 252-day range
+
+    Use percentiles for comparing across different stocks/prices.
+    Use raw values for absolute magnitude within same stock.
+    """
+
     create_download_button(
         csv_data,
-        f"mpi_expansion_{filename_prefix}_{len(filtered_stocks)}_stocks.csv",
-        "📥 Download MPI Expansion Data (CSV)",
+        f"institutional_flow_{filename_prefix}_{len(filtered_stocks)}_stocks.csv",
+        "📥 Download Institutional Flow Data (CSV)",
         "text/csv",
-        "Download complete breakout analysis results with MPI expansion data"
+        help_text
     )
 
 

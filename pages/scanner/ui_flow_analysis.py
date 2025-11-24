@@ -30,13 +30,14 @@ def show_institutional_flow_analysis(filtered_stocks: pd.DataFrame) -> None:
         st.markdown("### 🌊 Flow Analysis")
         st.caption("Volume-weighted directional flow tracking institutional accumulation/distribution")
         
-        flow_cols = ['Ticker', 'Name', 'Daily_Flow', 'Flow_10D', 'Flow_Velocity', 'Flow_Regime']
+        # Include both raw and percentile columns for comprehensive analysis
+        flow_cols = ['Ticker', 'Name', 'Daily_Flow', 'Flow_10D', 'Flow_Percentile', 'Flow_Velocity', 'Flow_Velocity_Percentile', 'Flow_Regime']
         flow_data = filtered_stocks[[col for col in flow_cols if col in filtered_stocks.columns]].copy()
-        
+
         # Sort by Flow_10D descending (strongest accumulation first)
         if 'Flow_10D' in flow_data.columns:
             flow_data = flow_data.sort_values('Flow_10D', ascending=False)
-        
+
         flow_config = {
             'Ticker': st.column_config.TextColumn('Ticker', width='small'),
             'Name': st.column_config.TextColumn('Company', width='medium'),
@@ -50,10 +51,20 @@ def show_institutional_flow_analysis(filtered_stocks: pd.DataFrame) -> None:
                 format='%+.1f',
                 help='10-day cumulative institutional flow (positive=accumulation, negative=distribution)'
             ),
+            'Flow_Percentile': st.column_config.NumberColumn(
+                'Flow %ile',
+                format='%.0f%%',
+                help='Flow_10D percentile rank: 95% = top 5% of 50-day history (higher = stronger accumulation)'
+            ),
             'Flow_Velocity': st.column_config.NumberColumn(
                 'Flow Velocity',
                 format='%+.2f',
                 help='Day-over-day flow change (acceleration/deceleration)'
+            ),
+            'Flow_Velocity_Percentile': st.column_config.NumberColumn(
+                'Vel %ile',
+                format='%.0f%%',
+                help='Flow_Velocity percentile rank: 15% = bottom 15% of 50-day history (lower = more deceleration)'
             ),
             'Flow_Regime': st.column_config.TextColumn(
                 'Flow Regime',
@@ -88,13 +99,14 @@ def show_institutional_flow_analysis(filtered_stocks: pd.DataFrame) -> None:
         st.markdown("### 🎯 Conviction Analysis")
         st.caption("Volume participation patterns showing institutional commitment")
         
-        conviction_cols = ['Ticker', 'Name', 'Volume_Conviction', 'Conviction_Velocity', 'Avg_Vol_Up_10D']
+        # Include both raw and percentile columns for comprehensive analysis
+        conviction_cols = ['Ticker', 'Name', 'Volume_Conviction', 'Volume_Conviction_Percentile', 'Conviction_Velocity', 'Avg_Vol_Up_10D']
         conviction_data = filtered_stocks[[col for col in conviction_cols if col in filtered_stocks.columns]].copy()
-        
+
         # Sort by Volume_Conviction descending (highest conviction first)
         if 'Volume_Conviction' in conviction_data.columns:
             conviction_data = conviction_data.sort_values('Volume_Conviction', ascending=False)
-        
+
         conviction_config = {
             'Ticker': st.column_config.TextColumn('Ticker', width='small'),
             'Name': st.column_config.TextColumn('Company', width='medium'),
@@ -102,6 +114,11 @@ def show_institutional_flow_analysis(filtered_stocks: pd.DataFrame) -> None:
                 'Conviction',
                 format='%.3f',
                 help='Ratio of up-day vs down-day volume (>1.0=bullish, <1.0=bearish, 1.0=neutral)'
+            ),
+            'Volume_Conviction_Percentile': st.column_config.NumberColumn(
+                'Conv %ile',
+                format='%.0f%%',
+                help='Volume_Conviction percentile rank: 80% = top 20% of 50-day history (higher = stronger conviction)'
             ),
             'Conviction_Velocity': st.column_config.NumberColumn(
                 'Conv Velocity',

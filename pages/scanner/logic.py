@@ -144,6 +144,29 @@ def run_enhanced_stock_scan(stocks_to_scan: List[str], analysis_date: Optional[d
         # Optimize memory usage after creating results
         results_df = _memory_manager.optimize_dataframe(results_df)
 
+        # ===== CALCULATE CROSS-STOCK PERCENTILES =====
+        # These percentiles rank stocks against each other (not time-series)
+        update_progress(progress_bar, status_text, 0.75, "📊 Calculating cross-stock flow percentiles...")
+        
+        try:
+            # Calculate cross-stock percentiles for key flow metrics
+            if 'Flow_10D' in results_df.columns:
+                results_df['Flow_Percentile'] = results_df['Flow_10D'].rank(pct=True) * 100
+                results_df['Flow_Percentile'] = results_df['Flow_Percentile'].round(1)
+            
+            if 'Flow_Velocity' in results_df.columns:
+                results_df['Flow_Velocity_Percentile'] = results_df['Flow_Velocity'].rank(pct=True) * 100
+                results_df['Flow_Velocity_Percentile'] = results_df['Flow_Velocity_Percentile'].round(1)
+            
+            if 'Volume_Conviction' in results_df.columns:
+                results_df['Volume_Conviction_Percentile'] = results_df['Volume_Conviction'].rank(pct=True) * 100
+                results_df['Volume_Conviction_Percentile'] = results_df['Volume_Conviction_Percentile'].round(1)
+            
+            structured_logger.log('INFO', 'CrossStockPercentiles', 
+                                f"Calculated cross-stock percentiles for {len(results_df)} stocks")
+        except Exception as e:
+            handle_error(e, "CrossStockPercentiles", {"operation": "calculate_percentiles"}, show_user_message=False)
+
         # Load and merge analyst reports with enhanced error handling
         update_progress(progress_bar, status_text, ScanProgress.ANALYST_REPORTS, "📊 Loading analyst reports...")
 
@@ -461,13 +484,21 @@ def _create_result_dict(analysis_row: pd.Series, actual_date, ticker: str, fetch
     'MPI_Zone': mpi_zone,
 
     # ===== PHASE 1: INSTITUTIONAL FLOW METRICS =====
+    # Flow Analysis (time-series percentiles from technical analysis)
     'Daily_Flow': round(float(analysis_row.get('Daily_Flow', 0.0)), 1),
     'Flow_10D': round(float(analysis_row.get('Flow_10D', 0.0)), 1),
     'Flow_Velocity': round(float(analysis_row.get('Flow_Velocity', 0.0)), 2),
+    'Flow_Percentile_TS': round(float(analysis_row.get('Flow_Percentile', 0.5)) * 100, 1),  # Convert 0-1 to 0-100 scale
+    'Flow_Velocity_Percentile_TS': round(float(analysis_row.get('Flow_Velocity_Percentile', 0.5)) * 100, 1),  # Convert to 0-100
     'Flow_Regime': str(analysis_row.get('Flow_Regime', 'Neutral')),
+    
+    # Conviction Analysis (time-series percentiles)
     'Volume_Conviction': round(float(analysis_row.get('Volume_Conviction', 1.0)), 2),
+    'Volume_Conviction_Percentile_TS': round(float(analysis_row.get('Volume_Conviction_Percentile', 0.5)) * 100, 1),  # Convert to 0-100
     'Conviction_Velocity': round(float(analysis_row.get('Conviction_Velocity', 0.0)), 3),
     'Avg_Vol_Up_10D': round(float(analysis_row.get('Avg_Vol_Up_10D', 0.0)), 0),
+    
+    # Divergence Analysis
     'Divergence_Gap': round(float(analysis_row.get('Divergence_Gap', 0.0)), 2),
     'Divergence_Severity': round(float(analysis_row.get('Divergence_Severity', 0.0)), 1),
     'Price_Percentile': round(float(analysis_row.get('Price_Percentile', 0.5)), 2),
