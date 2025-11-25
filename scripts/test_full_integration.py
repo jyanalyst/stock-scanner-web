@@ -14,9 +14,9 @@ sys.path.append(str(Path(__file__).parent.parent))
 
 from core.technical_analysis import (
     add_enhanced_columns,
-    calculate_institutional_flow_system,
-    calculate_volume_conviction_metrics,
-    calculate_flow_divergence_metrics,
+    calculate_institutional_flow,
+    calculate_volume_conviction,
+    calculate_price_flow_divergence,
     calculate_percentile_ranks,
     calculate_acceleration_score_v3
 )
@@ -64,16 +64,15 @@ def test_full_pipeline():
     # Verify all expected columns exist
     required_columns = [
         # Original MPI columns
-        'MPI', 'MPI_Velocity', 'MPI_Trend',
+        'MPI', 'MPI_Velocity',
         # New institutional flow columns
         'Daily_Flow', 'Flow_10D', 'Flow_Velocity', 'Flow_Regime',
         'Volume_Conviction', 'Conviction_Velocity',
         'Divergence_Gap', 'Divergence_Severity',
-        # Percentile columns
-        'IBS_Bullish_Pct', 'RVol_Accel_Percentile', 'Flow_Bullish_Pct',
-        # Signal columns
-        'Signal_Bias', 'Pattern_Quality', 'Total_Score',
-        'IBS_Score', 'RVol_Score', 'RRange_Score'
+        # Percentile columns (simplified - no time-series percentiles)
+        'IBS_Bullish_Pct', 'Flow_Bullish_Pct',
+        # Signal columns (no scoring)
+        'Signal_Bias', 'Pattern_Quality', 'Total_Score'
     ]
 
     missing_columns = [col for col in required_columns if col not in df_enhanced.columns]

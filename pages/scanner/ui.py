@@ -976,13 +976,13 @@ def display_filtered_results(filtered_stocks: pd.DataFrame, selected_base_filter
         create_warning_box("No stocks match the current filter criteria")
         return
 
-    # Display columns - Essential columns only (16 columns)
+    # Display columns - Essential columns only (14 columns) - removed scoring
     display_cols = [
         # Core Identity (3)
         'Analysis_Date', 'Ticker', 'Name',
 
-        # Core Signal (7) - includes Flow percentiles for institutional flow context
-        'Signal_Bias', 'Total_Score', 'Pattern_Quality', 'MPI_Position', 
+        # Core Signal (4) - removed scoring columns
+        'Signal_Bias', 'MPI_Position',
         'Flow_Percentile', 'Flow_Velocity_Percentile',
 
         # Entry Price (1)
@@ -1001,19 +1001,14 @@ def display_filtered_results(filtered_stocks: pd.DataFrame, selected_base_filter
         'Ticker': st.column_config.TextColumn('Ticker', width='small'),
         'Name': st.column_config.TextColumn('Company', width='medium'),
 
-        # Primary Signal (4)
+        # Primary Signal (2) - removed scoring columns
         'Signal_Bias': st.column_config.TextColumn('🎯 Signal', width='small', help='🟢 BULLISH / 🔴 BEARISH / ⚪ NEUTRAL'),
-        'Total_Score': st.column_config.NumberColumn('Score', width='small', format='%d', help='0-100 acceleration score (higher = stronger momentum)'),
-        'Pattern_Quality': st.column_config.TextColumn('📊 Quality', width='medium', help='🔥 EXCEPTIONAL / 🟢 STRONG / 🟡 GOOD / ⚪ MODERATE / 🟠 WEAK / 🔴 POOR'),
         'MPI_Position': st.column_config.TextColumn('📍 Stage', width='medium', help='📍 EARLY STAGE / ⚠️ MID STAGE / 🚨 LATE STAGE / ❌ TOO WEAK'),
 
-        # Acceleration Details (6)
+        # Acceleration Details (3) - removed scoring columns
         'RVol_Accel': st.column_config.NumberColumn('RVol Accel', format='%+.3f', help='Relative Volume 3-bar acceleration (participation momentum)'),
-        'RVol_Score': st.column_config.NumberColumn('RVol Pts', format='%d', help='RVol contribution to total score (0-35)'),
         'RRange_Accel': st.column_config.NumberColumn('RRng Accel', format='%+.3f', help='Relative Range 3-bar acceleration (volatility momentum)'),
-        'RRange_Score': st.column_config.NumberColumn('RRng Pts', format='%d', help='RRange contribution to total score (0-30)'),
         'IBS_Accel': st.column_config.NumberColumn('IBS Accel', format='%+.3f', help='IBS 3-bar acceleration (momentum in price positioning)'),
-        'IBS_Score': st.column_config.NumberColumn('IBS Pts', format='%d', help='IBS contribution to total score (0-35)'),
 
         # Pattern Timing (3)
         'Entry_Level': st.column_config.NumberColumn('Entry', width='small', help='Price where reversal signal triggered'),
@@ -1062,21 +1057,21 @@ def display_filtered_results(filtered_stocks: pd.DataFrame, selected_base_filter
     column_config = create_dynamic_column_config(filtered_stocks, display_cols, base_column_config)
     display_cols = [col for col in display_cols if col in filtered_stocks.columns]
 
-    # Apply default sorting: Signal_Bias (Bullish first) → Quality (Highest first)
-    if 'Signal_Bias' in filtered_stocks.columns and 'MPI_Signal_Quality' in filtered_stocks.columns:
+    # Apply default sorting: Signal_Bias (Bullish first) - no scoring-based sorting
+    if 'Signal_Bias' in filtered_stocks.columns:
         # Make explicit copy and convert Signal_Bias to string to avoid categorical issues
         filtered_stocks_sorted = filtered_stocks.copy()
-        
+
         # Convert Signal_Bias to string if it's categorical
         if pd.api.types.is_categorical_dtype(filtered_stocks_sorted['Signal_Bias']):
             filtered_stocks_sorted['Signal_Bias'] = filtered_stocks_sorted['Signal_Bias'].astype(str)
-        
+
         bias_order = {'🟢 BULLISH': 1, '⚪ NEUTRAL': 2, '🔴 BEARISH': 3}
         filtered_stocks_sorted['_bias_sort'] = filtered_stocks_sorted['Signal_Bias'].map(bias_order).fillna(4)
-        
+
         filtered_stocks_sorted = filtered_stocks_sorted.sort_values(
-            by=['_bias_sort', 'MPI_Signal_Quality'],
-            ascending=[True, False]  # Bullish first, Quality high to low
+            by=['_bias_sort'],
+            ascending=[True]  # Bullish first
         ).drop('_bias_sort', axis=1)
     else:
         filtered_stocks_sorted = filtered_stocks
@@ -1103,8 +1098,24 @@ def show_tradingview_export(filtered_stocks: pd.DataFrame, selected_base_filter:
     """Show TradingView export section"""
     create_section_header("📋 TradingView Export (Filtered)", "")
 
-    # Sort by Total_Score descending for better trading priority
-    sorted_stocks = filtered_stocks.sort_values('Total_Score', ascending=False)
+    # Sort by Signal_Bias (Bullish first) for better trading priority - no scoring
+    if 'Signal_Bias' in filtered_stocks.columns:
+        # Make explicit copy and convert Signal_Bias to string to avoid categorical issues
+        sorted_stocks = filtered_stocks.copy()
+
+        # Convert Signal_Bias to string if it's categorical
+        if pd.api.types.is_categorical_dtype(sorted_stocks['Signal_Bias']):
+            sorted_stocks['Signal_Bias'] = sorted_stocks['Signal_Bias'].astype(str)
+
+        bias_order = {'🟢 BULLISH': 1, '⚪ NEUTRAL': 2, '🔴 BEARISH': 3}
+        sorted_stocks['_bias_sort'] = sorted_stocks['Signal_Bias'].map(bias_order).fillna(4)
+
+        sorted_stocks = sorted_stocks.sort_values(
+            by=['_bias_sort'],
+            ascending=[True]  # Bullish first
+        ).drop('_bias_sort', axis=1)
+    else:
+        sorted_stocks = filtered_stocks
     tv_tickers = [f"SGX:{ticker.replace('.SG', '')}" for ticker in sorted_stocks['Ticker'].tolist()]
     tv_string = ','.join(tv_tickers)
 

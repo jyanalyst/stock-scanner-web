@@ -48,25 +48,14 @@ def calculate_mpi_expansion(df: pd.DataFrame) -> pd.DataFrame:
     # Pure velocity calculation (expansion/contraction)
     df['MPI_Velocity'] = df['MPI'] - df['MPI'].shift(1)
     
-    # FIXED: Velocity-based classification with correct logic
-    conditions = [
-        df['MPI_Velocity'] > 0,    # Expanding - any positive momentum
-        df['MPI_Velocity'] == 0,   # Flat - no change
-        df['MPI_Velocity'] < 0,    # Contracting - any negative momentum
-    ]
-
-    choices = [
-        'Expanding',     # 📈 Positive momentum
-        'Flat',          # ➖ No change  
-        'Contracting'    # 📉 Negative momentum
-    ]
+    # MPI_Trend removed - can be derived from MPI_Velocity sign when needed
     
-    df['MPI_Trend'] = pd.Series(np.select(conditions, choices, default='Flat'), index=df.index)
-    
-    # Log MPI trend distribution for monitoring
+    # Log MPI velocity distribution for monitoring
     if len(df) > 0:
-        trend_counts = df['MPI_Trend'].value_counts()
-        logger.debug(f"MPI Trends: {dict(trend_counts)}")
+        positive_velocity = (df['MPI_Velocity'] > 0).sum()
+        negative_velocity = (df['MPI_Velocity'] < 0).sum()
+        neutral_velocity = (df['MPI_Velocity'] == 0).sum()
+        logger.debug(f"MPI Velocity: +{positive_velocity} | -{negative_velocity} | 0{neutral_velocity}")
 
     # Trading signals based on pure expansion
     df['Signal_Expansion_Buy'] = (df['MPI_Velocity'] > 0).astype(int)
@@ -131,29 +120,14 @@ def calculate_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
     # Daily relative range
     df['Daily_Rel_Range'] = (df['High'] - df['Low']) / df['Close']
     
-    # Percentile rankings
-    df['Daily_Range_Percentile'] = df['Daily_Rel_Range'].rolling(
-        window=50, min_periods=20
-    ).rank(pct=True)
-    
-    # Volume normalization
-    df['Volume_Normalized'] = df['Volume'] / df['Volume'].rolling(
-        window=20, min_periods=10
-    ).mean()
-    
-    # Volume-weighted range
-    df['Volume_Weighted_Range'] = df['Daily_Rel_Range'] * df['Volume_Normalized']
-    
-    # Volume-weighted range percentile and velocity
-    df['VW_Range_Percentile'] = df['Volume_Weighted_Range'].rolling(
-        window=50, min_periods=20
-    ).rank(pct=True)
-    df['VW_Range_Velocity'] = df['VW_Range_Percentile'] - df['VW_Range_Percentile'].shift(1)
-    
-    # Range expansion signal
-    df['Rel_Range_Signal'] = (
-        df['VW_Range_Percentile'] > df['VW_Range_Percentile'].shift(1)
-    ).astype(int)
+    # Volume-weighted range (use Relative_Volume instead of Volume_Normalized)
+    df['Volume_Weighted_Range'] = df['Daily_Rel_Range'] * df['Relative_Volume']
+
+    # Volume-weighted range percentile (for display/filtering only) - RAW method
+    df['VW_Range_Percentile'] = df['Volume_Weighted_Range']
+
+    # VW_Range_Velocity calculated from RAW Volume_Weighted_Range (not percentile)
+    df['VW_Range_Velocity'] = df['Volume_Weighted_Range'] - df['Volume_Weighted_Range'].shift(1)
     
     # IBS calculation
     df['IBS'] = np.where(
@@ -202,29 +176,8 @@ def calculate_relative_volume(df: pd.DataFrame) -> pd.DataFrame:
     # Calculate relative volume as decimal (not percentage)
     df['Relative_Volume'] = df['Volume'] / df['Volume_14D_Avg']
     
-    # NEW: Direct velocity (day-over-day change)
-    df['RelVol_Velocity'] = df['Relative_Volume'] - df['Relative_Volume'].shift(1)
-    
-    # NEW: Percentile-based velocity (normalized, comparable across stocks)
-    df['RelVol_Percentile'] = df['Relative_Volume'].rolling(
-        window=50, min_periods=20
-    ).rank(pct=True)
-    df['RelVol_Percentile_Velocity'] = df['RelVol_Percentile'] - df['RelVol_Percentile'].shift(1)
-    
-    # NEW: Volume trend classification (for display and filtering)
-    conditions = [
-        df['RelVol_Velocity'] > 0,    # Building volume
-        df['RelVol_Velocity'] == 0,   # Stable volume
-        df['RelVol_Velocity'] < 0,    # Fading volume
-    ]
-    choices = ['Building', 'Stable', 'Fading']
-    df['RelVol_Trend'] = pd.Series(np.select(conditions, choices, default='Stable'), index=df.index)
-    
     # Fill NaN values
     df['Relative_Volume'] = df['Relative_Volume'].fillna(100.0)
-    df['RelVol_Velocity'] = df['RelVol_Velocity'].fillna(0.0)
-    df['RelVol_Percentile'] = df['RelVol_Percentile'].fillna(0.5)
-    df['RelVol_Percentile_Velocity'] = df['RelVol_Percentile_Velocity'].fillna(0.0)
     
     # High activity flags for reference (existing) - decimal scale
     df['High_Rel_Volume_150'] = (df['Relative_Volume'] >= 1.5).astype(int)  # 1.5x average
@@ -232,44 +185,7 @@ def calculate_relative_volume(df: pd.DataFrame) -> pd.DataFrame:
     
     return df
 
-def calculate_crt_levels(df: pd.DataFrame) -> pd.DataFrame:
-    """Calculate CRT (Candle Range Theory) levels and signals"""
-    # Trading day identification
-    df['Is_First_Trading_Day'] = (df.index.weekday == 0).astype(int)
-    
-    # Initialize CRT columns
-    crt_columns = ['Weekly_Open', 'CRT_High', 'CRT_Low', 'CRT_Close']
-    for col in crt_columns:
-        df[col] = np.nan
-    
-    # Set CRT values on Mondays
-    monday_mask = df['Is_First_Trading_Day'] == 1
-    df.loc[monday_mask, 'Weekly_Open'] = df.loc[monday_mask, 'Open']
-    df.loc[monday_mask, 'CRT_High'] = df.loc[monday_mask, 'High']
-    df.loc[monday_mask, 'CRT_Low'] = df.loc[monday_mask, 'Low']
-    df.loc[monday_mask, 'CRT_Close'] = df.loc[monday_mask, 'Close']
-    
-    # Forward fill CRT values
-    for col in crt_columns:
-        df[col] = df[col].ffill()
-    
-    # Valid CRT and qualifying velocity
-    df['Valid_CRT'] = np.where(
-        (df['Is_First_Trading_Day'] == 1) & (df['Rel_Range_Signal'] == 1), 1,
-        np.where(df['Is_First_Trading_Day'] == 1, 0, np.nan)
-    )
-    
-    df['CRT_Qualifying_Velocity'] = np.where(
-        (df['Is_First_Trading_Day'] == 1) & (df['Rel_Range_Signal'] == 1),
-        df['VW_Range_Velocity'],
-        np.nan
-    )
-    
-    # Forward fill
-    df['Valid_CRT'] = df['Valid_CRT'].ffill()
-    df['CRT_Qualifying_Velocity'] = df['CRT_Qualifying_Velocity'].ffill()
-    
-    return df
+
 
 @cached_computation("technical_analysis")
 def add_enhanced_columns(df_daily: pd.DataFrame, ticker: str, rolling_window: int = 20,
@@ -299,10 +215,11 @@ def add_enhanced_columns(df_daily: pd.DataFrame, ticker: str, rolling_window: in
 
     try:
         # Apply technical indicators in logical sequence
-        df = calculate_technical_indicators(df)
-        df = calculate_crt_levels(df)
-        df = calculate_mpi_expansion(df)
+        # IMPORTANT: calculate_relative_volume MUST come before calculate_technical_indicators
+        # because calculate_technical_indicators uses Relative_Volume
         df = calculate_relative_volume(df)
+        df = calculate_technical_indicators(df)
+        df = calculate_mpi_expansion(df)
 
         # ===== NEW: Break & Reversal Pattern Calculations =====
         # Calculate acceleration metrics (core scoring components)
@@ -336,68 +253,30 @@ def add_enhanced_columns(df_daily: pd.DataFrame, ticker: str, rolling_window: in
             df['purge_high'] = np.nan
             df['purge_low'] = np.nan
 
-        # Calculate acceleration scores for latest signals
+        # Determine signal direction from break & reversal patterns (no scoring)
         latest_row = df.iloc[-1]
         if latest_row['bullish_reversal'] == 1:
             direction = 'bullish'
-            # Use percentile-based scoring with Phase 0 weights
-            phase0_weights = {
-                'IBS_Accel': 1.5,
-                'RVol_Accel': 86.5,
-                'RRange_Accel': 11.3,
-                'Flow_Velocity': 0.0,  # Monitor this
-                'Volume_Conviction': 0.7
-            }
-            total_score, component_scores, pattern_quality = calculate_acceleration_score_v3(
-                direction=direction,
-                ibs_pct=latest_row['IBS_Bullish_Pct'],
-                rvol_pct=latest_row['RVol_Accel_Percentile'],
-                rrange_pct=latest_row['RRange_Accel_Percentile'],
-                flow_pct=latest_row['Flow_Bullish_Pct'],
-                conviction_pct=latest_row['Volume_Conviction_Percentile'],
-                weights=phase0_weights
-            )
-            # LEGACY: Keep old confirmation logic for backward compatibility
-            is_confirmed = True  # Percentile system doesn't use gates
+            is_confirmed = True  # Signal detected
         elif latest_row['bearish_reversal'] == 1:
             direction = 'bearish'
-            # Use percentile-based scoring with Phase 0 weights
-            phase0_weights = {
-                'IBS_Accel': 1.5,
-                'RVol_Accel': 86.5,
-                'RRange_Accel': 11.3,
-                'Flow_Velocity': 0.0,  # Monitor this
-                'Volume_Conviction': 0.7
-            }
-            total_score, component_scores, pattern_quality = calculate_acceleration_score_v3(
-                direction=direction,
-                ibs_pct=latest_row['IBS_Bearish_Pct'],
-                rvol_pct=latest_row['RVol_Accel_Percentile'],
-                rrange_pct=latest_row['RRange_Accel_Percentile'],
-                flow_pct=latest_row['Flow_Bearish_Pct'],
-                conviction_pct=latest_row['Volume_Conviction_Percentile'],
-                weights=phase0_weights
-            )
-            # LEGACY: Keep old confirmation logic for backward compatibility
-            is_confirmed = True  # Percentile system doesn't use gates
+            is_confirmed = True  # Signal detected
         else:
-            # No signal today - use neutral values
+            # No signal today - neutral
             direction = 'neutral'
-            total_score = 0
             is_confirmed = True  # No signal = no filtering needed
-            component_scores = {'ibs': 0, 'rvol': 0, 'rrange': 0, 'flow': 0, 'conviction': 0}
-            pattern_quality = '⚪ NEUTRAL'
 
-        # Add signal summary columns for scanner
+        # Add signal summary columns for scanner (no scoring)
         df['Signal_Bias'] = '🟢 BULLISH' if latest_row['bullish_reversal'] == 1 else (
             '🔴 BEARISH' if latest_row['bearish_reversal'] == 1 else '⚪ NEUTRAL'
         )
-        df['Pattern_Quality'] = pattern_quality  # Use the pattern_quality from calculate_acceleration_score tuple
-        df['Total_Score'] = total_score
-        df['Triple_Confirm'] = '🔥 YES' if total_score >= 90 else '—'  # Triple confirm based on exceptional score
-        df['IBS_Score'] = component_scores['ibs']
-        df['RVol_Score'] = component_scores['rvol']
-        df['RRange_Score'] = component_scores['rrange']
+        # Remove scoring columns - keep only signal direction
+        df['Pattern_Quality'] = '⚪ NEUTRAL'  # Neutral since no scoring
+        df['Total_Score'] = 0  # No scoring
+        df['Triple_Confirm'] = '—'  # No triple confirmation
+        df['IBS_Score'] = 0  # No IBS scoring
+        df['RVol_Score'] = 0  # No RVol scoring
+        df['RRange_Score'] = 0  # No RRange scoring
 
         # ===== CONFIRMATION FILTERING =====
         # Store confirmation status for filtering
@@ -587,51 +466,39 @@ def calculate_percentile_ranks(df: pd.DataFrame) -> pd.DataFrame:
     """
     df = df.copy()
 
-    # Calculate basic percentile ranks (0-1 scale)
-    df['IBS_Accel_Percentile'] = df['IBS_Accel'].rolling(window=50, min_periods=20).rank(pct=True)
-    df['RVol_Accel_Percentile'] = df['RVol_Accel'].rolling(window=50, min_periods=20).rank(pct=True)
-    df['RRange_Accel_Percentile'] = df['RRange_Accel'].rolling(window=50, min_periods=20).rank(pct=True)
-    df['Flow_Velocity_Percentile'] = df['Flow_Velocity'].rolling(window=50, min_periods=20).rank(pct=True)
-    df['Volume_Conviction_Percentile'] = df['Volume_Conviction'].rolling(window=50, min_periods=20).rank(pct=True)
+    # Calculate basic percentile ranks (0-1 scale) - removed time-series percentiles
 
-    # Direction-specific IBS percentiles
-    # When IBS_Accel > 0: bullish_pct = percentile, bearish_pct = 0
-    # When IBS_Accel < 0: bearish_pct = percentile, bullish_pct = 0
-    # When IBS_Accel = 0: both = 0.5 (neutral)
+    # Direction-specific percentiles calculated directly from raw values (no time-series)
+    # IBS direction percentiles
     df['IBS_Bullish_Pct'] = np.where(
         df['IBS_Accel'] > 0,
-        df['IBS_Accel_Percentile'],
-        np.where(df['IBS_Accel'] == 0, 0.5, 0.0)
+        0.7,  # High percentile for positive acceleration
+        np.where(df['IBS_Accel'] == 0, 0.5, 0.3)  # Neutral for zero, low for negative
     )
     df['IBS_Bearish_Pct'] = np.where(
         df['IBS_Accel'] < 0,
-        df['IBS_Accel_Percentile'],
-        np.where(df['IBS_Accel'] == 0, 0.5, 0.0)
+        0.7,  # High percentile for negative acceleration
+        np.where(df['IBS_Accel'] == 0, 0.5, 0.3)  # Neutral for zero, low for positive
     )
 
-    # Direction-specific Flow percentiles
-    # Same logic as IBS but for Flow_Velocity
+    # Flow direction percentiles
     df['Flow_Bullish_Pct'] = np.where(
         df['Flow_Velocity'] > 0,
-        df['Flow_Velocity_Percentile'],
-        np.where(df['Flow_Velocity'] == 0, 0.5, 0.0)
+        0.7,  # High percentile for positive flow
+        np.where(df['Flow_Velocity'] == 0, 0.5, 0.3)  # Neutral for zero, low for negative
     )
     df['Flow_Bearish_Pct'] = np.where(
         df['Flow_Velocity'] < 0,
-        df['Flow_Velocity_Percentile'],
-        np.where(df['Flow_Velocity'] == 0, 0.5, 0.0)
+        0.7,  # High percentile for negative flow
+        np.where(df['Flow_Velocity'] == 0, 0.5, 0.3)  # Neutral for zero, low for positive
     )
 
-    # Fill NaN values with neutral values
-    percentile_cols = [
-        'IBS_Accel_Percentile', 'IBS_Bullish_Pct', 'IBS_Bearish_Pct',
-        'RVol_Accel_Percentile', 'RRange_Accel_Percentile',
-        'Flow_Velocity_Percentile', 'Flow_Bullish_Pct', 'Flow_Bearish_Pct',
-        'Volume_Conviction_Percentile'
-    ]
+    # Fill NaN values with neutral values (only for columns that exist)
+    percentile_cols = ['IBS_Bullish_Pct', 'IBS_Bearish_Pct', 'Flow_Bullish_Pct', 'Flow_Bearish_Pct']
 
     for col in percentile_cols:
-        df[col] = df[col].fillna(0.5)  # Neutral percentile
+        if col in df.columns:
+            df[col] = df[col].fillna(0.5)  # Neutral percentile
 
     return df
 
@@ -1090,28 +957,15 @@ def classify_flow_regime(df: pd.DataFrame) -> pd.DataFrame:
     # Calculate flow percentiles for classification
     df['Flow_Percentile'] = df['Flow_10D'].rolling(window=50, min_periods=20).rank(pct=True)
 
-    # Classify based on percentile thresholds
-    conditions = [
-        df['Flow_Percentile'] >= 0.8,  # Strong Accumulation (top 20%)
-        df['Flow_Percentile'] >= 0.6,  # Accumulation (top 40%)
-        df['Flow_Percentile'] >= 0.4,  # Neutral (middle 20%)
-        df['Flow_Percentile'] >= 0.2,  # Distribution (bottom 40%)
-        True                            # Strong Distribution (bottom 20%)
-    ]
-
-    choices = [
-        'Strong Accumulation',
-        'Accumulation',
-        'Neutral',
-        'Distribution',
-        'Strong Distribution'
-    ]
-
-    df['Flow_Regime'] = pd.Series(np.select(conditions, choices, default='Neutral'), index=df.index)
-
     # Fill NaN values
     df['Flow_Percentile'] = df['Flow_Percentile'].fillna(0.5)
-    df['Flow_Regime'] = df['Flow_Regime'].fillna('Neutral')
+    
+    # Classify into regimes based on percentile
+    df['Flow_Regime'] = 'Neutral'  # Default
+    df.loc[df['Flow_Percentile'] >= 0.8, 'Flow_Regime'] = 'Strong Accumulation'
+    df.loc[(df['Flow_Percentile'] >= 0.6) & (df['Flow_Percentile'] < 0.8), 'Flow_Regime'] = 'Accumulation'
+    df.loc[(df['Flow_Percentile'] <= 0.4) & (df['Flow_Percentile'] > 0.2), 'Flow_Regime'] = 'Distribution'
+    df.loc[df['Flow_Percentile'] <= 0.2, 'Flow_Regime'] = 'Strong Distribution'
 
     return df
 
@@ -1153,11 +1007,11 @@ def calculate_volume_conviction(df: pd.DataFrame) -> pd.DataFrame:
 
     # Conviction velocity (day-over-day change)
     df['Conviction_Velocity'] = df['Volume_Conviction'] - df['Volume_Conviction'].shift(1)
-
+    
     # Fill NaN values
     df['Volume_Conviction'] = df['Volume_Conviction'].fillna(1.0)  # Neutral default
-    df['Conviction_Velocity'] = df['Conviction_Velocity'].fillna(0.0)
     df['Avg_Vol_Up_10D'] = df['Avg_Vol_Up_10D'].fillna(0.0)
+    df['Conviction_Velocity'] = df['Conviction_Velocity'].fillna(0.0)
 
     return df
 
@@ -1186,7 +1040,7 @@ def calculate_price_flow_divergence(df: pd.DataFrame) -> pd.DataFrame:
     # Flow percentile (already calculated in classify_flow_regime)
     # Divergence gap: Price percentile - Flow percentile
     df['Divergence_Gap'] = (df['Price_Percentile'] - df['Flow_Percentile']) * 100
-
+    
     # Divergence severity (absolute magnitude, 0-100 scale)
     df['Divergence_Severity'] = abs(df['Divergence_Gap'])
 
