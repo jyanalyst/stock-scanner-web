@@ -357,20 +357,22 @@ def _create_result_dict(analysis_row: pd.Series, actual_date, ticker: str, fetch
             return 0
 
     # ===== BREAK & REVERSAL PATTERN SYSTEM =====
-    # Signal bias is now determined by break & reversal signals
+    # Signal bias is now determined by break & reversal signals (no scoring)
     signal_bias = str(analysis_row.get('Signal_Bias', '⚪ NEUTRAL'))
-    pattern_quality = str(analysis_row.get('Pattern_Quality', '🔴 POOR'))
-    total_score = int(analysis_row.get('Total_Score', 0))
-    triple_confirm = str(analysis_row.get('Triple_Confirm', '—'))
+
+    # Remove scoring - set to neutral values
+    pattern_quality = '⚪ NEUTRAL'  # No scoring
+    total_score = 0  # No scoring
+    triple_confirm = '—'  # No triple confirmation
 
     # ===== CONFIRMATION FILTERING =====
     # Add confirmation status (True if signal passed filters, False if filtered out)
     is_confirmed = bool(analysis_row.get('Is_Confirmed', True))  # Default True for backward compatibility
 
-    # Component scores from acceleration metrics
-    ibs_score = int(analysis_row.get('IBS_Score', 0))
-    rvol_score = int(analysis_row.get('RVol_Score', 0))
-    rrange_score = int(analysis_row.get('RRange_Score', 0))
+    # Remove component scores - set to zero
+    ibs_score = 0  # No IBS scoring
+    rvol_score = 0  # No RVol scoring
+    rrange_score = 0  # No RRange scoring
 
     # Pattern details
     ref_high = safe_round(analysis_row.get('Ref_High', np.nan), price_decimals)
