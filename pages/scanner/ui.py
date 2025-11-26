@@ -986,7 +986,7 @@ def display_filtered_results(filtered_stocks: pd.DataFrame, selected_base_filter
         'Daily_Flow', 'Flow_10D', 'Flow_Percentile', 'Flow_Velocity', 'Flow_Velocity_Percentile',
 
         # Technical Indicators (7)
-        'VPI_Velocity', 'IBS_Accel', 'MPI_Velocity', 'HL_Pattern', 'IBS', 'VW_Range_Velocity', 'Relative_Volume'
+        'VPI_Percentile', 'IBS_Percentile', 'MPI_Percentile', 'HL_Pattern', 'IBS', 'VW_Range_Velocity', 'Relative_Volume'
     ]
 
     base_column_config = {
