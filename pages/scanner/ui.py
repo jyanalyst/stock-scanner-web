@@ -564,11 +564,11 @@ def show_confirmation_filters() -> Tuple[bool, bool, bool, str, float, float, fl
             st.markdown("**Thresholds:**")
             col1, col2, col3 = st.columns(3)
             with col1:
-                ibs_threshold = st.number_input("IBS", value=0.10, step=0.01, format="%.2f") if use_ibs else 0.10
+                ibs_threshold = st.number_input("IBS", value=0.10, step=0.01, format="%.2f", key="ibs_threshold_filter") if use_ibs else 0.10
             with col2:
-                rvol_threshold = st.number_input("RVol", value=0.20, step=0.01, format="%.2f") if use_rvol else 0.20
+                rvol_threshold = st.number_input("RVol", value=0.20, step=0.01, format="%.2f", key="rvol_threshold_filter") if use_rvol else 0.20
             with col3:
-                rrange_threshold = st.number_input("RRange", value=0.30, step=0.01, format="%.2f") if use_rrange else 0.30
+                rrange_threshold = st.number_input("RRange", value=0.30, step=0.01, format="%.2f", key="rrange_threshold_filter") if use_rrange else 0.30
         else:
             ibs_threshold = 0.10
             rvol_threshold = 0.20
@@ -673,9 +673,9 @@ def display_scan_summary(results_df: pd.DataFrame) -> None:
     with col5:
         st.metric("🔴 Bearish", bearish_count)
     with col6:
-        st.metric("� Strong Exp", strong_expansion, delta="≥5% velocity")
+        st.metric(" Strong Exp", strong_expansion, delta="≥5% velocity")
     with col6:
-        st.metric("�📈 Expanding", strong_expansion + expanding, delta=">0% velocity")
+        st.metric("📈 Expanding", strong_expansion + expanding, delta=">0% velocity")
 
     if len(results_df) > 0:
         analysis_dates = results_df['Analysis_Date'].unique()
@@ -833,14 +833,14 @@ def show_base_pattern_filter(results_df: pd.DataFrame) -> pd.DataFrame:
     """Show base pattern filter with confirmation settings"""
     create_section_header("🎯 Pattern Analysis & Filters", "")
 
-    # ===== FILTER OUT NOT QUALIFIED SIGNALS =====
-    # Only show signals that meet the 2-factor minimum requirement
-    qualified_signals = results_df[results_df['Pattern_Quality'] != '🟠 NOT QUALIFIED']
+    # ===== THREE-INDICATOR SYSTEM: ALL SIGNALS ARE QUALIFIED =====
+    # No Pattern_Quality filtering needed - all signals from Three-Indicator System are valid
+    all_signals = results_df.copy()
 
     # ===== CONFIRMATION FILTERING CONTROLS =====
-    # Always show confirmation controls since confirmation is always calculated
-    st.markdown("**Confirmation Settings:**")
-    st.info("⚙️ All signals are calculated with confirmation status. Use these controls to filter by confirmation criteria.")
+    # Optional confirmation filters for additional signal validation
+    st.markdown("**Confirmation Settings (Optional):**")
+    st.info("⚙️ Use these optional filters to require additional confirmation beyond the Three-Indicator System.")
 
     # Checkboxes for which metrics to use
     col1, col2, col3 = st.columns(3)
@@ -884,14 +884,14 @@ def show_base_pattern_filter(results_df: pd.DataFrame) -> pd.DataFrame:
     # Show confirmation filter toggle
     show_confirmed_only = st.checkbox(
         "✅ Show Confirmed Signals Only",
-        value=False,  # Default to showing all qualified signals
-        help="When enabled, only shows signals that passed the confirmation filters above. When disabled, shows all qualified signals."
+        value=False,  # Default to showing all signals
+        help="When enabled, only shows signals that passed the confirmation filters above. When disabled, shows all Three-Indicator signals."
     )
 
     # Apply confirmation filtering if enabled
     if show_confirmed_only and (use_ibs or use_rvol or use_rrange):
         # Calculate confirmation for each signal based on current settings
-        confirmed_signals = qualified_signals.copy()
+        confirmed_signals = all_signals.copy()
 
         # Build confirmation conditions based on user selections
         confirmation_conditions = []
@@ -926,46 +926,47 @@ def show_base_pattern_filter(results_df: pd.DataFrame) -> pd.DataFrame:
             confirmed_signals['is_confirmed_dynamic'] = confirmed_signals[confirmation_conditions].any(axis=1)
 
         # Filter to confirmed signals
-        qualified_signals = confirmed_signals[confirmed_signals['is_confirmed_dynamic'] == True]
-        st.info(f"🔍 **Confirmation Filters Active** - Showing {len(qualified_signals)} confirmed signals out of {len(confirmed_signals)} qualified signals")
+        filtered_signals = confirmed_signals[confirmed_signals['is_confirmed_dynamic'] == True]
+        st.info(f"🔍 **Confirmation Filters Active** - Showing {len(filtered_signals)} confirmed signals out of {len(confirmed_signals)} total signals")
     else:
-        st.info(f"📊 **All Qualified Signals** - Showing {len(qualified_signals)} qualified signals (confirmation filters bypassed)")
+        filtered_signals = all_signals
+        st.info(f"📊 **All Three-Indicator Signals** - Showing {len(filtered_signals)} signals (confirmation filters bypassed)")
 
-    # ===== PATTERN FILTERING =====
+    # ===== SIGNAL BIAS FILTERING =====
     # Simplified filter options - signal-based only
     filter_options = [
-        "All Qualified Stocks",
-        "🟢 Bullish Stocks",
-        "🔴 Bearish Stocks"
+        "All Signals",
+        "🟢 Bullish Signals",
+        "🔴 Bearish Signals"
     ]
 
-    # Radio buttons with default to "All Qualified Stocks" (index=0)
+    # Radio buttons with default to "All Signals" (index=0)
     selected_filter = st.radio(
-        "Pattern Filter:",
+        "Signal Filter:",
         options=filter_options,
-        index=0,  # Default to "All Qualified Stocks"
-        help="Filter stocks by signal bias (bullish/bearish) - only qualified signals shown",
+        index=0,  # Default to "All Signals"
+        help="Filter signals by bias (bullish/bearish) - all signals are from Three-Indicator System",
         horizontal=True
     )
 
     # Store in session state
     st.session_state.base_filter_type = selected_filter
 
-    # Apply pattern filtering based on selection
-    if selected_filter == "All Qualified Stocks":
-        filtered_df = qualified_signals
-        create_info_box(f"Showing all {len(filtered_df)} qualified signals (NOT QUALIFIED filtered out)")
-    elif selected_filter == "🟢 Bullish Stocks":
-        filtered_df = qualified_signals[qualified_signals['Signal_Bias'] == '🟢 BULLISH']
-        create_info_box(f"Showing {len(filtered_df)} qualified bullish stocks")
-    elif selected_filter == "🔴 Bearish Stocks":
-        filtered_df = qualified_signals[qualified_signals['Signal_Bias'] == '🔴 BEARISH']
-        create_info_box(f"Showing {len(filtered_df)} qualified bearish stocks")
+    # Apply signal bias filtering based on selection
+    if selected_filter == "All Signals":
+        final_filtered_df = filtered_signals
+        create_info_box(f"Showing all {len(final_filtered_df)} signals from Three-Indicator System")
+    elif selected_filter == "🟢 Bullish Signals":
+        final_filtered_df = filtered_signals[filtered_signals['Signal_Bias'] == '🟢 BULLISH']
+        create_info_box(f"Showing {len(final_filtered_df)} bullish signals")
+    elif selected_filter == "🔴 Bearish Signals":
+        final_filtered_df = filtered_signals[filtered_signals['Signal_Bias'] == '🔴 BEARISH']
+        create_info_box(f"Showing {len(final_filtered_df)} bearish signals")
     else:
-        filtered_df = qualified_signals
-        create_info_box(f"Showing all {len(filtered_df)} qualified signals")
+        final_filtered_df = filtered_signals
+        create_info_box(f"Showing all {len(final_filtered_df)} signals")
 
-    return filtered_df
+    return final_filtered_df
 
 
 def display_filtered_results(filtered_stocks: pd.DataFrame, selected_base_filter: str) -> None:
@@ -976,82 +977,43 @@ def display_filtered_results(filtered_stocks: pd.DataFrame, selected_base_filter
         create_warning_box("No stocks match the current filter criteria")
         return
 
-    # Display columns - Essential columns only (14 columns) - removed scoring
+    # Display columns - Institutional Flow Focus (16 columns)
     display_cols = [
-        # Core Identity (3)
-        'Analysis_Date', 'Ticker', 'Name',
+        # Core Identity (4)
+        'Analysis_Date', 'Ticker', 'Name', 'Signal_Bias',
 
-        # Core Signal (4) - removed scoring columns
-        'Signal_Bias', 'MPI_Position',
-        'Flow_Percentile', 'Flow_Velocity_Percentile',
+        # Institutional Flow (5)
+        'Daily_Flow', 'Flow_10D', 'Flow_Percentile', 'Flow_Velocity', 'Flow_Velocity_Percentile',
 
-        # Entry Price (1)
-        'Entry_Level',
-
-        # Key Context (3)
-        'IBS', 'VW_Range_Velocity', 'RelVol_Trend',
-
-        # Reports Summary (2)
-        'Sentiment_Display', 'Guidance_Display'
+        # Technical Indicators (7)
+        'VPI_Velocity', 'IBS_Accel', 'MPI_Velocity', 'HL_Pattern', 'IBS', 'VW_Range_Velocity', 'Relative_Volume'
     ]
 
     base_column_config = {
-        # Core Identity (3)
+        # Core Identity (4)
         'Analysis_Date': st.column_config.TextColumn('📅 Date', width='small', help='Analysis date for the scan'),
         'Ticker': st.column_config.TextColumn('Ticker', width='small'),
         'Name': st.column_config.TextColumn('Company', width='medium'),
+        'Signal_Bias': st.column_config.TextColumn('🎯 Signal', width='small', help='🟢 BULLISH / 🔴 BEARISH'),
 
-        # Primary Signal (2) - removed scoring columns
-        'Signal_Bias': st.column_config.TextColumn('🎯 Signal', width='small', help='🟢 BULLISH / 🔴 BEARISH / ⚪ NEUTRAL'),
-        'MPI_Position': st.column_config.TextColumn('📍 Stage', width='medium', help='📍 EARLY STAGE / ⚠️ MID STAGE / 🚨 LATE STAGE / ❌ TOO WEAK'),
+        # Institutional Flow (5)
+        'Daily_Flow': st.column_config.NumberColumn('Daily Flow', format='%+.2f', help='Institutional flow for current day'),
+        'Flow_10D': st.column_config.NumberColumn('Flow 10D', format='%+.2f', help='10-day cumulative institutional flow'),
+        'Flow_Percentile': st.column_config.NumberColumn('Flow %ile', format='%.1f', help='Flow percentile ranking (0-100)'),
+        'Flow_Velocity': st.column_config.NumberColumn('Flow Vel', format='%+.2f', help='Rate of flow change'),
+        'Flow_Velocity_Percentile': st.column_config.NumberColumn('Flow Vel %ile', format='%.1f', help='Flow velocity percentile ranking (0-100)'),
 
-        # Acceleration Details (3) - removed scoring columns
-        'RVol_Accel': st.column_config.NumberColumn('RVol Accel', format='%+.3f', help='Relative Volume 3-bar acceleration (participation momentum)'),
-        'RRange_Accel': st.column_config.NumberColumn('RRng Accel', format='%+.3f', help='Relative Range 3-bar acceleration (volatility momentum)'),
-        'IBS_Accel': st.column_config.NumberColumn('IBS Accel', format='%+.3f', help='IBS 3-bar acceleration (momentum in price positioning)'),
+        # Three-Indicator System (6) - Percentiles + Velocities
+        'MPI_Percentile': st.column_config.NumberColumn('MPI %ile', format='%.1f', help='Trend Strength (0-100)'),
+        'MPI_Velocity': st.column_config.NumberColumn('MPI Vel', format='%+.2f', help='Trend acceleration (+expanding/-contracting)'),
+        'IBS_Percentile': st.column_config.NumberColumn('IBS %ile', format='%.1f', help='Momentum Timing (0-100)'),
+        'IBS_Accel': st.column_config.NumberColumn('IBS Accel', format='%+.3f', help='Momentum acceleration (+bullish/-bearish)'),
+        'VPI_Percentile': st.column_config.NumberColumn('VPI %ile', format='%.1f', help='Volume Confirmation (0-100)'),
+        'VPI_Velocity': st.column_config.NumberColumn('VPI Vel', format='%+.2f', help='Volume acceleration (+increasing/-decreasing)'),
 
-        # Pattern Timing (3)
-        'Entry_Level': st.column_config.NumberColumn('Entry', width='small', help='Price where reversal signal triggered'),
-        'Purge_Level': st.column_config.NumberColumn('Purge', width='small', help='Extreme price of the break candle'),
-        'Bars_Since_Break': st.column_config.NumberColumn('Bars', width='tiny', help='Days since break occurred'),
-
-        # Current State (5)
-        'IBS': st.column_config.NumberColumn('IBS', format='%.3f', help='Internal Bar Strength (0-1)'),
-        'VW_Range_Velocity': st.column_config.NumberColumn('Range Vel', format='%+.4f', help='Volume-weighted range velocity'),
-        'Relative_Volume': st.column_config.NumberColumn('Rel Vol', format='%.1f%%', help='Volume relative to 14-day average'),
-        'RelVol_Velocity': st.column_config.NumberColumn('Vol Vel', format='%+.1f', help='Day-over-day volume change'),
-        'RelVol_Trend': st.column_config.TextColumn('Vol Trend', width='small', help='Building/Stable/Fading'),
-
-        # ===== PHASE 1: INSTITUTIONAL FLOW METRICS =====
-        # Flow Analysis (5)
-        'Daily_Flow': st.column_config.NumberColumn('Daily Flow', format='%+.1f', help='Volume-weighted directional flow (+buy/-sell pressure)'),
-        'Flow_10D': st.column_config.NumberColumn('Flow 10D', format='%+.1f', help='10-day cumulative institutional flow'),
-        'Flow_Velocity': st.column_config.NumberColumn('Flow Vel', format='%+.2f', help='Day-over-day flow change (acceleration)'),
-        'Flow_Percentile': st.column_config.NumberColumn('Flow %ile', width='small', format='%.1f', help='Cross-stock percentile (0-100): Higher = stronger accumulation vs peers TODAY'),
-        'Flow_Velocity_Percentile': st.column_config.NumberColumn('Vel %ile', width='small', format='%.1f', help='Cross-stock velocity percentile (0-100): Higher = faster acceleration vs peers'),
-        'Flow_Regime': st.column_config.TextColumn('Flow Regime', width='medium', help='Strong Accumulation/Accumulation/Neutral/Distribution/Strong Distribution'),
-
-        # Conviction Analysis (3)
-        'Volume_Conviction': st.column_config.NumberColumn('Conviction', format='%.2f', help='Ratio of up-day vs down-day volume (1.0=neutral)'),
-        'Conviction_Velocity': st.column_config.NumberColumn('Conv Vel', format='%+.3f', help='Day-over-day conviction change'),
-        'Avg_Vol_Up_10D': st.column_config.NumberColumn('Up Vol Avg', format='%.0f', help='Average volume on up days (10-day)'),
-
-        # Divergence Analysis (3)
-        'Divergence_Gap': st.column_config.NumberColumn('Div Gap', format='%+.2f', help='Price percentile - Flow percentile (+bearish/-bullish divergence)'),
-        'Divergence_Severity': st.column_config.NumberColumn('Div Severity', format='%.1f', help='Absolute divergence magnitude (0-100 scale)'),
-        'Price_Percentile': st.column_config.NumberColumn('Price Pct', format='%.2f', help='Price ranking vs 252-day history (0-1)'),
-
-        # Analyst Reports (3)
+        # Context: Reports (2)
         'Sentiment_Display': st.column_config.TextColumn('Sentiment', width='small', help='Analyst sentiment score'),
-        'Report_Date_Display': st.column_config.TextColumn('Report', width='small', help='Report date'),
-        'Report_Count_Display': st.column_config.TextColumn('Reports', width='small', help='Number of reports'),
-
-        # Earnings Reports (5)
-        'Earnings_Period': st.column_config.TextColumn('Period', width='small', help='Earnings period (Q1/Q2/FY etc.)'),
-        'Guidance_Display': st.column_config.TextColumn('Guidance', width='small', help='Management guidance tone'),
-        'Rev_YoY_Display': st.column_config.TextColumn('Rev YoY', width='small', help='Revenue year-over-year change'),
-        'EPS_DPU_Display': st.column_config.TextColumn('EPS/DPU', width='small', help='EPS or DPU year-over-year change'),
-        'Earnings_Reaction': st.column_config.TextColumn('Earn React', width='medium', help='Historical win rate after earnings releases')
+        'Guidance_Display': st.column_config.TextColumn('Guidance', width='small', help='Earnings guidance tone')
     }
 
     column_config = create_dynamic_column_config(filtered_stocks, display_cols, base_column_config)
@@ -1192,34 +1154,37 @@ def show_full_results_table(results_df: pd.DataFrame) -> None:
                 # 1. Core Identification
                 'Analysis_Date', 'Ticker', 'Name', 'Close',
 
-                # 2. Primary Signal (Dual Layer)
-                'Signal_Bias', 'Pattern_Quality', 'MPI_Position', 'Total_Score', 'Triple_Confirm',
+                # 2. Primary Signal (Three-Indicator System)
+                'Signal_Bias', 'Signal_State', 'Conviction_Level', 'MPI_Position',
+                'Is_Triple_Aligned', 'Is_Divergent', 'Is_Accumulation',
 
                 # 3. Pattern Details
                 'Ref_High', 'Ref_Low', 'Purge_Level', 'Entry_Level', 'Bars_Since_Break',
 
-                # 4. Acceleration Metrics (Primary Scoring)
-                'IBS_Accel', 'IBS_Score',
-                'RVol_Accel', 'RVol_Score',
-                'RRange_Accel', 'RRange_Score',
+                # 4. Three-Indicator Metrics (Percentiles)
+                'MPI_Percentile', 'IBS_Percentile', 'VPI_Percentile',
 
-                # 5. Context: Price Action
+                # 5. Acceleration Metrics (Raw)
+                'IBS_Accel', 'RVol_Accel', 'RRange_Accel', 'VPI_Accel',
+
+                # 6. Context: Price Action
                 'High', 'Low', 'IBS',
                 'Higher_H', 'Higher_HL', 'Lower_L', 'Lower_HL', 'HL_Pattern',
 
-                # 6. Context: Volatility/Range
+                # 7. Context: Volatility/Range
                 'VW_Range_Velocity', 'VW_Range_Percentile', 'Rel_Range_Signal',
 
-                # 7. Context: Volume
+                # 8. Context: Volume
                 'Relative_Volume', 'RelVol_Velocity', 'RelVol_Trend',
+                'VPI_Velocity',
 
-                # 8. Context: MPI Indicators
+                # 9. Context: MPI Indicators
                 'MPI', 'MPI_Velocity', 'MPI_Trend', 'MPI_Zone',
 
-                # 9. Analyst Reports (if available)
+                # 10. Analyst Reports (if available)
                 'Sentiment_Display', 'Report_Date_Display', 'Report_Count_Display',
 
-                # 10. Earnings Reports (if available)
+                # 11. Earnings Reports (if available)
                 'Earnings_Period', 'Guidance_Display', 'Rev_YoY_Display', 'EPS_DPU_Display',
                 'Earnings_Reaction'
             ]
@@ -1232,12 +1197,14 @@ def show_full_results_table(results_df: pd.DataFrame) -> None:
                 'Name': st.column_config.TextColumn('Company', width='medium'),
                 'Close': st.column_config.NumberColumn('Close', width='small'),
 
-                # === PRIMARY SIGNAL (BREAK & REVERSAL PATTERN) ===
+                # === PRIMARY SIGNAL (THREE-INDICATOR SYSTEM) ===
                 'Signal_Bias': st.column_config.TextColumn('🎯 Bias', width='small', help='🟢 BULLISH / 🔴 BEARISH / ⚪ NEUTRAL'),
-                'Pattern_Quality': st.column_config.TextColumn('📊 Pattern', width='medium', help='🔥 EXCEPTIONAL / 🟢 STRONG / 🟡 GOOD / ⚪ MODERATE / 🟠 WEAK / 🔴 POOR'),
+                'Signal_State': st.column_config.TextColumn('📊 State', width='medium', help='🔥 Triple Bullish / ⚠️ Divergence / 👀 Accumulation'),
+                'Conviction_Level': st.column_config.TextColumn('💪 Conviction', width='small', help='High / Moderate / Low / Warning'),
                 'MPI_Position': st.column_config.TextColumn('📍 Stage', width='medium', help='📍 EARLY STAGE / ⚠️ MID STAGE / 🚨 LATE STAGE / ❌ TOO WEAK'),
-                'Total_Score': st.column_config.NumberColumn('Score', width='small', format='%d', help='0-100 acceleration score (higher = stronger momentum)'),
-                'Triple_Confirm': st.column_config.TextColumn('🔥', width='tiny', help='🔥 YES = All 3 accelerations met thresholds'),
+                'Is_Triple_Aligned': st.column_config.CheckboxColumn('Triple', width='tiny', help='All 3 indicators aligned'),
+                'Is_Divergent': st.column_config.CheckboxColumn('Div', width='tiny', help='Price/Volume Divergence'),
+                'Is_Accumulation': st.column_config.CheckboxColumn('Acc', width='tiny', help='Accumulation Pattern'),
 
                 # === PATTERN DETAILS ===
                 'Ref_High': st.column_config.NumberColumn('Ref High', width='small', help='Reference high level that was broken'),
@@ -1246,13 +1213,16 @@ def show_full_results_table(results_df: pd.DataFrame) -> None:
                 'Entry_Level': st.column_config.NumberColumn('Entry', width='small', help='Price where reversal signal triggered'),
                 'Bars_Since_Break': st.column_config.NumberColumn('Bars', width='tiny', help='Bars since break occurred'),
 
-                # === ACCELERATION METRICS (PRIMARY SCORING) ===
-                'IBS_Accel': st.column_config.NumberColumn('IBS Accel', format='%+.3f', help='IBS 3-bar acceleration (momentum in price positioning)'),
-                'IBS_Score': st.column_config.NumberColumn('IBS Pts', format='%d', help='IBS contribution to total score (0-35)'),
-                'RVol_Accel': st.column_config.NumberColumn('RVol Accel', format='%+.3f', help='Relative Volume 3-bar acceleration (participation momentum)'),
-                'RVol_Score': st.column_config.NumberColumn('RVol Pts', format='%d', help='RVol contribution to total score (0-35)'),
-                'RRange_Accel': st.column_config.NumberColumn('RRng Accel', format='%+.3f', help='Relative Range 3-bar acceleration (volatility momentum)'),
-                'RRange_Score': st.column_config.NumberColumn('RRng Pts', format='%d', help='RRange contribution to total score (0-30)'),
+                # === THREE-INDICATOR METRICS (PERCENTILES) ===
+                'MPI_Percentile': st.column_config.NumberColumn('MPI %ile', format='%.1f', help='Trend Strength (0-100)'),
+                'IBS_Percentile': st.column_config.NumberColumn('IBS %ile', format='%.1f', help='Momentum Timing (0-100)'),
+                'VPI_Percentile': st.column_config.NumberColumn('VPI %ile', format='%.1f', help='Volume Confirmation (0-100)'),
+
+                # === ACCELERATION METRICS (RAW) ===
+                'IBS_Accel': st.column_config.NumberColumn('IBS Accel', format='%+.3f', help='IBS 3-bar acceleration'),
+                'RVol_Accel': st.column_config.NumberColumn('RVol Accel', format='%+.3f', help='Relative Volume 3-bar acceleration'),
+                'RRange_Accel': st.column_config.NumberColumn('RRng Accel', format='%+.3f', help='Relative Range 3-bar acceleration'),
+                'VPI_Accel': st.column_config.NumberColumn('VPI Accel', format='%+.3f', help='VPI 2nd derivative'),
 
                 # === CONTEXT: PRICE ACTION ===
                 'High': st.column_config.NumberColumn('High', width='small'),
@@ -1273,6 +1243,7 @@ def show_full_results_table(results_df: pd.DataFrame) -> None:
                 'Relative_Volume': st.column_config.NumberColumn('Rel Vol', format='%.1f%%', help='Volume relative to 14-day average'),
                 'RelVol_Velocity': st.column_config.NumberColumn('Vol Vel', format='%+.1f', help='Day-over-day volume change'),
                 'RelVol_Trend': st.column_config.TextColumn('Vol Trend', width='small', help='Building/Stable/Fading'),
+                'VPI_Velocity': st.column_config.NumberColumn('VPI Vel', format='%+.2f', help='VPI 1st derivative'),
 
                 # === CONTEXT: MPI INDICATORS ===
                 'MPI': st.column_config.NumberColumn('MPI', format='%.2f', help='Market Positivity Index (0-1 scale)'),
@@ -1335,11 +1306,11 @@ def show_full_results_table(results_df: pd.DataFrame) -> None:
                     bearish_count = (results_df['Signal_Bias'] == '🔴 BEARISH').sum()
                     st.metric("🔴 Bearish Signals", bearish_count)
                 with col3:
-                    exceptional_count = (results_df['Pattern_Quality'] == '🔥 EXCEPTIONAL').sum()
-                    st.metric("🔥 Exceptional", exceptional_count)
+                    triple_count = results_df['Is_Triple_Aligned'].sum() if 'Is_Triple_Aligned' in results_df.columns else 0
+                    st.metric("🔥 Triple Aligned", triple_count)
                 with col4:
-                    triple_count = (results_df['Triple_Confirm'] == '🔥 YES').sum()
-                    st.metric("Triple Confirm", triple_count)
+                    div_count = results_df['Is_Divergent'].sum() if 'Is_Divergent' in results_df.columns else 0
+                    st.metric("⚠️ Divergences", div_count)
 
         except Exception as e:
             create_error_box(f"❌ Error displaying full results: {str(e)}")

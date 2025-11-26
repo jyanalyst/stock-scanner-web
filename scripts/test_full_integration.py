@@ -64,15 +64,15 @@ def test_full_pipeline():
     # Verify all expected columns exist
     required_columns = [
         # Original MPI columns
-        'MPI', 'MPI_Velocity',
+        'MPI', 'MPI_Velocity', 'MPI_Percentile',
         # New institutional flow columns
         'Daily_Flow', 'Flow_10D', 'Flow_Velocity', 'Flow_Regime',
         'Volume_Conviction', 'Conviction_Velocity',
         'Divergence_Gap', 'Divergence_Severity',
-        # Percentile columns (simplified - no time-series percentiles)
-        'IBS_Bullish_Pct', 'Flow_Bullish_Pct',
-        # Signal columns (no scoring)
-        'Signal_Bias', 'Pattern_Quality', 'Total_Score'
+        # Three-Indicator System Columns
+        'IBS_Percentile', 'VPI_Percentile',
+        'Signal_Bias', 'Signal_State', 'Conviction_Level',
+        'Is_Triple_Aligned', 'Is_Divergent', 'Is_Accumulation'
     ]
 
     missing_columns = [col for col in required_columns if col not in df_enhanced.columns]
@@ -103,30 +103,62 @@ def test_full_pipeline():
             (df_enhanced['bullish_reversal'] == 1) | (df_enhanced['bearish_reversal'] == 1)
         ]
 
-        avg_score = signal_rows['Total_Score'].mean()
-        max_score = signal_rows['Total_Score'].max()
-        score_distribution = signal_rows['Pattern_Quality'].value_counts()
+        state_distribution = signal_rows['Signal_State'].value_counts()
+        conviction_distribution = signal_rows['Conviction_Level'].value_counts()
+        triple_aligned = signal_rows['Is_Triple_Aligned'].sum()
 
         print("📈 Signal Quality Analysis:")
-        print(f"   - Average score: {avg_score:.1f}/100")
-        print(f"   - Highest score: {max_score}/100")
-        print(f"   - Quality distribution: {score_distribution.to_dict()}")
+        print(f"   - State distribution: {state_distribution.to_dict()}")
+        print(f"   - Conviction distribution: {conviction_distribution.to_dict()}")
+        print(f"   - Triple Aligned Signals: {triple_aligned}")
 
-        # Verify Phase 0 weights are working (RVol should dominate)
-        avg_rvol_score = signal_rows['RVol_Score'].mean()
-        avg_rrange_score = signal_rows['RRange_Score'].mean()
-        avg_ibs_score = signal_rows['IBS_Score'].mean()
+        # Verify Three-Indicator System Logic
+        if triple_aligned > 0:
+            triple_rows = signal_rows[signal_rows['Is_Triple_Aligned']]
+            avg_mpi_pct = triple_rows['MPI_Percentile'].mean()
+            avg_ibs_pct = triple_rows['IBS_Percentile'].mean()
+            avg_vpi_pct = triple_rows['VPI_Percentile'].mean()
+            
+            print("⚖️ Triple Alignment Metrics (Avg):")
+            print(f"   - MPI Percentile: {avg_mpi_pct:.1f} (Target > 60)")
+            print(f"   - IBS Percentile: {avg_ibs_pct:.1f} (Target > 80)")
+            print(f"   - VPI Percentile: {avg_vpi_pct:.1f} (Target > 70)")
+            
+            if avg_mpi_pct > 60 and avg_ibs_pct > 80 and avg_vpi_pct > 70:
+                 print("✅ Triple Alignment Logic Verified")
+            else:
+                 print("⚠️ Triple Alignment Logic Check Failed")
+    # Analyze signal quality if signals exist
+    if total_signals > 0:
+        signal_rows = df_enhanced[
+            (df_enhanced['bullish_reversal'] == 1) | (df_enhanced['bearish_reversal'] == 1)
+        ]
 
-        print("⚖️ Component Score Analysis:")
-        print(f"   - RVol (86.5% weight): {avg_rvol_score:.1f} avg")
-        print(f"   - RRange (11.3% weight): {avg_rrange_score:.1f} avg")
-        print(f"   - IBS (1.5% weight): {avg_ibs_score:.1f} avg")
+        state_distribution = signal_rows['Signal_State'].value_counts()
+        conviction_distribution = signal_rows['Conviction_Level'].value_counts()
+        triple_aligned = signal_rows['Is_Triple_Aligned'].sum()
 
-        # Verify RVol dominance
-        if avg_rvol_score > avg_rrange_score and avg_rrange_score > avg_ibs_score:
-            print("✅ Phase 0 weights correctly applied (RVol > RRange > IBS)")
-        else:
-            print("⚠️ Weight distribution may need verification")
+        print("📈 Signal Quality Analysis:")
+        print(f"   - State distribution: {state_distribution.to_dict()}")
+        print(f"   - Conviction distribution: {conviction_distribution.to_dict()}")
+        print(f"   - Triple Aligned Signals: {triple_aligned}")
+
+        # Verify Three-Indicator System Logic
+        if triple_aligned > 0:
+            triple_rows = signal_rows[signal_rows['Is_Triple_Aligned']]
+            avg_mpi_pct = triple_rows['MPI_Percentile'].mean()
+            avg_ibs_pct = triple_rows['IBS_Percentile'].mean()
+            avg_vpi_pct = triple_rows['VPI_Percentile'].mean()
+            
+            print("⚖️ Triple Alignment Metrics (Avg):")
+            print(f"   - MPI Percentile: {avg_mpi_pct:.1f} (Target > 60)")
+            print(f"   - IBS Percentile: {avg_ibs_pct:.1f} (Target > 80)")
+            print(f"   - VPI Percentile: {avg_vpi_pct:.1f} (Target > 70)")
+            
+            if avg_mpi_pct > 60 and avg_ibs_pct > 80 and avg_vpi_pct > 70:
+                 print("✅ Triple Alignment Logic Verified")
+            else:
+                 print("⚠️ Triple Alignment Logic Check Failed")
 
     # Test institutional flow metrics
     flow_regimes = df_enhanced['Flow_Regime'].value_counts()
@@ -176,7 +208,7 @@ def test_manual_scoring():
 
 def main():
     """Run all integration tests"""
-    print("🧪 COMPLETE INTEGRATION TEST: Phase 1 + Phase 2")
+    print("🧪 COMPLETE INTEGRATION TEST: Three-Indicator System")
     print("=" * 60)
 
     try:
@@ -187,12 +219,9 @@ def main():
             print("❌ Full pipeline test failed")
             return 1
 
-        # Test manual scoring
-        test_manual_scoring()
-
         print("\n" + "=" * 60)
         print("🎉 ALL INTEGRATION TESTS PASSED!")
-        print("✅ Phase 1 (Institutional Flow Metrics) + Phase 2 (Percentile Scoring) = SUCCESS")
+        print("✅ Phase 1 (Core Indicators) + Phase 2 (Confluence Logic) = SUCCESS")
         print("\n🚀 The enhanced scanner is ready for Phase 3: UI Integration!")
         print("=" * 60)
 
