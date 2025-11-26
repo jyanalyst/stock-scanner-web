@@ -25,12 +25,12 @@ logger = logging.getLogger(__name__)
 
 def calculate_mpi_expansion(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Calculate MPI with pure expansion/contraction focus
+    Calculate MPI (Market Positivity Index) with Exponential Weighting
     
-    Core Concept: Count positive days and track expansion velocity
-    - MPI: 10-day percentage of positive days (0-1 scale)
-    - MPI_Velocity: Day-over-day change in MPI
-    - MPI_Trend: Categorized by velocity alone
+    Core Concept: Multi-day trend strength through weighted positive day participation
+    - Weighted_MPI: Exponentially weighted sum of positive days (0-1 scale)
+    - MPI_Velocity: Day-over-day change in Weighted MPI
+    - MPI_Percentile: 100-day rolling percentile of velocity
     
     Args:
         df: DataFrame with OHLCV data
@@ -38,33 +38,34 @@ def calculate_mpi_expansion(df: pd.DataFrame) -> pd.DataFrame:
     Returns:
         DataFrame with MPI columns added
     """
-    # Calculate daily returns and positive days
+    # Step 1: Identify positive days
     returns = df['Close'].pct_change()
-    positive_days = (returns > 0).astype(int)
+    positive_days = (returns > 0).astype(float)
     
-    # Core MPI calculation - 10-day rolling percentage
-    df['MPI'] = positive_days.rolling(10, min_periods=5).mean()
+    # Step 2: Apply exponential weighting (10-day window)
+    # Weights: 1, 2, 3, ..., 10 (Sum = 55)
+    weights = np.arange(1, 11)
+    sum_weights = weights.sum() # 55
     
-    # Pure velocity calculation (expansion/contraction)
+    def weighted_sum(x):
+        if len(x) < 10:
+            return np.nan
+        return np.dot(x, weights) / sum_weights
+
+    # Step 3: Calculate Weighted MPI
+    # Use rolling apply with raw=True for performance
+    df['MPI'] = positive_days.rolling(10).apply(weighted_sum, raw=True)
+    
+    # Step 4: Calculate Velocity (1st Derivative)
     df['MPI_Velocity'] = df['MPI'] - df['MPI'].shift(1)
     
-    # MPI_Trend removed - can be derived from MPI_Velocity sign when needed
-    
-    # Log MPI velocity distribution for monitoring
-    if len(df) > 0:
-        positive_velocity = (df['MPI_Velocity'] > 0).sum()
-        negative_velocity = (df['MPI_Velocity'] < 0).sum()
-        neutral_velocity = (df['MPI_Velocity'] == 0).sum()
-        logger.debug(f"MPI Velocity: +{positive_velocity} | -{negative_velocity} | 0{neutral_velocity}")
-
-    # Trading signals based on pure expansion
-    df['Signal_Expansion_Buy'] = (df['MPI_Velocity'] > 0).astype(int)
-    df['Signal_Strong_Buy'] = (df['MPI_Velocity'] >= 0.05).astype(int)
-    df['Signal_Exit'] = (df['MPI_Velocity'] < 0).astype(int)
+    # Step 5: Percentile Classification (100-day rolling of Velocity)
+    df['MPI_Percentile'] = df['MPI_Velocity'].rolling(100, min_periods=20).rank(pct=True) * 100
     
     # Fill NaN values
     df['MPI'] = df['MPI'].fillna(0.5)  # Neutral default
     df['MPI_Velocity'] = df['MPI_Velocity'].fillna(0.0)
+    df['MPI_Percentile'] = df['MPI_Percentile'].fillna(50.0) # Neutral default
     
     return df
 
@@ -226,6 +227,9 @@ def add_enhanced_columns(df_daily: pd.DataFrame, ticker: str, rolling_window: in
         df = calculate_ibs_acceleration(df)
         df = calculate_rrange_acceleration(df)
         df = calculate_rvol_acceleration(df)
+        
+        # Calculate VPI System (New Phase 1)
+        df = calculate_vpi_system(df)
 
         # ===== PHASE 1: INSTITUTIONAL FLOW ANALYSIS =====
         # Calculate real institutional flow metrics (replacing Phase 0 placeholders)
@@ -234,8 +238,9 @@ def add_enhanced_columns(df_daily: pd.DataFrame, ticker: str, rolling_window: in
         df = calculate_volume_conviction(df)
         df = calculate_price_flow_divergence(df)
 
-        # Calculate percentile ranks for scoring (Phase 2 integration)
-        df = calculate_percentile_ranks(df)
+        # Note: calculate_percentile_ranks is deprecated as percentiles are now
+        # calculated within each indicator function (MPI, IBS, VPI)
+        # df = calculate_percentile_ranks(df)
 
         # Detect break events and reversal signals (with error handling)
         try:
@@ -253,54 +258,82 @@ def add_enhanced_columns(df_daily: pd.DataFrame, ticker: str, rolling_window: in
             df['purge_high'] = np.nan
             df['purge_low'] = np.nan
 
-        # Determine signal direction from break & reversal patterns (no scoring)
+        # Determine signal direction from break & reversal patterns
         latest_row = df.iloc[-1]
         if latest_row['bullish_reversal'] == 1:
             direction = 'bullish'
-            is_confirmed = True  # Signal detected
         elif latest_row['bearish_reversal'] == 1:
             direction = 'bearish'
-            is_confirmed = True  # Signal detected
         else:
-            # No signal today - neutral
             direction = 'neutral'
-            is_confirmed = True  # No signal = no filtering needed
 
-        # Add signal summary columns for scanner (no scoring)
+        # Add signal summary columns for scanner
         df['Signal_Bias'] = '🟢 BULLISH' if latest_row['bullish_reversal'] == 1 else (
             '🔴 BEARISH' if latest_row['bearish_reversal'] == 1 else '⚪ NEUTRAL'
         )
-        # Remove scoring columns - keep only signal direction
-        df['Pattern_Quality'] = '⚪ NEUTRAL'  # Neutral since no scoring
-        df['Total_Score'] = 0  # No scoring
-        df['Triple_Confirm'] = '—'  # No triple confirmation
-        df['IBS_Score'] = 0  # No IBS scoring
-        df['RVol_Score'] = 0  # No RVol scoring
-        df['RRange_Score'] = 0  # No RRange scoring
 
-        # ===== CONFIRMATION FILTERING =====
-        # Store confirmation status for filtering
-        df['Is_Confirmed'] = is_confirmed
+        # ===== PHASE 2: CONFLUENCE & SIGNAL LOGIC =====
+        # Implement the Three-Indicator System Logic
+        
+        # Get current percentile values
+        mpi_pct = latest_row.get('MPI_Percentile', 50.0)
+        ibs_pct = latest_row.get('IBS_Percentile', 50.0)
+        vpi_pct = latest_row.get('VPI_Percentile', 50.0)
+        
+        # 1. Triple Alignment (High Conviction)
+        # MPI > 60 (Trend) + IBS > 80 (Momentum) + VPI > 70 (Volume)
+        is_triple_bullish = (mpi_pct > 60) and (ibs_pct > 80) and (vpi_pct > 70)
+        
+        # 2. Divergence Detection (Warning)
+        # Price Strong (MPI>60 or IBS>70) BUT Volume Weak (VPI<40)
+        is_divergent = (mpi_pct > 60 or ibs_pct > 70) and (vpi_pct < 40)
+        
+        # 3. Accumulation (Early Entry)
+        # Price Weak/Neutral (MPI<50) BUT Volume Strong (VPI>80)
+        is_accumulation = (mpi_pct < 50) and (vpi_pct > 80)
+        
+        # Determine Signal State and Conviction
+        signal_state = "⚪ Neutral"
+        conviction_level = "Low"
+        
+        if is_triple_bullish:
+            signal_state = "🔥 Triple Bullish"
+            conviction_level = "High"
+        elif is_divergent:
+            signal_state = "⚠️ Divergence"
+            conviction_level = "Warning"
+        elif is_accumulation:
+            signal_state = "👀 Accumulation"
+            conviction_level = "Watch"
+        elif direction == 'bullish':
+            # Check for moderate conviction (2 of 3 aligned)
+            aligned_count = sum([mpi_pct > 55, ibs_pct > 70, vpi_pct > 65])
+            if aligned_count >= 2:
+                signal_state = "✅ Bullish"
+                conviction_level = "Moderate"
+            else:
+                signal_state = "⚪ Weak Bullish"
+                conviction_level = "Low"
+        elif direction == 'bearish':
+            # Check for moderate conviction (2 of 3 aligned)
+            aligned_count = sum([mpi_pct < 45, ibs_pct < 30, vpi_pct < 35])
+            if aligned_count >= 2:
+                signal_state = "🔴 Bearish"
+                conviction_level = "Moderate"
+            else:
+                signal_state = "⚪ Weak Bearish"
+                conviction_level = "Low"
 
-        # Add MPI position context
-        mpi_zone = get_mpi_zone(latest_row['MPI'])
-        df['MPI_Zone'] = mpi_zone
-        df['MPI_Position'] = get_mpi_position_label(mpi_zone, direction)
-
-        # Add pattern details for display
-        df['Ref_High'] = latest_row.get('ref_high', np.nan)
-        df['Ref_Low'] = latest_row.get('ref_low', np.nan)
-        df['Purge_Level'] = latest_row.get('reversal_purge_level', np.nan)
-        df['Entry_Level'] = (
-            latest_row['High'] if latest_row['bullish_reversal'] == 1
-            else latest_row['Low'] if latest_row['bearish_reversal'] == 1
-            else np.nan
-        )
-        df['Bars_Since_Break'] = latest_row.get('ref_offset', np.nan)
+        # Add new columns
+        df['Signal_State'] = signal_state
+        df['Conviction_Level'] = conviction_level
+        df['Is_Triple_Aligned'] = is_triple_bullish
+        df['Is_Divergent'] = is_divergent
+        df['Is_Accumulation'] = is_accumulation
 
         # Log successful calculation
-        logger.debug(f"{ticker}: Break&Reversal={df['Signal_Bias'].iloc[-1]}, "
-                    f"Score={df['Total_Score'].iloc[-1]}, "
+        logger.debug(f"{ticker}: Signal={df['Signal_Bias'].iloc[-1]}, "
+                    f"State={df['Signal_State'].iloc[-1]}, "
                     f"MPI={df['MPI'].iloc[-1]:.1%}, "
                     f"RelVol={df['Relative_Volume'].iloc[-1]:.0f}%")
 
@@ -309,7 +342,7 @@ def add_enhanced_columns(df_daily: pd.DataFrame, ticker: str, rolling_window: in
         # Add fallback values
         df['MPI'] = 0.5
         df['MPI_Velocity'] = 0.0
-        df['MPI_Trend'] = 'Calculation Error'
+        df['MPI_Percentile'] = 50.0
         df['Signal_Expansion_Buy'] = 0
         df['Signal_Strong_Buy'] = 0
         df['Signal_Exit'] = 0
@@ -322,11 +355,11 @@ def add_enhanced_columns(df_daily: pd.DataFrame, ticker: str, rolling_window: in
         # Break & Reversal fallbacks
         df['Signal_Bias'] = '⚪ NEUTRAL'
         df['Pattern_Quality'] = '🔴 POOR'
-        df['Total_Score'] = 0
-        df['Triple_Confirm'] = '—'
-        df['IBS_Score'] = 0
-        df['RVol_Score'] = 0
-        df['RRange_Score'] = 0
+        df['Signal_State'] = '⚪ Neutral'
+        df['Conviction_Level'] = 'Low'
+        df['Is_Triple_Aligned'] = False
+        df['Is_Divergent'] = False
+        df['Is_Accumulation'] = False
         df['MPI_Position'] = '❓ UNKNOWN'
 
     return df
@@ -427,30 +460,33 @@ def get_mpi_trend_distribution(df: pd.DataFrame) -> pd.DataFrame:
 # ZONES: 1=(0.0-0.3), 2=(0.3-0.5), 3=(0.5-0.7), 4=(0.7-1.0)
 # SGX VOLUME THRESHOLDS: Exceptional=1.8x, Strong=1.4x, Above Avg=1.15x
 
-def get_mpi_zone(mpi: float) -> int:
+def get_mpi_zone(mpi_percentile: float) -> int:
     """
-    Classify MPI into zones for position quality scoring.
+    Classify MPI into zones based on Percentile (New System).
 
-    Zones represent different market conditions:
-    - Zone 1 (0.0-0.3): Strong bearish territory
-    - Zone 2 (0.3-0.5): Weak bearish / transition zone
-    - Zone 3 (0.5-0.7): Weak bullish territory
-    - Zone 4 (0.7-1.0): Strong bullish territory
+    Zones:
+    - Zone 1 (<20): Strong Contraction
+    - Zone 2 (20-40): Contraction
+    - Zone 3 (40-60): Neutral
+    - Zone 4 (60-80): Expansion
+    - Zone 5 (>80): Strong Expansion
 
     Args:
-        mpi: MPI value (0.0 to 1.0) - percentage of positive days over 10-day window
+        mpi_percentile: MPI Velocity Percentile (0-100)
 
     Returns:
-        Zone number: 1, 2, 3, or 4
+        Zone number: 1-5
     """
-    if mpi < 0.3:
+    if mpi_percentile < 20:
         return 1
-    elif mpi < 0.5:
+    elif mpi_percentile < 40:
         return 2
-    elif mpi < 0.7:
+    elif mpi_percentile < 60:
         return 3
-    else:
+    elif mpi_percentile < 80:
         return 4
+    else:
+        return 5
 
 
 def calculate_percentile_ranks(df: pd.DataFrame) -> pd.DataFrame:
@@ -572,34 +608,91 @@ def calculate_acceleration_score_v3(
 
 def calculate_ibs_acceleration(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Calculate IBS (Internal Bar Strength) and its 3-bar acceleration
-
-    IBS = (close - low) / (high - low)
-    IBS_Accel = IBS[t] - 2×IBS[t-1] + IBS[t-2]  (2nd derivative)
-
+    Calculate IBS (Internal Bar Strength) with EMA Smoothing and Acceleration
+    
+    Core Concept: Intra-day price position and momentum acceleration
+    - Raw_IBS: Position of close within high-low range
+    - IBS_EMA: 14-period EMA of Raw IBS
+    - IBS_Velocity: 1st derivative of EMA
+    - IBS_Accel: 2nd derivative of EMA
+    - IBS_Percentile: 100-day rolling percentile of Acceleration
+    
     Args:
         df: DataFrame with OHLC data
 
     Returns:
-        DataFrame with IBS and IBS_Accel columns added
+        DataFrame with IBS columns added
     """
-    # IBS calculation with flat candle handling
-    df['IBS'] = np.where(
+    # Step 1: Calculate Raw IBS
+    df['Raw_IBS'] = np.where(
         df['High'] == df['Low'],
         0.5,  # Flat candle = neutral
         (df['Close'] - df['Low']) / (df['High'] - df['Low'])
     )
-
-    # 3-bar acceleration (2nd derivative)
-    df['IBS_Accel'] = (
-        df['IBS'] -
-        2 * df['IBS'].shift(1) +
-        df['IBS'].shift(2)
-    )
-
+    
+    # Step 2: Smooth with EMA (14 periods)
+    df['IBS'] = df['Raw_IBS'].ewm(span=14, adjust=False).mean()
+    
+    # Step 3: Calculate Velocity (1st Derivative)
+    df['IBS_Velocity'] = df['IBS'] - df['IBS'].shift(1)
+    
+    # Step 4: Calculate Acceleration (2nd Derivative)
+    # Acceleration = Velocity[today] - Velocity[yesterday]
+    df['IBS_Accel'] = df['IBS_Velocity'] - df['IBS_Velocity'].shift(1)
+    
+    # Step 5: Percentile Classification (100-day rolling of Acceleration)
+    df['IBS_Percentile'] = df['IBS_Accel'].rolling(100, min_periods=20).rank(pct=True) * 100
+    
     # Fill NaN values
+    df['IBS'] = df['IBS'].fillna(0.5)
+    df['IBS_Velocity'] = df['IBS_Velocity'].fillna(0.0)
     df['IBS_Accel'] = df['IBS_Accel'].fillna(0.0)
+    df['IBS_Percentile'] = df['IBS_Percentile'].fillna(50.0)
 
+    return df
+
+def calculate_vpi_system(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Calculate VPI (Volume Positivity Index)
+    
+    Core Concept: Pure volume momentum and acceleration
+    - Volume_Ratio: Volume / 20-day SMA
+    - Volume_Percentile: 100-day rank of Volume Ratio
+    - VPI_Velocity: 1st derivative of Volume Percentile
+    - VPI_Accel: 2nd derivative of Volume Percentile
+    - VPI_Percentile: 100-day rolling percentile of VPI_Accel
+    
+    Args:
+        df: DataFrame with Volume data
+        
+    Returns:
+        DataFrame with VPI columns added
+    """
+    # Step 1: Normalize Volume (Volume Ratio)
+    vol_sma = df['Volume'].rolling(20).mean()
+    # Avoid division by zero
+    df['Volume_Ratio'] = np.where(vol_sma > 0, df['Volume'] / vol_sma, 0)
+    
+    # Step 2: Calculate Volume Percentile (Rank of Ratio over 100 days)
+    # This normalizes across different stocks and periods
+    df['VPI_Raw_Pct'] = df['Volume_Ratio'].rolling(100, min_periods=20).rank(pct=True) * 100
+    df['VPI_Raw_Pct'] = df['VPI_Raw_Pct'].fillna(50.0)
+    
+    # Step 3: Calculate Velocity (1st Derivative)
+    df['VPI_Velocity'] = df['VPI_Raw_Pct'] - df['VPI_Raw_Pct'].shift(1)
+    
+    # Step 4: Calculate Acceleration (2nd Derivative)
+    df['VPI_Accel'] = df['VPI_Velocity'] - df['VPI_Velocity'].shift(1)
+    
+    # Step 5: Percentile Classification (100-day rolling of Acceleration)
+    # This is the final "VPI" metric used for scoring/signals
+    df['VPI_Percentile'] = df['VPI_Accel'].rolling(100, min_periods=20).rank(pct=True) * 100
+    
+    # Fill NaN values
+    df['VPI_Velocity'] = df['VPI_Velocity'].fillna(0.0)
+    df['VPI_Accel'] = df['VPI_Accel'].fillna(0.0)
+    df['VPI_Percentile'] = df['VPI_Percentile'].fillna(50.0)
+    
     return df
 
 
@@ -859,28 +952,44 @@ def get_pattern_quality_label(score: int, has_triple: bool = False) -> str:
 
 def get_mpi_position_label(mpi_zone: int, direction: str) -> str:
     """
-    Get MPI position context label
+    Get MPI position context label based on Percentile Zones (1-5)
 
     Args:
-        mpi_zone: MPI zone (1-4)
-        direction: 'bullish' or 'bearish'
+        mpi_zone: MPI zone (1-5)
+        direction: 'bullish', 'bearish', or 'neutral'
 
     Returns:
         Position label with emoji
     """
+    # Zone 1: Strong Contraction (<20)
+    # Zone 2: Contraction (20-40)
+    # Zone 3: Neutral (40-60)
+    # Zone 4: Expansion (60-80)
+    # Zone 5: Strong Expansion (>80)
+
     if direction == 'bullish':
         zone_labels = {
-            1: "❌ TOO WEAK",
-            2: "📍 EARLY STAGE",
-            3: "⚠️ MID STAGE",
-            4: "🚨 LATE STAGE"
+            1: "❌ TOO WEAK (<20%)",
+            2: "⚠️ WEAK (20-40%)",
+            3: "📍 EARLY (40-60%)",
+            4: "🚀 STRONG (60-80%)",
+            5: "🔥 EXTENDED (>80%)"
         }
-    else:  # bearish
+    elif direction == 'bearish':
         zone_labels = {
-            1: "🚨 LATE SHORT",
-            2: "⚠️ MID SHORT",
-            3: "📍 EARLY SHORT",
-            4: "❌ TOO STRONG"
+            1: "🔥 EXTENDED (<20%)", # Strong contraction is good for shorts
+            2: "🚀 STRONG (20-40%)",
+            3: "📍 EARLY (40-60%)",
+            4: "⚠️ WEAK (60-80%)",
+            5: "❌ TOO STRONG (>80%)"
+        }
+    else: # Neutral
+        zone_labels = {
+            1: "📉 Strong Downtrend",
+            2: "↘️ Downtrend",
+            3: "➡️ Range/Neutral",
+            4: "↗️ Uptrend",
+            5: "📈 Strong Uptrend"
         }
 
     return zone_labels.get(mpi_zone, "❓ UNKNOWN")

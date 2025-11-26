@@ -341,7 +341,7 @@ def run_enhanced_stock_scan(stocks_to_scan: List[str], analysis_date: Optional[d
 
 
 def _create_result_dict(analysis_row: pd.Series, actual_date, ticker: str, fetcher) -> dict:
-    """Create result dictionary from analysis row with Break & Reversal Pattern system"""
+    """Create result dictionary from analysis row with Three-Indicator System"""
     try:
         company_name = fetcher.get_company_name(ticker)
     except Exception:
@@ -356,48 +356,40 @@ def _create_result_dict(analysis_row: pd.Series, actual_date, ticker: str, fetch
         except:
             return 0
 
-    # ===== BREAK & REVERSAL PATTERN SYSTEM =====
-    # Signal bias is now determined by break & reversal signals (no scoring)
+    # ===== PRIMARY SIGNAL =====
     signal_bias = str(analysis_row.get('Signal_Bias', '⚪ NEUTRAL'))
+    signal_state = str(analysis_row.get('Signal_State', '⚪ Neutral'))
+    conviction_level = str(analysis_row.get('Conviction_Level', 'Low'))
+    mpi_position = str(analysis_row.get('MPI_Position', '❓ UNKNOWN'))
+    
+    # Boolean flags
+    is_triple = bool(analysis_row.get('Is_Triple_Aligned', False))
+    is_divergent = bool(analysis_row.get('Is_Divergent', False))
+    is_accumulation = bool(analysis_row.get('Is_Accumulation', False))
 
-    # Remove scoring - set to neutral values
-    pattern_quality = '⚪ NEUTRAL'  # No scoring
-    total_score = 0  # No scoring
-    triple_confirm = '—'  # No triple confirmation
-
-    # ===== CONFIRMATION FILTERING =====
-    # Add confirmation status (True if signal passed filters, False if filtered out)
-    is_confirmed = bool(analysis_row.get('Is_Confirmed', True))  # Default True for backward compatibility
-
-    # Remove component scores - set to zero
-    ibs_score = 0  # No IBS scoring
-    rvol_score = 0  # No RVol scoring
-    rrange_score = 0  # No RRange scoring
-
-    # Pattern details
+    # ===== PATTERN DETAILS =====
     ref_high = safe_round(analysis_row.get('Ref_High', np.nan), price_decimals)
     ref_low = safe_round(analysis_row.get('Ref_Low', np.nan), price_decimals)
     purge_level = safe_round(analysis_row.get('Purge_Level', np.nan), price_decimals)
     entry_level = safe_round(analysis_row.get('Entry_Level', np.nan), price_decimals)
     bars_since_break = safe_int(analysis_row.get('Bars_Since_Break', np.nan))
 
-    # Acceleration values
+    # ===== THREE-INDICATOR METRICS (PERCENTILES) =====
+    mpi_percentile = round(float(analysis_row.get('MPI_Percentile', 50.0)), 1)
+    ibs_percentile = round(float(analysis_row.get('IBS_Percentile', 50.0)), 1)
+    vpi_percentile = round(float(analysis_row.get('VPI_Percentile', 50.0)), 1)
+
+    # ===== ACCELERATION METRICS (RAW) =====
     ibs_accel = round(float(analysis_row.get('IBS_Accel', 0)), 3)
     rvol_accel = round(float(analysis_row.get('RVol_Accel', 0)), 3)
     rrange_accel = round(float(analysis_row.get('RRange_Accel', 0)), 3)
+    vpi_accel = round(float(analysis_row.get('VPI_Accel', 0)), 3)
 
-    # ===== CONTEXT METRICS (MPI & Technicals) =====
+    # ===== CONTEXT METRICS =====
     mpi_value = float(analysis_row.get('MPI', 0.5))
     mpi_velocity = float(analysis_row.get('MPI_Velocity', 0.0))
     mpi_trend = str(analysis_row.get('MPI_Trend', 'Unknown'))
     mpi_zone = int(analysis_row.get('MPI_Zone', 3))
-    mpi_position = str(analysis_row.get('MPI_Position', '❓ UNKNOWN'))
-
-    try:
-        from core.technical_analysis import get_mpi_trend_info
-        mpi_trend_info = get_mpi_trend_info(mpi_trend, mpi_velocity)
-    except:
-        mpi_trend_info = {'emoji': '❓', 'description': 'Unknown'}
 
     # Price action patterns
     higher_h = safe_int(analysis_row.get('Higher_H', 0))
@@ -406,13 +398,13 @@ def _create_result_dict(analysis_row: pd.Series, actual_date, ticker: str, fetch
     lower_hl = safe_int(analysis_row.get('Lower_HL', 0))
 
     if higher_hl == 1:
-        hl_pattern = "HHL"  # Higher High & Low
+        hl_pattern = "HHL"
     elif higher_h == 1:
-        hl_pattern = "HH"   # Higher High only
+        hl_pattern = "HH"
     elif lower_hl == 1:
-        hl_pattern = "LHL"  # Lower High & Low
+        hl_pattern = "LHL"
     elif lower_l == 1:
-        hl_pattern = "LL"   # Lower Low only
+        hl_pattern = "LL"
     else:
         hl_pattern = "-"
 
@@ -421,37 +413,41 @@ def _create_result_dict(analysis_row: pd.Series, actual_date, ticker: str, fetch
     relative_volume = round(float(analysis_row.get('Relative_Volume', 100.0)), 1)
     relvol_velocity = round(float(analysis_row.get('RelVol_Velocity', 0.0)), 1)
     relvol_trend = str(analysis_row.get('RelVol_Trend', 'Stable'))
+    vpi_velocity = round(float(analysis_row.get('VPI_Velocity', 0.0)), 2)
 
     # Range and volatility metrics
     vw_range_velocity = round(float(analysis_row.get('VW_Range_Velocity', 0)), 4)
     vw_range_percentile = round(float(analysis_row.get('VW_Range_Percentile', 0)), 4)
     rel_range_signal = safe_int(analysis_row.get('Rel_Range_Signal', 0))
 
-    # Volume flags removed - users can derive from Relative_Volume directly
-
     # Build comprehensive result dictionary
     result = {
-        # ===== PRIMARY SIGNAL (Break & Reversal Pattern) =====
-        'Signal_Bias': signal_bias,                    # 🟢 BULLISH / 🔴 BEARISH / ⚪ NEUTRAL
-        'Pattern_Quality': pattern_quality,            # 🔥 EXCEPTIONAL / 🟢 STRONG / etc.
-        'MPI_Position': mpi_position,                  # 📍 EARLY STAGE / ⚠️ MID STAGE / etc.
-        'Total_Score': total_score,                    # 0-100 acceleration score
-        'Triple_Confirm': triple_confirm,              # 🔥 YES if all 3 accelerations met
+        # ===== PRIMARY SIGNAL =====
+        'Signal_Bias': signal_bias,
+        'Signal_State': signal_state,
+        'Conviction_Level': conviction_level,
+        'MPI_Position': mpi_position,
+        'Is_Triple_Aligned': is_triple,
+        'Is_Divergent': is_divergent,
+        'Is_Accumulation': is_accumulation,
 
         # ===== PATTERN DETAILS =====
-        'Ref_High': ref_high,                          # Reference high level
-        'Ref_Low': ref_low,                            # Reference low level
-        'Purge_Level': purge_level,                    # Extreme of break candle
-        'Entry_Level': entry_level,                    # Reversal entry price
-        'Bars_Since_Break': bars_since_break,          # Time since break occurred
+        'Ref_High': ref_high,
+        'Ref_Low': ref_low,
+        'Purge_Level': purge_level,
+        'Entry_Level': entry_level,
+        'Bars_Since_Break': bars_since_break,
 
-        # ===== ACCELERATION METRICS (Primary Scoring) =====
-        'IBS_Accel': ibs_accel,                        # IBS 3-bar acceleration
-        'IBS_Score': ibs_score,                        # IBS contribution (0-35 pts)
-        'RVol_Accel': rvol_accel,                      # RVol 3-bar acceleration
-        'RVol_Score': rvol_score,                      # RVol contribution (0-35 pts)
-        'RRange_Accel': rrange_accel,                  # RRange 3-bar acceleration
-        'RRange_Score': rrange_score,                  # RRange contribution (0-30 pts)
+        # ===== THREE-INDICATOR METRICS =====
+        'MPI_Percentile': mpi_percentile,
+        'IBS_Percentile': ibs_percentile,
+        'VPI_Percentile': vpi_percentile,
+
+        # ===== ACCELERATION METRICS =====
+        'IBS_Accel': ibs_accel,
+        'RVol_Accel': rvol_accel,
+        'RRange_Accel': rrange_accel,
+        'VPI_Accel': vpi_accel,
 
         # ===== BASIC IDENTIFICATION =====
         'Ticker': ticker,
@@ -478,44 +474,34 @@ def _create_result_dict(analysis_row: pd.Series, actual_date, ticker: str, fetch
         'Relative_Volume': relative_volume,
         'RelVol_Velocity': relvol_velocity,
         'RelVol_Trend': relvol_trend,
+        'VPI_Velocity': vpi_velocity,
 
-    # ===== CONTEXT: MPI INDICATORS =====
-    'MPI': round(mpi_value, 2),
-    'MPI_Velocity': round(mpi_velocity, 2),
-    'MPI_Trend': mpi_trend,
-    'MPI_Zone': mpi_zone,
+        # ===== CONTEXT: MPI INDICATORS =====
+        'MPI': round(mpi_value, 2),
+        'MPI_Velocity': round(mpi_velocity, 2),
+        'MPI_Trend': mpi_trend,
+        'MPI_Zone': mpi_zone,
 
-    # ===== PHASE 1: INSTITUTIONAL FLOW METRICS =====
-    # Flow Analysis (time-series percentiles from technical analysis)
-    'Daily_Flow': round(float(analysis_row.get('Daily_Flow', 0.0)), 1),
-    'Flow_10D': round(float(analysis_row.get('Flow_10D', 0.0)), 1),
-    'Flow_Velocity': round(float(analysis_row.get('Flow_Velocity', 0.0)), 2),
-    'Flow_Percentile_TS': round(float(analysis_row.get('Flow_Percentile', 0.5)) * 100, 1),  # Convert 0-1 to 0-100 scale
-    'Flow_Velocity_Percentile_TS': round(float(analysis_row.get('Flow_Velocity_Percentile', 0.5)) * 100, 1),  # Convert to 0-100
-    'Flow_Regime': str(analysis_row.get('Flow_Regime', 'Neutral')),
-    
-    # Conviction Analysis (time-series percentiles)
-    'Volume_Conviction': round(float(analysis_row.get('Volume_Conviction', 1.0)), 2),
-    'Volume_Conviction_Percentile_TS': round(float(analysis_row.get('Volume_Conviction_Percentile', 0.5)) * 100, 1),  # Convert to 0-100
-    'Conviction_Velocity': round(float(analysis_row.get('Conviction_Velocity', 0.0)), 3),
-    'Avg_Vol_Up_10D': round(float(analysis_row.get('Avg_Vol_Up_10D', 0.0)), 0),
-    
-    # Divergence Analysis
-    'Divergence_Gap': round(float(analysis_row.get('Divergence_Gap', 0.0)), 2),
-    'Divergence_Severity': round(float(analysis_row.get('Divergence_Severity', 0.0)), 1),
-    'Price_Percentile': round(float(analysis_row.get('Price_Percentile', 0.5)), 2),
+        # ===== PHASE 1: INSTITUTIONAL FLOW METRICS =====
+        'Daily_Flow': round(float(analysis_row.get('Daily_Flow', 0.0)), 1),
+        'Flow_10D': round(float(analysis_row.get('Flow_10D', 0.0)), 1),
+        'Flow_Velocity': round(float(analysis_row.get('Flow_Velocity', 0.0)), 2),
+        'Flow_Percentile': round(float(analysis_row.get('Flow_Percentile', 0.5)) * 100, 1),
+        'Flow_Velocity_Percentile': round(float(analysis_row.get('Flow_Velocity_Percentile', 0.5)) * 100, 1),
+        'Flow_Regime': str(analysis_row.get('Flow_Regime', 'Neutral')),
+        
+        'Volume_Conviction': round(float(analysis_row.get('Volume_Conviction', 1.0)), 2),
+        'Volume_Conviction_Percentile': round(float(analysis_row.get('Volume_Conviction_Percentile', 0.5)) * 100, 1),
+        'Conviction_Velocity': round(float(analysis_row.get('Conviction_Velocity', 0.0)), 3),
+        'Avg_Vol_Up_10D': round(float(analysis_row.get('Avg_Vol_Up_10D', 0.0)), 0),
+        
+        'Divergence_Gap': round(float(analysis_row.get('Divergence_Gap', 0.0)), 2),
+        'Divergence_Severity': round(float(analysis_row.get('Divergence_Severity', 0.0)), 1),
+        'Price_Percentile': round(float(analysis_row.get('Price_Percentile', 0.5)), 2),
 
-    # ===== LEGACY FIELDS (for backward compatibility) =====
-    'MPI_Signal_Direction': 'bullish' if signal_bias == '🟢 BULLISH' else ('bearish' if signal_bias == '🔴 BEARISH' else 'neutral'),
-    'MPI_Signal_Quality': total_score,  # Now represents acceleration score
-    'MPI_Entry_Signal': pattern_quality,  # Now represents pattern quality
-    'MPI_Position_Score': 0,  # Legacy - no longer used
-    'MPI_IBS_Score': ibs_score,  # Now represents IBS acceleration score
-    'MPI_RelVol_Score': rvol_score,  # Now represents RVol acceleration score
-
-    # ===== UTILITY =====
-    'Price_Decimals': price_decimals
-}
+        # ===== UTILITY =====
+        'Price_Decimals': price_decimals
+    }
 
     return result
 
