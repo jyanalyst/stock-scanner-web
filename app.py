@@ -160,6 +160,7 @@ def main():
         "📊 RVOL BackTest": "rvol_backtest",
         "📊 Analysis (Analyst Reports)": "analyst_reports",
         "📊 Analysis (Earnings Reports)": "earnings_reports",
+        "📊 Analysis (REITs)": "reit_analysis",
         "🔬 Factor Analysis": "factor_analysis",
         "📊 Historical Analysis": "historical",
         "📋 Watchlist Manager": "watchlist",
@@ -213,6 +214,14 @@ def main():
         except ImportError as e:
             st.error(f"Earnings Reports Analysis module not found: {e}")
             st.info("This module provides comprehensive earnings analysis combining detailed report viewing with advanced trend analysis.")
+
+    elif page_value == "reit_analysis":
+        try:
+            from pages import reit_analysis
+            reit_analysis.show()
+        except ImportError as e:
+            st.error(f"REIT Analysis module not found: {e}")
+            st.info("This module provides comprehensive REIT valuation analysis following Framework v2.1 with Property Yield Spread economics.")
 
     elif page_value == "factor_analysis":
         try:
