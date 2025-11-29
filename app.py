@@ -157,6 +157,7 @@ def main():
     pages = {
         "🏠 Home": "home",
         "📈 Scanner": "scanner",
+        "📊 RVOL BackTest": "rvol_backtest",
         "📊 Analysis (Analyst Reports)": "analyst_reports",
         "📊 Analysis (Earnings Reports)": "earnings_reports",
         "🔬 Factor Analysis": "factor_analysis",
@@ -188,6 +189,14 @@ def main():
         except ImportError as e:
             st.error(f"Scanner module not found: {e}")
             st.info("This scanner focuses on stocks with Higher High AND Higher Low patterns, with integrated analyst sentiment analysis.")
+
+    elif page_value == "rvol_backtest":
+        try:
+            from pages import rvol_backtest
+            rvol_backtest.show()
+        except ImportError as e:
+            st.error(f"RVOL BackTest module not found: {e}")
+            st.info("This module provides Monthly VWAP mean reversion backtesting with realistic retest fill logic.")
 
     elif page_value == "analyst_reports":
         try:
