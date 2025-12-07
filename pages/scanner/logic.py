@@ -144,28 +144,29 @@ def run_enhanced_stock_scan(stocks_to_scan: List[str], analysis_date: Optional[d
         # Optimize memory usage after creating results
         results_df = _memory_manager.optimize_dataframe(results_df)
 
-        # ===== CALCULATE CROSS-STOCK PERCENTILES =====
-        # These percentiles rank stocks against each other (not time-series)
-        update_progress(progress_bar, status_text, 0.75, "📊 Calculating cross-stock flow percentiles...")
-        
+        # ===== CALCULATE CROSS-STOCK RANKINGS =====
+        # These rankings compare stocks against each other in the watchlist (not time-series)
+        update_progress(progress_bar, status_text, 0.75, "📊 Calculating cross-stock flow rankings...")
+
         try:
-            # Calculate cross-stock percentiles for key flow metrics
+            # Calculate cross-stock rankings for key flow metrics
+            # These show relative strength: "Which stocks are strongest TODAY?"
             if 'Flow_10D' in results_df.columns:
-                results_df['Flow_Percentile'] = results_df['Flow_10D'].rank(pct=True) * 100
-                results_df['Flow_Percentile'] = results_df['Flow_Percentile'].round(1)
-            
+                results_df['Flow_Rank'] = results_df['Flow_10D'].rank(pct=True) * 100
+                results_df['Flow_Rank'] = results_df['Flow_Rank'].round(1)
+
             if 'Flow_Velocity' in results_df.columns:
-                results_df['Flow_Velocity_Percentile'] = results_df['Flow_Velocity'].rank(pct=True) * 100
-                results_df['Flow_Velocity_Percentile'] = results_df['Flow_Velocity_Percentile'].round(1)
-            
+                results_df['Flow_Velocity_Rank'] = results_df['Flow_Velocity'].rank(pct=True) * 100
+                results_df['Flow_Velocity_Rank'] = results_df['Flow_Velocity_Rank'].round(1)
+
             if 'Volume_Conviction' in results_df.columns:
-                results_df['Volume_Conviction_Percentile'] = results_df['Volume_Conviction'].rank(pct=True) * 100
-                results_df['Volume_Conviction_Percentile'] = results_df['Volume_Conviction_Percentile'].round(1)
-            
-            structured_logger.log('INFO', 'CrossStockPercentiles', 
-                                f"Calculated cross-stock percentiles for {len(results_df)} stocks")
+                results_df['Volume_Conviction_Rank'] = results_df['Volume_Conviction'].rank(pct=True) * 100
+                results_df['Volume_Conviction_Rank'] = results_df['Volume_Conviction_Rank'].round(1)
+
+            structured_logger.log('INFO', 'CrossStockRankings',
+                                f"Calculated cross-stock rankings for {len(results_df)} stocks")
         except Exception as e:
-            handle_error(e, "CrossStockPercentiles", {"operation": "calculate_percentiles"}, show_user_message=False)
+            handle_error(e, "CrossStockRankings", {"operation": "calculate_rankings"}, show_user_message=False)
 
         # Load and merge analyst reports with enhanced error handling
         update_progress(progress_bar, status_text, ScanProgress.ANALYST_REPORTS, "📊 Loading analyst reports...")
@@ -483,15 +484,23 @@ def _create_result_dict(analysis_row: pd.Series, actual_date, ticker: str, fetch
         'MPI_Zone': mpi_zone,
 
         # ===== PHASE 1: INSTITUTIONAL FLOW METRICS =====
+        # Raw flow metrics
         'Daily_Flow': round(float(analysis_row.get('Daily_Flow', 0.0)), 1),
         'Flow_10D': round(float(analysis_row.get('Flow_10D', 0.0)), 1),
         'Flow_Velocity': round(float(analysis_row.get('Flow_Velocity', 0.0)), 2),
-        'Flow_Percentile': round(float(analysis_row.get('Flow_Percentile', 0.5)) * 100, 1),
-        'Flow_Velocity_Percentile': round(float(analysis_row.get('Flow_Velocity_Percentile', 0.5)) * 100, 1),
         'Flow_Regime': str(analysis_row.get('Flow_Regime', 'Neutral')),
-        
+
+        # Individual stock percentiles (historical, 100-day rolling)
+        'Flow_Percentile': round(float(analysis_row.get('Flow_Percentile', 50.0)), 1),
+        'Flow_Velocity_Percentile': round(float(analysis_row.get('Flow_Velocity_Percentile', 50.0)), 1),
+
+        # Cross-stock rankings (watchlist relative strength) - calculated in run_enhanced_stock_scan
+        'Flow_Rank': round(float(analysis_row.get('Flow_Rank', 50.0)), 1),
+        'Flow_Velocity_Rank': round(float(analysis_row.get('Flow_Velocity_Rank', 50.0)), 1),
+
+        # Volume conviction metrics
         'Volume_Conviction': round(float(analysis_row.get('Volume_Conviction', 1.0)), 2),
-        'Volume_Conviction_Percentile': round(float(analysis_row.get('Volume_Conviction_Percentile', 0.5)) * 100, 1),
+        'Volume_Conviction_Rank': round(float(analysis_row.get('Volume_Conviction_Rank', 50.0)), 1),
         'Conviction_Velocity': round(float(analysis_row.get('Conviction_Velocity', 0.0)), 3),
         'Avg_Vol_Up_10D': round(float(analysis_row.get('Avg_Vol_Up_10D', 0.0)), 0),
         

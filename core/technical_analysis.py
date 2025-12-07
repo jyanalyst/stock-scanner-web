@@ -1063,18 +1063,21 @@ def classify_flow_regime(df: pd.DataFrame) -> pd.DataFrame:
     Returns:
         DataFrame with Flow_Regime column added
     """
-    # Calculate flow percentiles for classification
-    df['Flow_Percentile'] = df['Flow_10D'].rolling(window=50, min_periods=20).rank(pct=True)
+    # Calculate INDIVIDUAL STOCK historical percentiles (100-day rolling)
+    # These compare current values against the stock's own history
+    df['Flow_Percentile'] = df['Flow_10D'].rolling(window=100, min_periods=20).rank(pct=True) * 100
+    df['Flow_Velocity_Percentile'] = df['Flow_Velocity'].rolling(window=100, min_periods=20).rank(pct=True) * 100
 
     # Fill NaN values
-    df['Flow_Percentile'] = df['Flow_Percentile'].fillna(0.5)
-    
-    # Classify into regimes based on percentile
+    df['Flow_Percentile'] = df['Flow_Percentile'].fillna(50.0)
+    df['Flow_Velocity_Percentile'] = df['Flow_Velocity_Percentile'].fillna(50.0)
+
+    # Classify into regimes based on percentile (now 0-100 scale)
     df['Flow_Regime'] = 'Neutral'  # Default
-    df.loc[df['Flow_Percentile'] >= 0.8, 'Flow_Regime'] = 'Strong Accumulation'
-    df.loc[(df['Flow_Percentile'] >= 0.6) & (df['Flow_Percentile'] < 0.8), 'Flow_Regime'] = 'Accumulation'
-    df.loc[(df['Flow_Percentile'] <= 0.4) & (df['Flow_Percentile'] > 0.2), 'Flow_Regime'] = 'Distribution'
-    df.loc[df['Flow_Percentile'] <= 0.2, 'Flow_Regime'] = 'Strong Distribution'
+    df.loc[df['Flow_Percentile'] >= 80, 'Flow_Regime'] = 'Strong Accumulation'
+    df.loc[(df['Flow_Percentile'] >= 60) & (df['Flow_Percentile'] < 80), 'Flow_Regime'] = 'Accumulation'
+    df.loc[(df['Flow_Percentile'] <= 40) & (df['Flow_Percentile'] > 20), 'Flow_Regime'] = 'Distribution'
+    df.loc[df['Flow_Percentile'] <= 20, 'Flow_Regime'] = 'Strong Distribution'
 
     return df
 

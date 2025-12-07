@@ -977,16 +977,19 @@ def display_filtered_results(filtered_stocks: pd.DataFrame, selected_base_filter
         create_warning_box("No stocks match the current filter criteria")
         return
 
-    # Display columns - Institutional Flow Focus (16 columns)
+    # Display columns - Streamlined 2-4 Day Strategy (13 columns)
     display_cols = [
         # Core Identity (4)
-        'Analysis_Date', 'Ticker', 'Name', 'Signal_Bias',
+        'Analysis_Date', 'Ticker', 'Name', 'Close',
 
-        # Institutional Flow (5)
-        'Daily_Flow', 'Flow_10D', 'Flow_Percentile', 'Flow_Velocity', 'Flow_Velocity_Percentile',
+        # Primary Decision Metrics (5) - Reordered by priority
+        'Signal_Bias', 'Flow_Velocity_Rank', 'Flow_Rank', 'Flow_Percentile', 'Volume_Conviction',
 
-        # Technical Indicators (7)
-        'VPI_Percentile', 'IBS_Percentile', 'MPI_Percentile', 'HL_Pattern', 'IBS', 'VW_Range_Velocity', 'Relative_Volume'
+        # Confirmation Metrics (3) - Three-Indicator System
+        'MPI_Percentile', 'IBS_Percentile', 'VPI_Percentile',
+
+        # Context (1)
+        'HL_Pattern'
     ]
 
     base_column_config = {
@@ -994,14 +997,18 @@ def display_filtered_results(filtered_stocks: pd.DataFrame, selected_base_filter
         'Analysis_Date': st.column_config.TextColumn('📅 Date', width='small', help='Analysis date for the scan'),
         'Ticker': st.column_config.TextColumn('Ticker', width='small'),
         'Name': st.column_config.TextColumn('Company', width='medium'),
+        'Close': st.column_config.NumberColumn('Close', format='%.3f', help='Current closing price'),
         'Signal_Bias': st.column_config.TextColumn('🎯 Signal', width='small', help='🟢 BULLISH / 🔴 BEARISH'),
 
-        # Institutional Flow (5)
+        # Institutional Flow (7)
         'Daily_Flow': st.column_config.NumberColumn('Daily Flow', format='%+.2f', help='Institutional flow for current day'),
         'Flow_10D': st.column_config.NumberColumn('Flow 10D', format='%+.2f', help='10-day cumulative institutional flow'),
-        'Flow_Percentile': st.column_config.NumberColumn('Flow %ile', format='%.1f', help='Flow percentile ranking (0-100)'),
+        'Flow_Percentile': st.column_config.NumberColumn('Flow %ile', format='%.1f', help='Individual stock flow percentile (0-100)'),
+        'Flow_Rank': st.column_config.NumberColumn('Flow Rank', format='%.1f', help='Cross-stock flow ranking (0-100)'),
         'Flow_Velocity': st.column_config.NumberColumn('Flow Vel', format='%+.2f', help='Rate of flow change'),
-        'Flow_Velocity_Percentile': st.column_config.NumberColumn('Flow Vel %ile', format='%.1f', help='Flow velocity percentile ranking (0-100)'),
+        'Flow_Velocity_Percentile': st.column_config.NumberColumn('Flow Vel %ile', format='%.1f', help='Individual stock flow velocity percentile (0-100)'),
+        'Flow_Velocity_Rank': st.column_config.NumberColumn('Flow Vel Rank', format='%.1f', help='Cross-stock flow velocity ranking (0-100)'),
+        'Volume_Conviction': st.column_config.NumberColumn('Conviction', format='%.3f', help='Up-day vs down-day volume ratio (1.0=neutral, >1.0=bullish, <1.0=bearish)'),
 
         # Three-Indicator System (6) - Percentiles + Velocities
         'MPI_Percentile': st.column_config.NumberColumn('MPI %ile', format='%.1f', help='Trend Strength (0-100)'),

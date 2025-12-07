@@ -30,12 +30,14 @@ def show_institutional_flow_analysis(filtered_stocks: pd.DataFrame) -> None:
         st.markdown("### 🌊 Flow Analysis")
         st.caption("Volume-weighted directional flow tracking institutional accumulation/distribution")
         
-        # Include both raw and percentile columns for comprehensive analysis
-        flow_cols = ['Ticker', 'Name', 'Daily_Flow', 'Flow_10D', 'Flow_Percentile', 'Flow_Velocity', 'Flow_Velocity_Percentile', 'Flow_Regime']
+        # Include both raw, individual percentiles, and cross-stock rankings for comprehensive analysis
+        flow_cols = ['Ticker', 'Name', 'Daily_Flow', 'Flow_10D', 'Flow_Percentile', 'Flow_Rank', 'Flow_Velocity', 'Flow_Velocity_Percentile', 'Flow_Velocity_Rank', 'Flow_Regime']
         flow_data = filtered_stocks[[col for col in flow_cols if col in filtered_stocks.columns]].copy()
 
-        # Sort by Flow_10D descending (strongest accumulation first)
-        if 'Flow_10D' in flow_data.columns:
+        # Sort by Flow_Rank descending (strongest relative accumulation first)
+        if 'Flow_Rank' in flow_data.columns:
+            flow_data = flow_data.sort_values('Flow_Rank', ascending=False)
+        elif 'Flow_10D' in flow_data.columns:
             flow_data = flow_data.sort_values('Flow_10D', ascending=False)
 
         flow_config = {
@@ -53,8 +55,13 @@ def show_institutional_flow_analysis(filtered_stocks: pd.DataFrame) -> None:
             ),
             'Flow_Percentile': st.column_config.NumberColumn(
                 'Flow %ile',
-                format='%.0f%%',
-                help='Flow_10D percentile rank: 95% = top 5% of 50-day history (higher = stronger accumulation)'
+                format='%.1f',
+                help='Individual stock flow percentile (0-100): Where Flow_10D ranks in stock\'s 100-day history'
+            ),
+            'Flow_Rank': st.column_config.NumberColumn(
+                'Flow Rank',
+                format='%.1f',
+                help='Cross-stock flow ranking (0-100): How this stock ranks vs others today (higher = stronger accumulation)'
             ),
             'Flow_Velocity': st.column_config.NumberColumn(
                 'Flow Velocity',
@@ -63,8 +70,13 @@ def show_institutional_flow_analysis(filtered_stocks: pd.DataFrame) -> None:
             ),
             'Flow_Velocity_Percentile': st.column_config.NumberColumn(
                 'Vel %ile',
-                format='%.0f%%',
-                help='Flow_Velocity percentile rank: 15% = bottom 15% of 50-day history (lower = more deceleration)'
+                format='%.1f',
+                help='Individual stock flow velocity percentile (0-100): Where Flow_Velocity ranks in stock\'s 100-day history'
+            ),
+            'Flow_Velocity_Rank': st.column_config.NumberColumn(
+                'Vel Rank',
+                format='%.1f',
+                help='Cross-stock flow velocity ranking (0-100): How this stock\'s flow change ranks vs others today'
             ),
             'Flow_Regime': st.column_config.TextColumn(
                 'Flow Regime',
