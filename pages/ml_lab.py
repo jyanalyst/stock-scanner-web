@@ -14,6 +14,10 @@ def show():
     st.title("🧪 ML Lab: Strategy Optimization")
     st.markdown("Develop and test machine learning models without affecting production scanner")
 
+    # Define dates at function start (fixes variable scope error)
+    start_date = datetime(2023, 1, 1)
+    end_date = datetime(2024, 12, 31)
+
     # Phase selector
     st.markdown("---")
 
