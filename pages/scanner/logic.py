@@ -29,6 +29,141 @@ from core.technical_analysis import (add_enhanced_columns, get_mpi_trend_info,
 logger = logging.getLogger(__name__)
 
 
+def calculate_signal_score(row):
+    """
+    Calculate composite signal score (0-100 scale)
+
+    Components:
+    - Flow_Velocity_Rank: 35% (acceleration)
+    - Flow_Rank: 25% (current strength)
+    - Flow_Percentile: 20% (sweet spot positioning)
+    - Volume_Conviction: 15% (commitment)
+    - Three_Indicator: 5% (confirmation)
+    """
+
+    # Component 1: Flow_Velocity_Rank (35 points max)
+    vel_score = row['Flow_Velocity_Rank'] * 0.35
+
+    # Component 2: Flow_Rank (25 points max)
+    rank_score = row['Flow_Rank'] * 0.25
+
+    # Component 3: Flow_Percentile (20 points max) - Sweet spot scoring
+    perc = row['Flow_Percentile']
+    if 40 <= perc <= 70:
+        perc_score = 20  # IDEAL sweet spot
+    elif 71 <= perc <= 80:
+        perc_score = 15  # Good
+    elif 81 <= perc <= 85:
+        perc_score = 10  # Late stage
+    elif 86 <= perc <= 95:
+        perc_score = 5   # Exhaustion risk
+    elif perc > 95:
+        perc_score = 0   # PEAK - avoid
+    else:  # < 40
+        perc_score = 10  # Too weak
+
+    # Component 4: Volume_Conviction (15 points max)
+    conv = row['Volume_Conviction']
+    if conv >= 1.5:
+        conv_score = 15  # Excellent
+    elif conv >= 1.25:
+        conv_score = 12  # Good
+    elif conv >= 1.0:
+        conv_score = 8   # Marginal
+    else:
+        conv_score = 3   # Weak
+
+    # Component 5: Three_Indicator confirmation (5 points max)
+    indicators_above_55 = sum([
+        row['MPI_Percentile'] > 55,
+        row['IBS_Percentile'] > 55,
+        row['VPI_Percentile'] > 55
+    ])
+    indicator_score = indicators_above_55 * 1.67  # 3 indicators = 5 points
+
+    total_score = vel_score + rank_score + perc_score + conv_score + indicator_score
+
+    return round(total_score, 1)
+
+
+def calculate_suggested_risk(row):
+    """
+    Calculate suggested position size based on Trade_Rank and Signal_Score
+
+    Returns: Risk percentage (0.0 to 1.0)
+    """
+    rank = row['Trade_Rank']
+    score = row['Signal_Score']
+
+    # Rank 1 - Best idea
+    if rank == 1:
+        if score >= 75:
+            return 1.0   # Full allocation
+        elif score >= 65:
+            return 0.75  # Reduced
+        else:
+            return 0.5   # Marginal
+
+    # Rank 2 - Second best
+    elif rank == 2:
+        if score >= 75:
+            return 0.75
+        elif score >= 65:
+            return 0.5
+        else:
+            return 0.25
+
+    # Rank 3 - Third best
+    elif rank == 3:
+        if score >= 75:
+            return 0.5
+        elif score >= 65:
+            return 0.25
+        else:
+            return 0.25  # Minimum or skip
+
+    # Rank 4+ - Don't trade
+    else:
+        return 0.0
+
+
+def get_quality_flag(score):
+    """Convert numeric score to quality flag"""
+    if score >= 80:
+        return '⭐⭐⭐ EXCELLENT'
+    elif score >= 70:
+        return '⭐⭐ GOOD'
+    elif score >= 60:
+        return '⭐ MARGINAL'
+    else:
+        return '⚠️ RISKY'
+
+
+def add_ranking_columns(df):
+    """
+    Add Signal_Score, Trade_Rank, Suggested_Risk, Quality_Flag to dataframe
+
+    This should be called AFTER filtering for bullish/bearish signals
+    but BEFORE displaying results
+    """
+    if df.empty:
+        return df
+
+    # Calculate signal score for each stock
+    df['Signal_Score'] = df.apply(calculate_signal_score, axis=1)
+
+    # Rank by score (descending) - best score gets rank 1
+    df['Trade_Rank'] = df['Signal_Score'].rank(method='dense', ascending=False).astype(int)
+
+    # Calculate suggested risk based on rank and score
+    df['Suggested_Risk'] = df.apply(calculate_suggested_risk, axis=1)
+
+    # Add quality flag for visual reference
+    df['Quality_Flag'] = df['Signal_Score'].apply(get_quality_flag)
+
+    return df
+
+
 @performance_monitor("stock_scan")
 def run_enhanced_stock_scan(stocks_to_scan: List[str], analysis_date: Optional[date] = None,
                            days_back: int = 59, rolling_window: int = 20,

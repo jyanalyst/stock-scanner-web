@@ -966,6 +966,15 @@ def show_base_pattern_filter(results_df: pd.DataFrame) -> pd.DataFrame:
         final_filtered_df = filtered_signals
         create_info_box(f"Showing all {len(final_filtered_df)} signals")
 
+    # ===== ADD SIGNAL SCORING AND RANKING =====
+    # Apply ranking to the final filtered results
+    if not final_filtered_df.empty:
+        from pages.scanner.logic import add_ranking_columns
+        final_filtered_df = add_ranking_columns(final_filtered_df)
+
+        # Sort by Trade_Rank (best first)
+        final_filtered_df = final_filtered_df.sort_values('Trade_Rank')
+
     return final_filtered_df
 
 
@@ -977,10 +986,36 @@ def display_filtered_results(filtered_stocks: pd.DataFrame, selected_base_filter
         create_warning_box("No stocks match the current filter criteria")
         return
 
-    # Display columns - Streamlined 2-4 Day Strategy (13 columns)
+    # ===== TOP 3 SUMMARY BOX =====
+    if len(filtered_stocks) >= 3 and 'Trade_Rank' in filtered_stocks.columns:
+        top3 = filtered_stocks.nsmallest(3, 'Trade_Rank')
+
+        st.info("📊 **TOP 3 TRADING IDEAS (Auto-Selected)**")
+
+        for idx, row in top3.iterrows():
+            rank = int(row['Trade_Rank'])
+            ticker = row['Ticker']
+            score = row['Signal_Score']
+            risk = row['Suggested_Risk']
+            quality = row['Quality_Flag']
+            price = row['Close']
+            target_price = price * 1.05  # +5% target
+
+            medal = '🥇' if rank == 1 else '🥈' if rank == 2 else '🥉'
+            st.write(f"{medal} **#{rank}: {ticker}** - Score: {score:.1f} {quality}")
+            st.write(f"   → Risk: {risk:.2%} | Entry: ${price:.3f} | Target: ${target_price:.3f} (+5%)")
+
+        total_risk = top3['Suggested_Risk'].sum()
+        st.write(f"**Total Capital at Risk: {total_risk:.2%}**")
+        st.write("---")
+
+    # Display columns - Streamlined 2-4 Day Strategy with Auto-Ranking (17 columns)
     display_cols = [
         # Core Identity (4)
         'Analysis_Date', 'Ticker', 'Name', 'Close',
+
+        # Auto-Ranking & Decision (4) - NEW
+        'Trade_Rank', 'Signal_Score', 'Suggested_Risk', 'Quality_Flag',
 
         # Primary Decision Metrics (5) - Reordered by priority
         'Signal_Bias', 'Flow_Velocity_Rank', 'Flow_Rank', 'Flow_Percentile', 'Volume_Conviction',
@@ -998,6 +1033,13 @@ def display_filtered_results(filtered_stocks: pd.DataFrame, selected_base_filter
         'Ticker': st.column_config.TextColumn('Ticker', width='small'),
         'Name': st.column_config.TextColumn('Company', width='medium'),
         'Close': st.column_config.NumberColumn('Close', format='%.3f', help='Current closing price'),
+
+        # Auto-Ranking & Decision (4) - NEW
+        'Trade_Rank': st.column_config.NumberColumn('🏆 Rank', format='%d', help='Trading priority (1=best, lower is better)', width='small'),
+        'Signal_Score': st.column_config.NumberColumn('💯 Score', format='%.1f', help='Composite signal quality (0-100). Higher = better setup', width='small'),
+        'Suggested_Risk': st.column_config.NumberColumn('💰 Risk %', format='%.2f%%', help='Suggested position size as % of capital', width='small'),
+        'Quality_Flag': st.column_config.TextColumn('⭐ Quality', help='Signal quality indicator', width='small'),
+
         'Signal_Bias': st.column_config.TextColumn('🎯 Signal', width='small', help='🟢 BULLISH / 🔴 BEARISH'),
 
         # Institutional Flow (7)
