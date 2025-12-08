@@ -140,6 +140,11 @@ class MLDataCollector:
             days_back=59,
             rolling_window=20
         )
+        
+        # CRITICAL FIX: Reset index if Date is the index (scanner sets it as index)
+        if scan_results is not None and not scan_results.empty:
+            if scan_results.index.name == 'Date' or 'Date' not in scan_results.columns:
+                scan_results = scan_results.reset_index()
 
         return scan_results
 
