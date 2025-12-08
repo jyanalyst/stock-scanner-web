@@ -141,10 +141,17 @@ class MLDataCollector:
             rolling_window=20
         )
         
-        # CRITICAL FIX: Reset index if Date is the index (scanner sets it as index)
+        # CRITICAL FIX: Ensure Date column exists (scanner may set it as index)
         if scan_results is not None and not scan_results.empty:
-            if scan_results.index.name == 'Date' or 'Date' not in scan_results.columns:
+            if 'Date' not in scan_results.columns:
+                # Reset index to get Date back as column
                 scan_results = scan_results.reset_index()
+                
+                # Find datetime column and rename to 'Date' if needed
+                for col in scan_results.columns:
+                    if col != 'Date' and pd.api.types.is_datetime64_any_dtype(scan_results[col]):
+                        scan_results = scan_results.rename(columns={col: 'Date'})
+                        break
 
         return scan_results
 
