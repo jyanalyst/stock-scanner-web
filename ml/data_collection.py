@@ -190,7 +190,7 @@ class MLDataCollector:
     def _get_price_on_date(self, ticker: str, date: datetime, loader) -> float:
         """Get closing price on specific date"""
         try:
-            df = loader.get_stock_data(ticker)
+            df = loader.load_historical_data(ticker)
             df['Date'] = pd.to_datetime(df['Date'])
 
             # Find closest trading day
@@ -206,7 +206,7 @@ class MLDataCollector:
                                 entry_price, loader) -> float:
         """Calculate max drawdown during holding period"""
         try:
-            df = loader.get_stock_data(ticker)
+            df = loader.load_historical_data(ticker)
             df['Date'] = pd.to_datetime(df['Date'])
 
             # Filter to holding period
@@ -231,7 +231,7 @@ class MLDataCollector:
         loader = get_local_loader()
 
         # Get reference stock to find trading dates
-        reference_df = loader.get_stock_data("A17U.SG")
+        reference_df = loader.load_historical_data("A17U.SG")
         reference_df['Date'] = pd.to_datetime(reference_df['Date'])
 
         # Filter to date range

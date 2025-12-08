@@ -136,7 +136,7 @@ class MLDataValidator:
 
         try:
             # Load data
-            df = loader.get_stock_data(ticker)
+            df = loader.load_historical_data(ticker)
 
             if df is None or df.empty:
                 return {
