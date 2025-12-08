@@ -1,0 +1,85 @@
+---
+# ML Lab Configuration
+# Hyperparameters and settings for machine learning optimization
+
+# Phase 1: Data Collection
+data_collection:
+  start_date: "2023-01-01"
+  end_date: "2024-12-31"
+  forward_days: [2, 4]  # Calculate returns for these holding periods
+  checkpoint_frequency: 20  # Save checkpoint every N days
+  max_workers: 1  # Sequential processing for now
+
+# Phase 2: Factor Analysis
+factor_analysis:
+  min_samples: 10000  # Minimum samples required
+  ic_threshold: 0.05  # Information Coefficient significance threshold
+  correlation_threshold: 0.8  # Remove factors with correlation above this
+  factors_to_test:
+    - Flow_Velocity_Rank
+    - Flow_Rank
+    - Flow_Percentile
+    - Volume_Conviction
+    - MPI_Percentile
+    - IBS_Percentile
+    - VPI_Percentile
+    - Signal_Bias
+    - HL_Pattern
+
+# Phase 3: Model Training
+model_training:
+  test_size: 0.2
+  random_state: 42
+  cv_folds: 5
+
+  # Linear Models
+  linear:
+    alpha_range: [0.001, 0.01, 0.1, 1.0, 10.0]
+
+  # Random Forest
+  random_forest:
+    n_estimators: [100, 200, 300]
+    max_depth: [10, 20, None]
+    min_samples_split: [2, 5, 10]
+    min_samples_leaf: [1, 2, 4]
+
+  # XGBoost
+  xgboost:
+    max_depth: [3, 5, 7]
+    learning_rate: [0.01, 0.05, 0.1]
+    n_estimators: [100, 200, 300]
+    subsample: [0.8, 1.0]
+    colsample_bytree: [0.8, 1.0]
+
+# Phase 4: Validation
+validation:
+  walk_forward_window: 252  # 1 year rolling window
+  step_size: 20  # Move forward 20 days each step
+  min_periods: 100  # Minimum samples per validation fold
+
+# Phase 5: Deployment
+deployment:
+  model_registry_path: "models/production/"
+  backup_old_models: true
+  a_b_test_duration: 30  # Days to run A/B test
+  confidence_threshold: 0.95  # Statistical significance level
+
+# General Settings
+general:
+  random_seed: 42
+  log_level: "INFO"
+  cache_enabled: true
+  parallel_processing: false  # Keep simple for now
+
+# Performance Monitoring
+monitoring:
+  track_metrics:
+    - ic_mean
+    - ic_std
+    - sharpe_ratio
+    - max_drawdown
+    - win_rate
+    - profit_factor
+  alert_thresholds:
+    ic_drop: 0.1  # Alert if IC drops by 10%
+    sharpe_drop: 0.5  # Alert if Sharpe drops by 0.5

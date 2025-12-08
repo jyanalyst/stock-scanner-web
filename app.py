@@ -157,6 +157,7 @@ def main():
     pages = {
         "🏠 Home": "home",
         "📈 Scanner": "scanner",
+        "🧪 ML Lab": "ml_lab",
         "📊 RVOL BackTest": "rvol_backtest",
         "📊 Analysis (Analyst Reports)": "analyst_reports",
         "📊 Analysis (Earnings Reports)": "earnings_reports",
@@ -190,6 +191,14 @@ def main():
         except ImportError as e:
             st.error(f"Scanner module not found: {e}")
             st.info("This scanner focuses on stocks with Higher High AND Higher Low patterns, with integrated analyst sentiment analysis.")
+
+    elif page_value == "ml_lab":
+        try:
+            import pages.ml_lab as ml_lab
+            ml_lab.show()
+        except ImportError as e:
+            st.error(f"ML Lab module not found: {e}")
+            st.info("ML Lab provides machine learning optimization of trading strategies using historical data.")
 
     elif page_value == "rvol_backtest":
         try:
