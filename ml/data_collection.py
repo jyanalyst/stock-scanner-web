@@ -16,6 +16,20 @@ import streamlit as st
 logger = logging.getLogger(__name__)
 
 
+class MockErrorLogger:
+    """Mock error logger for scanner compatibility"""
+    def __init__(self):
+        self.errors = []
+    
+    def log_error(self, *args, **kwargs):
+        """Silent error logging - scanner expects this method"""
+        pass
+    
+    def log_performance(self, *args, **kwargs):
+        """Silent performance logging - scanner expects this method too"""
+        pass
+
+
 class MLDataCollector:
     def __init__(self,
                  start_date: str = "2023-01-01",
@@ -56,6 +70,10 @@ class MLDataCollector:
             resume_from: Date to resume from (for interrupted runs)
             use_validation: If True, filter stocks by validation status
         """
+        # Initialize error_logger if needed (prevents scanner errors)
+        if hasattr(st, 'session_state') and not hasattr(st.session_state, 'error_logger'):
+            st.session_state.error_logger = MockErrorLogger()
+        
         # Get usable stocks from validation (Ready + Partial, exclude Failed)
         usable_stocks = None
         if use_validation:
@@ -114,9 +132,12 @@ class MLDataCollector:
                 self.logger.error(f"Error on {date}: {e}")
                 continue
 
-        # Final save
+        # Final save - ensure directory exists
+        os.makedirs(save_path, exist_ok=True)
         final_df = pd.DataFrame(all_samples)
         final_df.to_parquet(f"{save_path}/training_data_complete.parquet")
+        
+        self.logger.info(f"✅ Collection complete! Saved {len(final_df)} samples to {save_path}")
 
         return final_df
 
@@ -143,15 +164,30 @@ class MLDataCollector:
         
         # CRITICAL FIX: Ensure Date column exists (scanner may set it as index)
         if scan_results is not None and not scan_results.empty:
+            # DEBUG: Log what we received
+            self.logger.info(f"DEBUG: Scanner returned {len(scan_results)} rows")
+            self.logger.info(f"DEBUG: Columns: {list(scan_results.columns)}")
+            self.logger.info(f"DEBUG: Index name: {scan_results.index.name}")
+            self.logger.info(f"DEBUG: Index dtype: {scan_results.index.dtype}")
+            
             if 'Date' not in scan_results.columns:
+                self.logger.info("DEBUG: Date not in columns, resetting index...")
                 # Reset index to get Date back as column
                 scan_results = scan_results.reset_index()
+                self.logger.info(f"DEBUG: After reset_index, columns: {list(scan_results.columns)}")
                 
                 # Find datetime column and rename to 'Date' if needed
                 for col in scan_results.columns:
                     if col != 'Date' and pd.api.types.is_datetime64_any_dtype(scan_results[col]):
+                        self.logger.info(f"DEBUG: Found datetime column '{col}', renaming to 'Date'")
                         scan_results = scan_results.rename(columns={col: 'Date'})
                         break
+                
+                # Final check
+                if 'Date' not in scan_results.columns:
+                    self.logger.error(f"DEBUG: FAILED to create Date column! Final columns: {list(scan_results.columns)}")
+                else:
+                    self.logger.info(f"DEBUG: SUCCESS! Date column exists")
 
         return scan_results
 
@@ -272,6 +308,11 @@ class MLDataCollector:
 
         # Get reference stock to find trading dates
         reference_df = loader.load_historical_data("A17U.SG")
+        
+        # CRITICAL FIX: Ensure Date is a column, not index
+        if 'Date' not in reference_df.columns:
+            reference_df = reference_df.reset_index()
+        
         reference_df['Date'] = pd.to_datetime(reference_df['Date'])
 
         # Filter to date range

@@ -262,24 +262,51 @@ def show_existing_training_data():
     data_path = "data/ml_training/raw/"
 
     if os.path.exists(f"{data_path}/training_data_complete.parquet"):
-        df = pd.read_parquet(f"{data_path}/training_data_complete.parquet")
+        try:
+            df = pd.read_parquet(f"{data_path}/training_data_complete.parquet")
 
-        st.success(f"✅ Found training dataset: {len(df):,} samples")
+            st.success(f"✅ Found training dataset: {len(df):,} samples")
 
-        col1, col2, col3, col4 = st.columns(4)
-        with col1:
-            st.metric("Total Samples", f"{len(df):,}")
-        with col2:
-            date_range = f"{df['entry_date'].min():%Y-%m-%d} to {df['entry_date'].max():%Y-%m-%d}"
-            st.metric("Date Range", date_range)
-        with col3:
-            unique_tickers = df['Ticker'].nunique()
-            st.metric("Unique Stocks", unique_tickers)
-        with col4:
-            avg_return_2d = df['return_2d'].mean() * 100
-            st.metric("Avg 2D Return", f"{avg_return_2d:.2f}%")
+            # Show available columns for debugging
+            st.info(f"📊 Columns: {', '.join(df.columns[:10])}{'...' if len(df.columns) > 10 else ''}")
 
-        st.dataframe(df.head(20))
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.metric("Total Samples", f"{len(df):,}")
+            with col2:
+                # Handle different possible date column names
+                date_col = None
+                for possible_col in ['entry_date', 'Date', 'date', 'scan_date']:
+                    if possible_col in df.columns:
+                        date_col = possible_col
+                        break
+                
+                if date_col:
+                    # Ensure it's datetime
+                    if not pd.api.types.is_datetime64_any_dtype(df[date_col]):
+                        df[date_col] = pd.to_datetime(df[date_col])
+                    date_range = f"{df[date_col].min():%Y-%m-%d} to {df[date_col].max():%Y-%m-%d}"
+                    st.metric("Date Range", date_range)
+                else:
+                    st.metric("Date Range", "N/A")
+            with col3:
+                if 'Ticker' in df.columns:
+                    unique_tickers = df['Ticker'].nunique()
+                    st.metric("Unique Stocks", unique_tickers)
+                else:
+                    st.metric("Unique Stocks", "N/A")
+            with col4:
+                if 'return_2d' in df.columns:
+                    avg_return_2d = df['return_2d'].mean() * 100
+                    st.metric("Avg 2D Return", f"{avg_return_2d:.2f}%")
+                else:
+                    st.metric("Avg 2D Return", "N/A")
+
+            st.dataframe(df.head(20))
+            
+        except Exception as e:
+            st.error(f"❌ Error loading training data: {e}")
+            st.code(f"File exists but couldn't be read. Error: {str(e)}")
     else:
         st.warning("No training data found. Start Phase 1 collection.")
 
