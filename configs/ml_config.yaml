@@ -6,7 +6,7 @@
 data_collection:
   start_date: "2023-01-01"
   end_date: "2024-12-31"
-  forward_days: [2, 4]  # Calculate returns for these holding periods
+  forward_days: [2, 3, 4]  # Calculate returns for these holding periods (added 3-day for trajectory analysis)
   checkpoint_frequency: 20  # Save checkpoint every N days
   max_workers: 1  # Sequential processing for now
 

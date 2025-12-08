@@ -121,6 +121,18 @@ class MLDataCollector:
         """
         Calculate forward returns for each stock in scan
 
+        CONVENTION: Signal Day = Day 0
+        - entry_date = Day 0 (signal fires at close)
+        - entry_price = Close price on Day 0
+        - exit_date = Day 0 + N trading days
+        - return_Nd = (Price_DayN - Price_Day0) / Price_Day0
+
+        Example:
+            Signal: Monday Nov 20 @ $3.39 (Day 0)
+            return_2d: Wednesday Nov 22 @ $3.45 = +1.77%
+            return_3d: Thursday Nov 23 @ $3.48 = +2.65%
+            return_4d: Friday Nov 24 @ $3.50 = +3.24%
+
         Returns list of labeled samples
         """
         from core.local_file_loader import get_local_loader
