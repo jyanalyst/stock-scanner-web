@@ -148,6 +148,10 @@ class MLDataValidator:
                     'coverage': 0.0
                 }
 
+            # CRITICAL FIX: Reset index if Date is the index (loader sets it as index)
+            if df.index.name == 'Date':
+                df = df.reset_index()
+
             # Ensure Date column is datetime
             df['Date'] = pd.to_datetime(df['Date'])
 
