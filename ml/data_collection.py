@@ -36,19 +36,38 @@ class MLDataCollector:
 
     def collect_training_data(self,
                              save_path: str = "data/ml_training/raw/",
-                             resume_from: Optional[str] = None):
+                             resume_from: Optional[str] = None,
+                             use_validation: bool = True):
         """
         Main collection loop
 
         Process:
         1. Get all trading dates in range
-        2. For each date:
+        2. Filter stocks by validation status (Ready + Partial only)
+        3. For each date:
            a. Run scanner as of that date
            b. Calculate forward returns
            c. Label outcomes
            d. Save to disk
-        3. Combine into single dataset
+        4. Combine into single dataset
+        
+        Args:
+            save_path: Directory to save training data
+            resume_from: Date to resume from (for interrupted runs)
+            use_validation: If True, filter stocks by validation status
         """
+        # Get usable stocks from validation (Ready + Partial, exclude Failed)
+        usable_stocks = None
+        if use_validation:
+            usable_stocks = self._get_usable_stocks()
+            if usable_stocks:
+                self.logger.info(f"✅ Using {len(usable_stocks['all'])} validated stocks for training:")
+                self.logger.info(f"   - Ready: {len(usable_stocks['ready'])} stocks (95%+ coverage)")
+                self.logger.info(f"   - Partial: {len(usable_stocks['partial'])} stocks (80-95% coverage)")
+                self.logger.info(f"   - Excluded: {len(usable_stocks['failed'])} failed stocks (<80% coverage)")
+            else:
+                self.logger.warning("⚠️ Validation not available - using all stocks from watchlist")
+        
         # Get trading dates
         trading_dates = self._get_trading_dates()
 
@@ -63,6 +82,15 @@ class MLDataCollector:
             try:
                 # Run historical scan
                 scan_results = self._run_historical_scan(date)
+                
+                # Filter to usable stocks only (if validation was used)
+                if usable_stocks and 'all' in usable_stocks:
+                    original_count = len(scan_results)
+                    scan_results = scan_results[scan_results['Ticker'].isin(usable_stocks['all'])]
+                    filtered_count = len(scan_results)
+                    
+                    if i == 0:  # Log on first iteration
+                        self.logger.info(f"Filtered scan results: {original_count} → {filtered_count} stocks")
 
                 # Calculate labels
                 labeled_data = self._calculate_forward_returns(
@@ -241,6 +269,63 @@ class MLDataCollector:
         trading_dates = reference_df[mask]['Date']
 
         return trading_dates
+
+    def _get_usable_stocks(self) -> Optional[Dict[str, List[str]]]:
+        """
+        Get usable stocks from validation results
+        Returns Ready + Partial stocks, excludes Failed stocks
+        
+        Returns:
+            Dictionary with 'ready', 'partial', 'failed', and 'all' stock lists
+            or None if validation not available
+        """
+        try:
+            # Check if validation results exist in session state
+            if hasattr(st, 'session_state') and 'validation_results' in st.session_state:
+                validation = st.session_state.validation_results
+                
+                ready_stocks = validation.get('ready', [])
+                partial_stocks = validation.get('partial', [])
+                failed_stocks = validation.get('failed', [])
+                
+                # Combine Ready + Partial for training
+                usable_stocks = ready_stocks + partial_stocks
+                
+                return {
+                    'ready': ready_stocks,
+                    'partial': partial_stocks,
+                    'failed': failed_stocks,
+                    'all': usable_stocks
+                }
+            else:
+                # Try to run validation if not available
+                self.logger.info("Running validation to determine usable stocks...")
+                from ml.data_validator import MLDataValidator
+                
+                validator = MLDataValidator(
+                    start_date=self.start_date.strftime('%Y-%m-%d'),
+                    end_date=self.end_date.strftime('%Y-%m-%d'),
+                    min_days=100
+                )
+                
+                validation = validator.validate_all_stocks()
+                
+                ready_stocks = validation.get('ready', [])
+                partial_stocks = validation.get('partial', [])
+                failed_stocks = validation.get('failed', [])
+                
+                usable_stocks = ready_stocks + partial_stocks
+                
+                return {
+                    'ready': ready_stocks,
+                    'partial': partial_stocks,
+                    'failed': failed_stocks,
+                    'all': usable_stocks
+                }
+                
+        except Exception as e:
+            self.logger.error(f"Could not get validation results: {e}")
+            return None
 
     def _save_checkpoint(self, samples: List[Dict], current_date: datetime):
         """Save progress checkpoint"""
