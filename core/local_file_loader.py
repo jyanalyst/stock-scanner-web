@@ -663,6 +663,7 @@ class LocalFileLoader:
         """
         Download data for a single stock and append to its Historical_Data CSV
         FIXED: Divides yfinance volumes by 1000 to match abbreviated EOD format
+        FIXED: Converts .SG to .SI for yfinance compatibility (Singapore Exchange)
         
         Args:
             ticker: Stock ticker (e.g., 'A17U.SG')
@@ -689,7 +690,11 @@ class LocalFileLoader:
                 result['message'] = 'Invalid ticker'
                 return result
             
-            # Load existing historical data
+            # CRITICAL FIX: Convert .SG to .SI for yfinance (Singapore Exchange format)
+            yf_ticker = ticker.replace('.SG', '.SI')
+            logger.info(f"Converting {ticker} → {yf_ticker} for yfinance download")
+            
+            # Load existing historical data (use original .SG format for file operations)
             ticker_clean = ticker.replace('.SG', '')
             filename = f"{ticker_clean}.csv"
             filepath = os.path.join(self.historical_path, filename)
@@ -703,9 +708,9 @@ class LocalFileLoader:
                 existing_df = pd.DataFrame()
                 last_date_in_file = None
             
-            # Download from yfinance
-            logger.info(f"Downloading {ticker} from yfinance: {start_date} to {end_date}")
-            stock = yf.Ticker(ticker)
+            # Download from yfinance using .SI format
+            logger.info(f"Downloading {yf_ticker} from yfinance: {start_date} to {end_date}")
+            stock = yf.Ticker(yf_ticker)  # Use .SI format for yfinance
             downloaded_df = stock.history(start=start_date, end=end_date + timedelta(days=1))
             
             if downloaded_df.empty:
