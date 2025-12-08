@@ -378,8 +378,9 @@ def fill_data_gaps():
             for i, stock_info in enumerate(needs_download):
                 ticker = stock_info['ticker']
                 reason = stock_info['reason']
+                yf_ticker = ticker.replace('.SG', '.SI')  # Show yfinance format
 
-                status_text.text(f"📥 Processing {ticker} ({i+1}/{total_stocks}) - {reason}")
+                status_text.text(f"📥 Processing {ticker} → {yf_ticker} ({i+1}/{total_stocks}) - {reason}")
 
                 try:
                     # Download missing dates for this stock
@@ -389,14 +390,22 @@ def fill_data_gaps():
 
                     if result['status'] == 'updated':
                         updated_count += 1
-                        st.info(f"✅ {ticker}: Added {result.get('dates_added', 0)} dates")
+                        dates_added = result.get('dates_added', 0)
+                        st.info(f"✅ {ticker} → {yf_ticker}: Added {dates_added} dates from yfinance")
+                    elif result['status'] == 'skipped':
+                        failed_count += 1
+                        message = result.get('message', 'No new dates')
+                        if 'No data available' in message or 'delisted' in message.lower():
+                            st.warning(f"⚠️ {ticker} → {yf_ticker}: No data (possibly newly listed or delisted)")
+                        else:
+                            st.warning(f"⚠️ {ticker} → {yf_ticker}: {message}")
                     else:
                         failed_count += 1
-                        st.warning(f"⚠️ {ticker}: {result.get('message', 'Failed')}")
+                        st.warning(f"⚠️ {ticker} → {yf_ticker}: {result.get('message', 'Failed')}")
 
                 except Exception as e:
                     failed_count += 1
-                    st.error(f"❌ {ticker}: {e}")
+                    st.error(f"❌ {ticker} → {yf_ticker}: {e}")
 
                 # Update progress
                 progress_bar.progress((i + 1) / total_stocks)
