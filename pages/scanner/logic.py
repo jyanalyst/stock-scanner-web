@@ -32,6 +32,7 @@ logger = logging.getLogger(__name__)
 def calculate_signal_score(row):
     """
     Calculate composite signal score (0-100 scale)
+    HANDLES BOTH BULLISH AND BEARISH SIGNALS CORRECTLY
 
     Components:
     - Flow_Velocity_Rank: 35% (acceleration)
@@ -40,46 +41,97 @@ def calculate_signal_score(row):
     - Volume_Conviction: 15% (commitment)
     - Three_Indicator: 5% (confirmation)
     """
+    # Determine signal direction
+    signal_bias = row.get('Signal_Bias', '⚪ NEUTRAL')
+    is_bearish = '🔴 BEARISH' in str(signal_bias)
 
     # Component 1: Flow_Velocity_Rank (35 points max)
-    vel_score = row['Flow_Velocity_Rank'] * 0.35
+    if is_bearish:
+        # Bearish: LOW velocity rank = accelerating selling = GOOD
+        vel_score = (100 - row['Flow_Velocity_Rank']) * 0.35
+    else:
+        # Bullish: HIGH velocity rank = accelerating buying = GOOD
+        vel_score = row['Flow_Velocity_Rank'] * 0.35
 
     # Component 2: Flow_Rank (25 points max)
-    rank_score = row['Flow_Rank'] * 0.25
+    if is_bearish:
+        # Bearish: LOW flow rank = strong distribution/selling = GOOD
+        rank_score = (100 - row['Flow_Rank']) * 0.25
+    else:
+        # Bullish: HIGH flow rank = strong accumulation/buying = GOOD
+        rank_score = row['Flow_Rank'] * 0.25
 
     # Component 3: Flow_Percentile (20 points max) - Sweet spot scoring
     perc = row['Flow_Percentile']
-    if 40 <= perc <= 70:
-        perc_score = 20  # IDEAL sweet spot
-    elif 71 <= perc <= 80:
-        perc_score = 15  # Good
-    elif 81 <= perc <= 85:
-        perc_score = 10  # Late stage
-    elif 86 <= perc <= 95:
-        perc_score = 5   # Exhaustion risk
-    elif perc > 95:
-        perc_score = 0   # PEAK - avoid
-    else:  # < 40
-        perc_score = 10  # Too weak
+
+    if is_bearish:
+        # Bearish: LOW percentile = historically weak = GOOD for shorting
+        if perc < 30:
+            perc_score = 20  # IDEAL - very weak historically
+        elif 30 <= perc < 40:
+            perc_score = 15  # Good - weak
+        elif 40 <= perc < 50:
+            perc_score = 10  # Marginal
+        elif 50 <= perc < 60:
+            perc_score = 5   # Not ideal - getting strong
+        else:
+            perc_score = 0   # Too strong for bearish
+    else:
+        # Bullish: Sweet spot 40-70 percentile = room to run
+        if 40 <= perc <= 70:
+            perc_score = 20  # IDEAL sweet spot
+        elif 71 <= perc <= 80:
+            perc_score = 15  # Good
+        elif 81 <= perc <= 85:
+            perc_score = 10  # Late stage
+        elif 86 <= perc <= 95:
+            perc_score = 5   # Exhaustion risk
+        elif perc > 95:
+            perc_score = 0   # PEAK - avoid
+        else:  # < 40
+            perc_score = 10  # Too weak
 
     # Component 4: Volume_Conviction (15 points max)
     conv = row['Volume_Conviction']
-    if conv >= 1.5:
-        conv_score = 15  # Excellent
-    elif conv >= 1.25:
-        conv_score = 12  # Good
-    elif conv >= 1.0:
-        conv_score = 8   # Marginal
+
+    if is_bearish:
+        # Bearish: MORE volume on DOWN days (conv < 1.0) = GOOD
+        if conv <= 0.67:
+            conv_score = 15  # Excellent - strong selling pressure
+        elif conv <= 0.8:
+            conv_score = 12  # Good
+        elif conv <= 1.0:
+            conv_score = 8   # Marginal
+        else:
+            conv_score = 3   # Weak - more vol on up days (contradiction!)
     else:
-        conv_score = 3   # Weak
+        # Bullish: MORE volume on UP days (conv > 1.0) = GOOD
+        if conv >= 1.5:
+            conv_score = 15  # Excellent
+        elif conv >= 1.25:
+            conv_score = 12  # Good
+        elif conv >= 1.0:
+            conv_score = 8   # Marginal
+        else:
+            conv_score = 3   # Weak
 
     # Component 5: Three_Indicator confirmation (5 points max)
-    indicators_above_55 = sum([
-        row['MPI_Percentile'] > 55,
-        row['IBS_Percentile'] > 55,
-        row['VPI_Percentile'] > 55
-    ])
-    indicator_score = indicators_above_55 * 1.67  # 3 indicators = 5 points
+    if is_bearish:
+        # Bearish: Count indicators BELOW 45 (weakness signals)
+        indicators_weak = sum([
+            row['MPI_Percentile'] < 45,
+            row['IBS_Percentile'] < 45,
+            row['VPI_Percentile'] < 45
+        ])
+        indicator_score = indicators_weak * 1.67  # 3 indicators = 5 points
+    else:
+        # Bullish: Count indicators ABOVE 55 (strength signals)
+        indicators_strong = sum([
+            row['MPI_Percentile'] > 55,
+            row['IBS_Percentile'] > 55,
+            row['VPI_Percentile'] > 55
+        ])
+        indicator_score = indicators_strong * 1.67  # 3 indicators = 5 points
 
     total_score = vel_score + rank_score + perc_score + conv_score + indicator_score
 
