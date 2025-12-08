@@ -67,6 +67,7 @@ class MLDataValidator:
             'ready': [],      # Stocks ready for ML (95%+ coverage, no issues)
             'partial': [],    # Stocks usable but with issues (80-95% coverage)
             'failed': [],     # Stocks unusable (<80% coverage or critical issues)
+            'needs_download': [],  # Stocks that could benefit from yfinance gap filling
             'details': {},    # Detailed results per stock
             'issues': {
                 'missing_files': [],
@@ -98,6 +99,18 @@ class MLDataValidator:
 
                 # Track issues
                 self._categorize_issues(validation, results['issues'])
+
+                # Track stocks that could benefit from yfinance gap filling
+                if (validation.get('gap_count', 0) > 0 or
+                    validation.get('coverage', 0) < 0.95 or
+                    validation.get('total_days', 0) < self.min_days):
+                    results['needs_download'].append({
+                        'ticker': ticker,
+                        'gap_count': validation.get('gap_count', 0),
+                        'coverage': validation.get('coverage', 0),
+                        'total_days': validation.get('total_days', 0),
+                        'reason': self._get_download_reason(validation)
+                    })
 
             except Exception as e:
                 logger.error(f"Validation failed for {ticker}: {e}")
@@ -566,3 +579,19 @@ class MLDataValidator:
         """
 
         return html
+
+    def _get_download_reason(self, validation: Dict[str, Any]) -> str:
+        """Get reason why stock needs yfinance download"""
+        reasons = []
+
+        if validation.get('gap_count', 0) > 0:
+            reasons.append(f"{validation['gap_count']} gaps")
+
+        if validation.get('coverage', 0) < 0.95:
+            coverage_pct = validation.get('coverage', 0) * 100
+            reasons.append(f"low coverage ({coverage_pct:.1f}%)")
+
+        if validation.get('total_days', 0) < self.min_days:
+            reasons.append(f"insufficient data ({validation.get('total_days', 0)} days)")
+
+        return ", ".join(reasons) if reasons else "unknown"

@@ -87,6 +87,34 @@ def show():
                         file_name="ml_data_quality_report.html",
                         mime="text/html"
                     )
+
+            # ===== GAP FILLING SECTION =====
+            needs_download = results.get('needs_download', [])
+            if needs_download:
+                st.markdown("### 🔧 Data Gap Filling")
+                st.info(f"Found {len(needs_download)} stocks with gaps or incomplete coverage that could benefit from yfinance data.")
+
+                # Show some examples
+                if len(needs_download) <= 5:
+                    st.write("**Stocks needing gap filling:**")
+                    for stock in needs_download:
+                        st.write(f"- **{stock['ticker']}**: {stock['reason']}")
+                else:
+                    st.write(f"**First 5 stocks needing gap filling:**")
+                    for stock in needs_download[:5]:
+                        st.write(f"- **{stock['ticker']}**: {stock['reason']}")
+                    st.write(f"*... and {len(needs_download) - 5} more*")
+
+                col_gap1, col_gap2 = st.columns(2)
+                with col_gap1:
+                    if st.button("📥 Fill Gaps with yfinance", type="primary"):
+                        fill_data_gaps()
+                with col_gap2:
+                    if st.button("🔄 Re-validate Only"):
+                        run_data_validation()
+            else:
+                st.success("✅ No stocks need gap filling - all data is complete!")
+
         else:
             st.warning("⚠️ **Recommended:** Run data quality check before collection to avoid issues!")
 
@@ -311,6 +339,86 @@ def run_data_validation():
 
         except Exception as e:
             st.error(f"❌ Validation failed: {e}")
+            import traceback
+            st.code(traceback.format_exc())
+
+
+def fill_data_gaps():
+    """Download missing data using yfinance"""
+    with st.spinner("📥 Downloading missing data from yfinance..."):
+        try:
+            from core.local_file_loader import get_local_loader
+            from datetime import date
+
+            # Get stocks that need downloading
+            if 'validation_results' not in st.session_state:
+                st.error("Please run validation first!")
+                return
+
+            needs_download = st.session_state.validation_results.get('needs_download', [])
+            if not needs_download:
+                st.success("✅ No stocks need gap filling!")
+                return
+
+            # Initialize loader
+            loader = get_local_loader()
+
+            # Set date range for gap filling
+            start_date = date(2023, 1, 1)
+            end_date = date(2024, 12, 31)
+
+            # Download missing data for each stock
+            total_stocks = len(needs_download)
+            updated_count = 0
+            failed_count = 0
+
+            progress_bar = st.progress(0)
+            status_text = st.empty()
+
+            for i, stock_info in enumerate(needs_download):
+                ticker = stock_info['ticker']
+                reason = stock_info['reason']
+
+                status_text.text(f"📥 Processing {ticker} ({i+1}/{total_stocks}) - {reason}")
+
+                try:
+                    # Download missing dates for this stock
+                    result = loader._download_and_append_single_stock(
+                        ticker, start_date, end_date, force_mode=False
+                    )
+
+                    if result['status'] == 'updated':
+                        updated_count += 1
+                        st.info(f"✅ {ticker}: Added {result.get('dates_added', 0)} dates")
+                    else:
+                        failed_count += 1
+                        st.warning(f"⚠️ {ticker}: {result.get('message', 'Failed')}")
+
+                except Exception as e:
+                    failed_count += 1
+                    st.error(f"❌ {ticker}: {e}")
+
+                # Update progress
+                progress_bar.progress((i + 1) / total_stocks)
+
+            # Show final results
+            status_text.empty()
+            progress_bar.empty()
+
+            if updated_count > 0:
+                st.success(f"✅ Gap filling complete! Updated {updated_count} stocks.")
+                if failed_count > 0:
+                    st.warning(f"⚠️ {failed_count} stocks failed to update.")
+
+                # Auto-revalidate after gap filling
+                st.info("🔄 Re-validating data quality...")
+                run_data_validation()
+
+            else:
+                st.warning("⚠️ No stocks were updated. Check yfinance connectivity.")
+
+        except Exception as e:
+            st.error(f"❌ Gap filling failed: {e}")
             import traceback
             st.code(traceback.format_exc())
 
