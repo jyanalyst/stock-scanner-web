@@ -149,6 +149,9 @@ def add_ranking_columns(df):
     if df.empty:
         return df
 
+    # Create explicit copy to avoid SettingWithCopyWarning
+    df = df.copy()
+
     # Calculate signal score for each stock
     df['Signal_Score'] = df.apply(calculate_signal_score, axis=1)
 
