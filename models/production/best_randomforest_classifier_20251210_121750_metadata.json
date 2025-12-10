@@ -1,0 +1,49 @@
+{
+  "model_type": "RandomForest",
+  "task": "classification",
+  "target": "win_3d",
+  "features": [
+    "IBS_Accel",
+    "IBS",
+    "Daily_Flow",
+    "MPI_Percentile",
+    "Flow_Velocity_Rank",
+    "Flow_Velocity_Percentile",
+    "VW_Range_Percentile",
+    "Conviction_Velocity",
+    "MPI",
+    "Signal_Bias_Numeric",
+    "Is_Triple_Aligned"
+  ],
+  "n_features": 11,
+  "train_samples": 11904,
+  "test_samples": 12048,
+  "metrics": {
+    "accuracy": 0.5253154050464808,
+    "precision": 0.5120236773954865,
+    "recall": 0.47324328945118826,
+    "f1": 0.4918702798756108,
+    "roc_auc": 0.5286135722341287,
+    "confusion_matrix": [
+      [
+        3561,
+        2638
+      ],
+      [
+        3081,
+        2768
+      ]
+    ],
+    "true_negatives": 3561,
+    "false_positives": 2638,
+    "false_negatives": 3081,
+    "true_positives": 2768,
+    "n_samples": 12048,
+    "n_positive": 5849,
+    "n_negative": 6199
+  },
+  "best_params": {},
+  "normalization": "StandardScaler",
+  "split_method": "timeseries",
+  "split_date": "2024-01-01"
+}

@@ -261,15 +261,16 @@ class LocalFileLoader:
         
         return df
     
-    def get_last_date_in_historical(self, ticker: str) -> Optional[datetime]:
+    def get_last_date_in_historical(self, ticker: str) -> Optional[date]:
         """
         Get the last date in a historical CSV file
+        FIXED: Returns plain date object (not timezone-aware Timestamp)
         
         Args:
             ticker: Stock ticker (e.g., 'A17U.SG')
             
         Returns:
-            Last date as datetime or None
+            Last date as date object or None
         """
         try:
             df = self.load_historical_data(ticker)
@@ -277,7 +278,8 @@ class LocalFileLoader:
             if df is None or df.empty:
                 return None
             
-            return df.index[-1]
+            # CRITICAL FIX: Convert Timestamp to plain date object to avoid timezone issues
+            return df.index[-1].date()
             
         except Exception as e:
             logger.error(f"Error getting last date for {ticker}: {e}")
@@ -340,25 +342,27 @@ class LocalFileLoader:
                 last_hist_date = self.get_last_date_in_historical(sample_ticker)
             
             # Check if EOD update is available
+            # FIXED: last_hist_date is now a plain date object, no need for .date()
             if eod_date and last_hist_date:
-                eod_available = eod_date.date() > last_hist_date.date()
+                eod_available = eod_date.date() > last_hist_date
             elif eod_date and not last_hist_date:
                 eod_available = True  # No historical data exists yet
             
             # Check if gap exists (last_hist_date < current_working_day)
+            # FIXED: Both are now plain date objects
             gap_exists = False
             if last_hist_date:
-                gap_exists = last_hist_date.date() < current_working_day
+                gap_exists = last_hist_date < current_working_day
             else:
                 gap_exists = True  # No historical data = gap exists
             
             logger.info(f"Update check: EOD available={eod_available}, Gap exists={gap_exists}")
             logger.info(f"  Current working day: {current_working_day}")
-            logger.info(f"  Last historical: {last_hist_date.date() if last_hist_date else None}")
+            logger.info(f"  Last historical: {last_hist_date if last_hist_date else None}")
             logger.info(f"  EOD date: {eod_date.date() if eod_date else None}")
             
             return (eod_available, latest_eod, eod_date, gap_exists, 
-                    last_hist_date.date() if last_hist_date else None, current_working_day)
+                    last_hist_date, current_working_day)
             
         except Exception as e:
             logger.error(f"Error checking for updates: {e}")

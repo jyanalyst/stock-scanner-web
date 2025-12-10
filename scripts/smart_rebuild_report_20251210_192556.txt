@@ -1,0 +1,72 @@
+SMART DIVIDEND-ADJUSTED DATA REBUILD/UPDATE REPORT
+======================================================================
+
+Date: 2025-12-10 19:25:56
+Mode: Smart Hybrid (Auto-detect)
+Watchlist Source: Latest EOD file
+End Date: 2025-12-10
+
+Full Rebuilds: 0
+Updates: 54
+Already Current: 0
+Success: 0/54 (0.0%)
+Failed: 54
+Total Days: 0
+Disk Space: 12.7 MB
+Duration: 0.6 minutes
+
+Failed:
+  • A17U.SG: No data available
+  • C38U.SG: No data available
+  • M44U.SG: No data available
+  • ME8U.SG: No data available
+  • AJBU.SG: No data available
+  • J69U.SG: No data available
+  • N2IU.SG: No data available
+  • BUOU.SG: No data available
+  • K71U.SG: No data available
+  • JYEU.SG: No data available
+  • HMN.SG: No data available
+  • NTDU.SG: No data available
+  • DCRU.SG: No data available
+  • 8C8U.SG: No data available
+  • AU8U.SG: No data available
+  • 9CI.SG: No data available
+  • Z25.SG: No data available
+  • AWX.SG: No data available
+  • E28.SG: No data available
+  • 558.SG: No data available
+  • MZH.SG: No data available
+  • BN2.SG: No data available
+  • Z74.SG: No data available
+  • YF8.SG: No data available
+  • 8YZ.SG: No data available
+  • BS6.SG: No data available
+  • S58.SG: No data available
+  • 5E2.SG: No data available
+  • OV8.SG: No data available
+  • F34.SG: No data available
+  • EB5.SG: No data available
+  • P8Z.SG: No data available
+  • 5TP.SG: No data available
+  • C52.SG: No data available
+  • G13.SG: No data available
+  • S08.SG: No data available
+  • 5LY.SG: No data available
+  • DU4.SG: No data available
+  • 5WH.SG: No data available
+  • S56.SG: No data available
+  • AP4.SG: No data available
+  • 544.SG: No data available
+  • G92.SG: No data available
+  • RXS.SG: No data available
+  • 41O.SG: No data available
+  • OYY.SG: No data available
+  • CLN.SG: No data available
+  • ER0.SG: No data available
+  • 1E3.SG: No data available
+  • E3B.SG: No data available
+  • P52.SG: No data available
+  • F9D.SG: No data available
+  • OU8.SG: No data available
+  • RE4.SG: No data available

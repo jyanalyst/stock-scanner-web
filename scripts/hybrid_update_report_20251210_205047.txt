@@ -1,0 +1,70 @@
+HYBRID HISTORICAL DATA UPDATE REPORT
+======================================================================
+
+Date: 2025-12-10 20:50:47
+EOD File: 10_Dec_2025.csv
+Current Working Day: 2025-12-10
+
+Updated: 0/54
+Already Current: 3
+Failed: 51
+EOD Days Added: 0
+yfinance Days Added: 0
+Total Data Points: 0
+Duration: 8.9 seconds
+
+Details:
+  A17U.SG: failed - Cannot subtract tz-naive and tz-aware datetime-like objects.
+  C38U.SG: failed - Cannot subtract tz-naive and tz-aware datetime-like objects.
+  M44U.SG: failed - Cannot subtract tz-naive and tz-aware datetime-like objects.
+  ME8U.SG: failed - Cannot subtract tz-naive and tz-aware datetime-like objects.
+  AJBU.SG: failed - Cannot subtract tz-naive and tz-aware datetime-like objects.
+  J69U.SG: failed - Cannot subtract tz-naive and tz-aware datetime-like objects.
+  N2IU.SG: failed - Cannot subtract tz-naive and tz-aware datetime-like objects.
+  BUOU.SG: failed - Cannot subtract tz-naive and tz-aware datetime-like objects.
+  K71U.SG: failed - Cannot subtract tz-naive and tz-aware datetime-like objects.
+  JYEU.SG: failed - Cannot subtract tz-naive and tz-aware datetime-like objects.
+  HMN.SG: failed - Cannot subtract tz-naive and tz-aware datetime-like objects.
+  NTDU.SG: current - Already current
+  DCRU.SG: failed - Cannot subtract tz-naive and tz-aware datetime-like objects.
+  8C8U.SG: current - Already current
+  AU8U.SG: failed - Cannot subtract tz-naive and tz-aware datetime-like objects.
+  9CI.SG: failed - Cannot subtract tz-naive and tz-aware datetime-like objects.
+  Z25.SG: failed - Cannot subtract tz-naive and tz-aware datetime-like objects.
+  AWX.SG: failed - Cannot subtract tz-naive and tz-aware datetime-like objects.
+  E28.SG: failed - Cannot subtract tz-naive and tz-aware datetime-like objects.
+  558.SG: failed - Cannot subtract tz-naive and tz-aware datetime-like objects.
+  MZH.SG: failed - Cannot subtract tz-naive and tz-aware datetime-like objects.
+  BN2.SG: failed - Cannot subtract tz-naive and tz-aware datetime-like objects.
+  Z74.SG: failed - Cannot subtract tz-naive and tz-aware datetime-like objects.
+  YF8.SG: failed - Cannot subtract tz-naive and tz-aware datetime-like objects.
+  8YZ.SG: current - Already current
+  BS6.SG: failed - Cannot subtract tz-naive and tz-aware datetime-like objects.
+  S58.SG: failed - Cannot subtract tz-naive and tz-aware datetime-like objects.
+  5E2.SG: failed - Cannot subtract tz-naive and tz-aware datetime-like objects.
+  OV8.SG: failed - Cannot subtract tz-naive and tz-aware datetime-like objects.
+  F34.SG: failed - Cannot subtract tz-naive and tz-aware datetime-like objects.
+  EB5.SG: failed - Cannot subtract tz-naive and tz-aware datetime-like objects.
+  P8Z.SG: failed - Cannot subtract tz-naive and tz-aware datetime-like objects.
+  5TP.SG: failed - Cannot subtract tz-naive and tz-aware datetime-like objects.
+  C52.SG: failed - Cannot subtract tz-naive and tz-aware datetime-like objects.
+  G13.SG: failed - Cannot subtract tz-naive and tz-aware datetime-like objects.
+  S08.SG: failed - Cannot subtract tz-naive and tz-aware datetime-like objects.
+  5LY.SG: failed - Cannot subtract tz-naive and tz-aware datetime-like objects.
+  DU4.SG: failed - Cannot subtract tz-naive and tz-aware datetime-like objects.
+  5WH.SG: failed - Cannot subtract tz-naive and tz-aware datetime-like objects.
+  S56.SG: failed - Cannot subtract tz-naive and tz-aware datetime-like objects.
+  AP4.SG: failed - Cannot subtract tz-naive and tz-aware datetime-like objects.
+  544.SG: failed - Cannot subtract tz-naive and tz-aware datetime-like objects.
+  G92.SG: failed - Cannot subtract tz-naive and tz-aware datetime-like objects.
+  RXS.SG: failed - Cannot subtract tz-naive and tz-aware datetime-like objects.
+  41O.SG: failed - Cannot subtract tz-naive and tz-aware datetime-like objects.
+  OYY.SG: failed - Cannot subtract tz-naive and tz-aware datetime-like objects.
+  CLN.SG: failed - Cannot subtract tz-naive and tz-aware datetime-like objects.
+  ER0.SG: failed - Cannot subtract tz-naive and tz-aware datetime-like objects.
+  1E3.SG: failed - Cannot subtract tz-naive and tz-aware datetime-like objects.
+  E3B.SG: failed - Cannot subtract tz-naive and tz-aware datetime-like objects.
+  P52.SG: failed - Cannot subtract tz-naive and tz-aware datetime-like objects.
+  F9D.SG: failed - Cannot subtract tz-naive and tz-aware datetime-like objects.
+  OU8.SG: failed - Cannot subtract tz-naive and tz-aware datetime-like objects.
+  RE4.SG: failed - Cannot subtract tz-naive and tz-aware datetime-like objects.

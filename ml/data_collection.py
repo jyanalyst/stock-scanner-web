@@ -64,15 +64,21 @@ class MLDataCollector:
            c. Label outcomes
            d. Save to disk
         4. Combine into single dataset
-        
+
         Args:
             save_path: Directory to save training data
             resume_from: Date to resume from (for interrupted runs)
             use_validation: If True, filter stocks by validation status
         """
         # Initialize error_logger if needed (prevents scanner errors)
-        if hasattr(st, 'session_state') and not hasattr(st.session_state, 'error_logger'):
-            st.session_state.error_logger = MockErrorLogger()
+        # Only do this if we're actually in Streamlit mode
+        try:
+            import streamlit as st
+            if hasattr(st, 'session_state') and not hasattr(st.session_state, 'error_logger'):
+                st.session_state.error_logger = MockErrorLogger()
+        except ImportError:
+            # Not in Streamlit environment, skip session state setup
+            pass
         
         # Get usable stocks from validation (Ready + Partial, exclude Failed)
         usable_stocks = None
@@ -123,10 +129,15 @@ class MLDataCollector:
                     self._save_checkpoint(all_samples, date)
                     self.logger.info(f"Processed {i}/{len(trading_dates)} dates")
 
-                # Update progress in session state for UI
-                if hasattr(st, 'session_state'):
-                    st.session_state.collection_progress = (i + 1) / len(trading_dates) * 100
-                    st.session_state.current_date = date.strftime('%Y-%m-%d')
+                # Update progress in session state for UI (only if in Streamlit mode)
+                try:
+                    import streamlit as st
+                    if hasattr(st, 'session_state'):
+                        st.session_state.collection_progress = (i + 1) / len(trading_dates) * 100
+                        st.session_state.current_date = date.strftime('%Y-%m-%d')
+                except ImportError:
+                    # Not in Streamlit environment, skip progress updates
+                    pass
 
             except Exception as e:
                 self.logger.error(f"Error on {date}: {e}")
@@ -147,47 +158,96 @@ class MLDataCollector:
 
         This uses your EXISTING scanner logic but with a past date
         """
-        from pages.scanner.logic import run_enhanced_stock_scan
-        from utils.watchlist import get_active_watchlist
+        # Temporarily suppress ALL output during scan by redirecting stderr
+        import logging
+        import warnings
+        import sys
+        import os
+        from contextlib import redirect_stderr, redirect_stdout
 
-        # Get watchlist
-        stocks = get_active_watchlist()
+        # Save current logging levels for ALL loggers
+        original_levels = {}
 
-        # Run scan as of this date (NO LOOKAHEAD)
-        # This will use Historical_Data filtered to target_date
-        scan_results = run_enhanced_stock_scan(
-            stocks_to_scan=stocks,
-            analysis_date=target_date.date(),
-            days_back=59,
-            rolling_window=20
-        )
+        # Get ALL active loggers and silence them
+        all_loggers = [logging.getLogger(name) for name in logging.root.manager.loggerDict]
+        all_loggers.append(logging.getLogger())  # Root logger
+
+        for logger in all_loggers:
+            if hasattr(logger, 'level'):
+                original_levels[logger.name or 'root'] = logger.level
+                logger.setLevel(logging.CRITICAL)
+
+        # Also silence specific known noisy loggers
+        noisy_loggers = [
+            'streamlit', 'streamlit.runtime', 'streamlit.runtime.scriptrunner_utils',
+            'streamlit.runtime.state', 'streamlit.runtime.caching',
+            'pages.scanner.logic', 'pages.scanner.data', 'core.local_file_loader',
+            'core.technical_analysis', 'CrossStockRankings', 'AnalystReports',
+            'EarningsReports', 'EarningsReaction', 'Scanner', 'Unknown'
+        ]
+
+        for logger_name in noisy_loggers:
+            logger = logging.getLogger(logger_name)
+            original_levels[logger_name] = logger.level
+            logger.setLevel(logging.CRITICAL)
+
+        # Suppress warnings during scan - more comprehensive
+        with warnings.catch_warnings():
+            warnings.filterwarnings('ignore', category=UserWarning, module='streamlit')
+            warnings.filterwarnings('ignore', category=DeprecationWarning, module='streamlit')
+            warnings.filterwarnings('ignore', message='.*ScriptRunContext.*')
+            warnings.filterwarnings('ignore', message='.*Session state does not function.*')
+            warnings.filterwarnings('ignore', message='.*No runtime found.*')
+            warnings.filterwarnings('ignore', message='.*Thread.*missing ScriptRunContext.*')
+            warnings.filterwarnings('ignore', message='.*missing ScriptRunContext.*')
+
+            # Redirect stderr to /dev/null (or equivalent) to suppress warnings
+            with open(os.devnull, 'w') as devnull:
+                with redirect_stderr(devnull):
+                    # Also redirect stdout to suppress any remaining output
+                    with redirect_stdout(devnull):
+                        from pages.scanner.logic import run_enhanced_stock_scan
+                        from utils.watchlist import get_active_watchlist
+
+                        # Get watchlist
+                        stocks = get_active_watchlist()
+
+                        # Run scan as of this date (NO LOOKAHEAD)
+                        # This will use Historical_Data filtered to target_date
+                        scan_results = run_enhanced_stock_scan(
+                            stocks_to_scan=stocks,
+                            analysis_date=target_date.date(),
+                            days_back=59,
+                            rolling_window=20
+                        )
+
+                        # Ensure scan_results is a DataFrame
+                        if scan_results is None:
+                            self.logger.error(f"Scanner returned None for {target_date.strftime('%Y-%m-%d')}")
+                            return None
+
+        # Restore original logging levels
+        for logger_name, level in original_levels.items():
+            if logger_name == 'root':
+                logging.getLogger().setLevel(level)
+            else:
+                logging.getLogger(logger_name).setLevel(level)
         
         # CRITICAL FIX: Ensure Date column exists (scanner may set it as index)
         if scan_results is not None and not scan_results.empty:
-            # DEBUG: Log what we received
-            self.logger.info(f"DEBUG: Scanner returned {len(scan_results)} rows")
-            self.logger.info(f"DEBUG: Columns: {list(scan_results.columns)}")
-            self.logger.info(f"DEBUG: Index name: {scan_results.index.name}")
-            self.logger.info(f"DEBUG: Index dtype: {scan_results.index.dtype}")
-            
             if 'Date' not in scan_results.columns:
-                self.logger.info("DEBUG: Date not in columns, resetting index...")
                 # Reset index to get Date back as column
                 scan_results = scan_results.reset_index()
-                self.logger.info(f"DEBUG: After reset_index, columns: {list(scan_results.columns)}")
-                
+
                 # Find datetime column and rename to 'Date' if needed
                 for col in scan_results.columns:
                     if col != 'Date' and pd.api.types.is_datetime64_any_dtype(scan_results[col]):
-                        self.logger.info(f"DEBUG: Found datetime column '{col}', renaming to 'Date'")
                         scan_results = scan_results.rename(columns={col: 'Date'})
                         break
-                
+
                 # Final check
                 if 'Date' not in scan_results.columns:
-                    self.logger.error(f"DEBUG: FAILED to create Date column! Final columns: {list(scan_results.columns)}")
-                else:
-                    self.logger.info(f"DEBUG: SUCCESS! Date column exists")
+                    self.logger.error(f"FAILED to create Date column! Final columns: {list(scan_results.columns)}")
 
         return scan_results
 
@@ -196,6 +256,8 @@ class MLDataCollector:
                                    entry_date: datetime) -> List[Dict]:
         """
         Calculate forward returns for each stock in scan
+
+        OPTIMIZED: Cache stock data to avoid 4x file loading per stock
 
         CONVENTION: Signal Day = Day 0
         - entry_date = Day 0 (signal fires at close)
@@ -211,14 +273,37 @@ class MLDataCollector:
 
         Returns list of labeled samples
         """
+        # Handle None or empty scan results
+        if scan_results is None or len(scan_results) == 0:
+            self.logger.warning(f"No scan results for {entry_date.strftime('%Y-%m-%d')}")
+            return []
+
         from core.local_file_loader import get_local_loader
 
         loader = get_local_loader()
         labeled_samples = []
 
+        # OPTIMIZATION: Cache stock data to avoid 4x loading per stock
+        stock_data_cache = {}
+
+        def get_cached_stock_data(ticker: str):
+            """Get stock data with caching to avoid repeated file I/O"""
+            if ticker not in stock_data_cache:
+                try:
+                    stock_data_cache[ticker] = loader.load_historical_data(ticker)
+                except Exception as e:
+                    self.logger.warning(f"Failed to load {ticker}: {e}")
+                    stock_data_cache[ticker] = None
+            return stock_data_cache[ticker]
+
         for _, stock in scan_results.iterrows():
             ticker = stock['Ticker']
             entry_price = stock['Close']
+
+            # Get cached stock data (loaded once per stock per date)
+            stock_df = get_cached_stock_data(ticker)
+            if stock_df is None:
+                continue
 
             # Calculate returns for each forward period
             forward_returns = {}
@@ -226,11 +311,11 @@ class MLDataCollector:
             for days in self.forward_days:
                 exit_date = entry_date + timedelta(days=days)
 
-                # Get future price (NO LOOKAHEAD - this is OK for training)
-                exit_price = self._get_price_on_date(
+                # Get future price using cached data
+                exit_price = self._get_price_on_date_cached(
                     ticker,
                     exit_date,
-                    loader
+                    stock_df
                 )
 
                 if exit_price is not None:
@@ -241,13 +326,13 @@ class MLDataCollector:
                     forward_returns[f'return_{days}d'] = None
                     forward_returns[f'win_{days}d'] = None
 
-            # Calculate max drawdown during holding period
-            max_dd = self._calculate_max_drawdown(
+            # Calculate max drawdown during holding period using cached data
+            max_dd = self._calculate_max_drawdown_cached(
                 ticker,
                 entry_date,
                 entry_date + timedelta(days=max(self.forward_days)),
                 entry_price,
-                loader
+                stock_df
             )
 
             # Combine features + labels
@@ -278,6 +363,26 @@ class MLDataCollector:
         except:
             return None
 
+    def _get_price_on_date_cached(self, ticker: str, date: datetime, stock_df: pd.DataFrame) -> float:
+        """Get closing price on specific date using cached stock data"""
+        try:
+            if stock_df is None or stock_df.empty:
+                return None
+
+            # Ensure Date column exists and is datetime
+            if 'Date' not in stock_df.columns:
+                stock_df = stock_df.reset_index()
+            stock_df['Date'] = pd.to_datetime(stock_df['Date'])
+
+            # Find closest trading day
+            df = stock_df[stock_df['Date'] <= date]
+            if len(df) == 0:
+                return None
+
+            return df.iloc[-1]['Close']
+        except:
+            return None
+
     def _calculate_max_drawdown(self, ticker, start_date, end_date,
                                 entry_price, loader) -> float:
         """Calculate max drawdown during holding period"""
@@ -288,6 +393,33 @@ class MLDataCollector:
             # Filter to holding period
             mask = (df['Date'] >= start_date) & (df['Date'] <= end_date)
             period_df = df[mask]
+
+            if len(period_df) == 0:
+                return 0
+
+            # Calculate drawdown from entry
+            returns = (period_df['Close'] - entry_price) / entry_price
+            max_dd = returns.min()
+
+            return max_dd
+        except:
+            return 0
+
+    def _calculate_max_drawdown_cached(self, ticker, start_date, end_date,
+                                       entry_price, stock_df: pd.DataFrame) -> float:
+        """Calculate max drawdown during holding period using cached stock data"""
+        try:
+            if stock_df is None or stock_df.empty:
+                return 0
+
+            # Ensure Date column exists and is datetime
+            if 'Date' not in stock_df.columns:
+                stock_df = stock_df.reset_index()
+            stock_df['Date'] = pd.to_datetime(stock_df['Date'])
+
+            # Filter to holding period
+            mask = (stock_df['Date'] >= start_date) & (stock_df['Date'] <= end_date)
+            period_df = stock_df[mask]
 
             if len(period_df) == 0:
                 return 0

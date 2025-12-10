@@ -1,0 +1,70 @@
+HYBRID HISTORICAL DATA UPDATE REPORT
+======================================================================
+
+Date: 2025-12-10 20:57:22
+EOD File: 10_Dec_2025.csv
+Current Working Day: 2025-12-10
+
+Updated: 51/54
+Already Current: 3
+Failed: 0
+EOD Days Added: 51
+yfinance Days Added: 0
+Total Data Points: 51
+Duration: 15.1 seconds
+
+Details:
+  A17U.SG: success - Added 1 days (EOD: 1, yfinance: 0)
+  C38U.SG: success - Added 1 days (EOD: 1, yfinance: 0)
+  M44U.SG: success - Added 1 days (EOD: 1, yfinance: 0)
+  ME8U.SG: success - Added 1 days (EOD: 1, yfinance: 0)
+  AJBU.SG: success - Added 1 days (EOD: 1, yfinance: 0)
+  J69U.SG: success - Added 1 days (EOD: 1, yfinance: 0)
+  N2IU.SG: success - Added 1 days (EOD: 1, yfinance: 0)
+  BUOU.SG: success - Added 1 days (EOD: 1, yfinance: 0)
+  K71U.SG: success - Added 1 days (EOD: 1, yfinance: 0)
+  JYEU.SG: success - Added 1 days (EOD: 1, yfinance: 0)
+  HMN.SG: success - Added 1 days (EOD: 1, yfinance: 0)
+  NTDU.SG: current - Already current
+  DCRU.SG: success - Added 1 days (EOD: 1, yfinance: 0)
+  8C8U.SG: current - Already current
+  AU8U.SG: success - Added 1 days (EOD: 1, yfinance: 0)
+  9CI.SG: success - Added 1 days (EOD: 1, yfinance: 0)
+  Z25.SG: success - Added 1 days (EOD: 1, yfinance: 0)
+  AWX.SG: success - Added 1 days (EOD: 1, yfinance: 0)
+  E28.SG: success - Added 1 days (EOD: 1, yfinance: 0)
+  558.SG: success - Added 1 days (EOD: 1, yfinance: 0)
+  MZH.SG: success - Added 1 days (EOD: 1, yfinance: 0)
+  BN2.SG: success - Added 1 days (EOD: 1, yfinance: 0)
+  Z74.SG: success - Added 1 days (EOD: 1, yfinance: 0)
+  YF8.SG: success - Added 1 days (EOD: 1, yfinance: 0)
+  8YZ.SG: current - Already current
+  BS6.SG: success - Added 1 days (EOD: 1, yfinance: 0)
+  S58.SG: success - Added 1 days (EOD: 1, yfinance: 0)
+  5E2.SG: success - Added 1 days (EOD: 1, yfinance: 0)
+  OV8.SG: success - Added 1 days (EOD: 1, yfinance: 0)
+  F34.SG: success - Added 1 days (EOD: 1, yfinance: 0)
+  EB5.SG: success - Added 1 days (EOD: 1, yfinance: 0)
+  P8Z.SG: success - Added 1 days (EOD: 1, yfinance: 0)
+  5TP.SG: success - Added 1 days (EOD: 1, yfinance: 0)
+  C52.SG: success - Added 1 days (EOD: 1, yfinance: 0)
+  G13.SG: success - Added 1 days (EOD: 1, yfinance: 0)
+  S08.SG: success - Added 1 days (EOD: 1, yfinance: 0)
+  5LY.SG: success - Added 1 days (EOD: 1, yfinance: 0)
+  DU4.SG: success - Added 1 days (EOD: 1, yfinance: 0)
+  5WH.SG: success - Added 1 days (EOD: 1, yfinance: 0)
+  S56.SG: success - Added 1 days (EOD: 1, yfinance: 0)
+  AP4.SG: success - Added 1 days (EOD: 1, yfinance: 0)
+  544.SG: success - Added 1 days (EOD: 1, yfinance: 0)
+  G92.SG: success - Added 1 days (EOD: 1, yfinance: 0)
+  RXS.SG: success - Added 1 days (EOD: 1, yfinance: 0)
+  41O.SG: success - Added 1 days (EOD: 1, yfinance: 0)
+  OYY.SG: success - Added 1 days (EOD: 1, yfinance: 0)
+  CLN.SG: success - Added 1 days (EOD: 1, yfinance: 0)
+  ER0.SG: success - Added 1 days (EOD: 1, yfinance: 0)
+  1E3.SG: success - Added 1 days (EOD: 1, yfinance: 0)
+  E3B.SG: success - Added 1 days (EOD: 1, yfinance: 0)
+  P52.SG: success - Added 1 days (EOD: 1, yfinance: 0)
+  F9D.SG: success - Added 1 days (EOD: 1, yfinance: 0)
+  OU8.SG: success - Added 1 days (EOD: 1, yfinance: 0)
+  RE4.SG: success - Added 1 days (EOD: 1, yfinance: 0)

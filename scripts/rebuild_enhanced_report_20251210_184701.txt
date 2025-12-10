@@ -1,0 +1,24 @@
+DIVIDEND-ADJUSTED DATA REBUILD REPORT (ENHANCED - OPTION C)
+======================================================================
+
+Date: 2025-12-10 18:47:01
+Date Range: 2020-01-01 to 2025-12-10
+Dividend Adjustment: ENABLED
+Enhancement Level: OPTION C (Maximum)
+Features: 32 columns
+
+Success: 54/54 (100.0%)
+Failed: 0
+Total Days: 74,609
+Disk Space: 12.7 MB
+Duration: 0.4 minutes
+
+Feature List (32 columns):
+  Basic (8): Date, Code, Shortname, Open, High, Low, Close, Vol
+  Dividends (6): Dividend, DaysToNextDiv, DivYield, DivGrowthRate, ConsecutiveDivs, IsExDivWeek
+  Splits (3): Split, DaysSinceSplit, SplitInLast90Days
+  Moving Averages (3): MA_20, MA_50, MA_200
+  Oscillators (2): RSI_14, MACD
+  Volatility (4): BB_Upper, BB_Middle, BB_Lower, ATR_14
+  Momentum (6): ROC_5, ROC_10, ROC_20, DistFromMA20, DistFromMA50, VolRatio
+

@@ -225,14 +225,22 @@ def run_enhanced_stock_scan(stocks_to_scan: List[str], analysis_date: Optional[d
                            # NEW: Confirmation filter parameters
                            use_ibs: bool = False, use_rvol: bool = False, use_rrange: bool = False,
                            confirmation_logic: str = "OR",
-                           ibs_threshold: float = 0.10, rvol_threshold: float = 0.20, rrange_threshold: float = 0.30) -> None:
+                           ibs_threshold: float = 0.10, rvol_threshold: float = 0.20, rrange_threshold: float = 0.30) -> pd.DataFrame:
     """
     Execute the enhanced stock scanning process from local files
     CORRECTED: Creates display columns immediately after merging reports
     PERFORMANCE OPTIMIZED: Added caching and memory management
     """
 
-    error_logger = st.session_state.error_logger
+    # Handle standalone mode (no session state)
+    try:
+        error_logger = st.session_state.error_logger
+    except (AttributeError, KeyError):
+        # Create a mock error logger for standalone mode
+        class MockErrorLogger:
+            def log_error(self, *args, **kwargs): pass
+            def log_performance(self, *args, **kwargs): pass
+        error_logger = MockErrorLogger()
 
     try:
         from core.data_fetcher import DataFetcher, set_global_data_fetcher
@@ -248,36 +256,50 @@ def run_enhanced_stock_scan(stocks_to_scan: List[str], analysis_date: Optional[d
         date_text = f"historical analysis (as of {analysis_date.strftime('%d/%m/%Y')})" if is_historical else "current data analysis"
 
         structured_logger.log('INFO', 'Scanner', f"Starting scan: {scope_text} with {date_text}")
-        st.info(f"🔄 Scanning {scope_text} with {date_text}... Loading from local files...")
 
-        progress_bar, status_text = create_progress_container()
+        # Handle UI components for standalone mode
+        try:
+            st.info(f"🔄 Scanning {scope_text} with {date_text}... Loading from local files...")
+            progress_bar, status_text = create_progress_container()
+        except:
+            # In standalone mode, create mock progress components
+            progress_bar = None
+            status_text = None
 
-        update_progress(progress_bar, status_text, 0, "🔧 Initializing data fetcher...")
+        # Handle UI updates for standalone mode
+        def safe_update_progress(bar, text, progress, message):
+            try:
+                update_progress(bar, text, progress, message)
+            except:
+                # In standalone mode, just log the message
+                structured_logger.log('INFO', 'Progress', message)
+
+        safe_update_progress(progress_bar, status_text, 0, "🔧 Initializing data fetcher...")
         fetcher = safe_execute(DataFetcher, days_back=days_back,
                              component="DataFetcher", fallback_value=None)
         if fetcher is None:
             raise DataLoadError("Failed to initialize data fetcher",
                               recovery_action="Check configuration and try again")
-        update_progress(progress_bar, status_text, ScanProgress.INIT, "🔧 Data fetcher initialized")
+        safe_update_progress(progress_bar, status_text, ScanProgress.INIT, "🔧 Data fetcher initialized")
 
         # Check memory before loading data
         if _memory_manager.check_memory_pressure():
             optimize_memory_usage()
 
-        update_progress(progress_bar, status_text, ScanProgress.INIT, "📥 Loading stock data from local files...")
+        safe_update_progress(progress_bar, status_text, ScanProgress.INIT, "📥 Loading stock data from local files...")
         stock_data = safe_execute(fetcher.download_stock_data, stocks_to_scan, target_date=analysis_date,
                                 component="DataLoading", fallback_value={})
         set_global_data_fetcher(fetcher)
-        update_progress(progress_bar, status_text, ScanProgress.LOAD_DATA, "📥 Stock data loaded successfully")
+        safe_update_progress(progress_bar, status_text, ScanProgress.LOAD_DATA, "📥 Stock data loaded successfully")
 
         if not stock_data:
             raise DataLoadError("No stock data loaded from local files",
                               recovery_action="Check that data files exist and are accessible")
 
         # Skip all data validation and cleaning - use original data as-is
-        update_progress(progress_bar, status_text, 0.35, "📊 Analyzing original data (no validation or cleaning applied)...")
+        safe_update_progress(progress_bar, status_text, 0.35, "📊 Analyzing original data (no validation or cleaning applied)...")
 
-        update_progress(progress_bar, status_text, ScanProgress.CALCULATE, "🔄 Calculating Pure MPI Expansion and technical analysis...")
+        safe_update_progress(progress_bar, status_text, ScanProgress.CALCULATE, "🔄 Calculating Pure MPI Expansion and technical analysis...")
 
         results = []
         processing_errors = []
@@ -314,7 +336,7 @@ def run_enhanced_stock_scan(stocks_to_scan: List[str], analysis_date: Optional[d
 
                 progress_range = ScanProgress.PROCESS_STOCKS_END - ScanProgress.PROCESS_STOCKS_START
                 progress = ScanProgress.PROCESS_STOCKS_START + (progress_range * (i + 1) / len(stock_data))
-                update_progress(progress_bar, status_text, progress, f"🔄 Processing {ticker}...")
+                safe_update_progress(progress_bar, status_text, progress, f"🔄 Processing {ticker}...")
 
                 time.sleep(PROGRESS_UPDATE_INTERVAL)
 
@@ -323,7 +345,7 @@ def run_enhanced_stock_scan(stocks_to_scan: List[str], analysis_date: Optional[d
                 processing_errors.append(f"{ticker}: {str(e)} (ID: {error_info.get('correlation_id', 'N/A')})")
                 continue
 
-        update_progress(progress_bar, status_text, ScanProgress.PREPARE_RESULTS, "📊 Preparing filtered results...")
+        safe_update_progress(progress_bar, status_text, ScanProgress.PREPARE_RESULTS, "📊 Preparing filtered results...")
 
         if not results:
             raise DataProcessingError("No stocks were successfully processed",
@@ -336,7 +358,7 @@ def run_enhanced_stock_scan(stocks_to_scan: List[str], analysis_date: Optional[d
 
         # ===== CALCULATE CROSS-STOCK RANKINGS =====
         # These rankings compare stocks against each other in the watchlist (not time-series)
-        update_progress(progress_bar, status_text, 0.75, "📊 Calculating cross-stock flow rankings...")
+        safe_update_progress(progress_bar, status_text, 0.75, "📊 Calculating cross-stock flow rankings...")
 
         try:
             # Calculate cross-stock rankings for key flow metrics
@@ -359,7 +381,7 @@ def run_enhanced_stock_scan(stocks_to_scan: List[str], analysis_date: Optional[d
             handle_error(e, "CrossStockRankings", {"operation": "calculate_rankings"}, show_user_message=False)
 
         # Load and merge analyst reports with enhanced error handling
-        update_progress(progress_bar, status_text, ScanProgress.ANALYST_REPORTS, "📊 Loading analyst reports...")
+        safe_update_progress(progress_bar, status_text, ScanProgress.ANALYST_REPORTS, "📊 Loading analyst reports...")
 
         try:
             from utils.analyst_reports import get_cached_reports, merge_reports_with_scan_results
@@ -374,7 +396,7 @@ def run_enhanced_stock_scan(stocks_to_scan: List[str], analysis_date: Optional[d
                 matches = results_df['sentiment_score'].notna().sum() if 'sentiment_score' in results_df.columns else 0
                 structured_logger.log('INFO', 'AnalystReports',
                                     f"Merged analyst reports: {matches} matches out of {len(results_df)} stocks")
-                update_progress(progress_bar, status_text, ScanProgress.ANALYST_REPORTS, f"📊 Analyst reports: {matches} matches found")
+                safe_update_progress(progress_bar, status_text, ScanProgress.ANALYST_REPORTS, f"📊 Analyst reports: {matches} matches found")
 
                 # Create analyst display columns with error handling
                 if 'sentiment_score' in results_df.columns:
@@ -405,7 +427,7 @@ def run_enhanced_stock_scan(stocks_to_scan: List[str], analysis_date: Optional[d
             handle_error(e, "AnalystReports", {"operation": "load_and_merge"}, show_user_message=False)
 
         # Load and merge earnings reports with enhanced error handling
-        update_progress(progress_bar, status_text, ScanProgress.EARNINGS_REPORTS, "💰 Loading earnings reports...")
+        safe_update_progress(progress_bar, status_text, ScanProgress.EARNINGS_REPORTS, "💰 Loading earnings reports...")
 
         try:
             from utils.earnings_reports import get_cached_earnings, merge_earnings_with_scan_results
@@ -420,7 +442,7 @@ def run_enhanced_stock_scan(stocks_to_scan: List[str], analysis_date: Optional[d
                 matches = results_df['revenue'].notna().sum() if 'revenue' in results_df.columns else 0
                 structured_logger.log('INFO', 'EarningsReports',
                                     f"Merged earnings reports: {matches} matches out of {len(results_df)} stocks")
-                update_progress(progress_bar, status_text, ScanProgress.EARNINGS_REPORTS, f"💰 Earnings reports: {matches} matches found")
+                safe_update_progress(progress_bar, status_text, ScanProgress.EARNINGS_REPORTS, f"💰 Earnings reports: {matches} matches found")
 
                 # Create earnings display columns with error handling
                 if 'revenue' in results_df.columns:
@@ -488,17 +510,59 @@ def run_enhanced_stock_scan(stocks_to_scan: List[str], analysis_date: Optional[d
         except Exception as e:
             handle_error(e, "EarningsReports", {"operation": "load_and_merge"}, show_user_message=False)
 
-        # Store results in session state
-        st.session_state.scan_results = results_df
-        st.session_state.last_scan_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        st.session_state.last_scan_config = {
-            'scope': ScanScope.SINGLE_STOCK if is_single_stock else ScanScope.FULL_WATCHLIST,
-            'date': f'Historical ({analysis_date.strftime("%d/%m/%Y")})' if is_historical else 'Current',
-            'stock_count': len(results_df)
-        }
+        # ===== PHASE 5: ML PREDICTIONS (OPTIONAL, NON-BLOCKING) =====
+        # Add ML predictions if enabled
+        try:
+            ml_enabled = st.session_state.get('ml_enabled', False)
+            if ml_enabled:
+                safe_update_progress(progress_bar, status_text, 0.95, "🤖 Adding ML predictions...")
+                
+                try:
+                    from ml.scanner_integration import ScannerMLIntegration
+                    
+                    ml_integration = ScannerMLIntegration()
+                    
+                    if ml_integration.is_ml_available():
+                        results_df = ml_integration.add_ml_predictions(results_df)
+                        
+                        ml_buy_count = (results_df['ML_Signal'] == '🤖 BUY').sum()
+                        structured_logger.log('INFO', 'MLPredictions',
+                                            f"Added ML predictions: {ml_buy_count} BUY signals out of {len(results_df)} stocks")
+                        
+                        safe_update_progress(progress_bar, status_text, 0.98, f"🤖 ML predictions: {ml_buy_count} BUY signals")
+                    else:
+                        structured_logger.log('WARNING', 'MLPredictions', "ML model not available")
+                        st.warning("⚠️ ML predictions unavailable - model not loaded")
+                        
+                except Exception as e:
+                    # ML failure should not break scanner
+                    handle_error(e, "MLPredictions", {"operation": "add_predictions"}, show_user_message=False)
+                    st.warning(f"⚠️ ML predictions unavailable: {str(e)}")
+                    structured_logger.log('WARNING', 'MLPredictions', f"ML prediction failed: {e}")
+        except:
+            # Not in Streamlit mode or ML disabled, skip
+            pass
 
-        update_progress(progress_bar, status_text, ScanProgress.COMPLETE, "✅ Scan completed!")
-        clear_progress(progress_bar, status_text)
+        # Store results in session state (only if in Streamlit mode)
+        try:
+            st.session_state.scan_results = results_df
+            st.session_state.last_scan_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            st.session_state.last_scan_config = {
+                'scope': ScanScope.SINGLE_STOCK if is_single_stock else ScanScope.FULL_WATCHLIST,
+                'date': f'Historical ({analysis_date.strftime("%d/%m/%Y")})' if is_historical else 'Current',
+                'stock_count': len(results_df)
+            }
+        except:
+            # Not in Streamlit mode, skip session state
+            pass
+
+        safe_update_progress(progress_bar, status_text, ScanProgress.COMPLETE, "✅ Scan completed!")
+
+        # Handle UI cleanup for standalone mode
+        try:
+            clear_progress(progress_bar, status_text)
+        except:
+            pass
 
         time.sleep(1)
 
@@ -506,20 +570,37 @@ def run_enhanced_stock_scan(stocks_to_scan: List[str], analysis_date: Optional[d
         if processing_errors:
             success_message += f" ({len(processing_errors)} errors - check log for details)"
 
-        st.success(success_message)
+        try:
+            st.success(success_message)
+        except:
+            print(success_message)
+
         structured_logger.log('INFO', 'Scanner', f"Scan completed: {len(results_df)} stocks processed")
 
-        st.rerun()
+        try:
+            st.rerun()
+        except:
+            # Not in Streamlit mode, just return
+            pass
+
+        # Return the results DataFrame for standalone mode
+        return results_df
 
     except (DataLoadError, DataProcessingError, DataValidationError) as e:
         # Handle known application errors with user-friendly messages
-        display_user_friendly_error(e, show_detailed=True)
+        try:
+            display_user_friendly_error(e, show_detailed=True)
+        except:
+            print(f"❌ Error: {e}")
         structured_logger.log('ERROR', 'Scanner', f"Scan failed with known error: {e.error_code}")
 
     except Exception as e:
         # Handle unexpected errors
         error_info = handle_error(e, "ScanExecution")
-        st.error("❌ Pure MPI Expansion scan failed with critical error - check error log for details")
+        try:
+            st.error("❌ Pure MPI Expansion scan failed with critical error - check error log for details")
+        except:
+            print("❌ Pure MPI Expansion scan failed with critical error - check error log for details")
         structured_logger.log('CRITICAL', 'Scanner', f"Scan failed with unexpected error: {str(e)}")
         raise  # Re-raise to trigger the outer exception handler
 

@@ -1,0 +1,14 @@
+WARNING:root:XGBoost not available. Install with: pip install xgboost
+================================================================================
+TESTING PHASE 3.2: MODEL TRAINING
+================================================================================
+Traceback (most recent call last):
+  File "C:\Users\User\github\stock-scanner-web\scripts\test_model_training.py", line 400, in <module>
+    success = main()
+  File "C:\Users\User\github\stock-scanner-web\scripts\test_model_training.py", line 38, in main
+    print("\n1\ufe0f\u20e3 Loading preprocessed data...")
+    ~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Python313\Lib\encodings\cp1252.py", line 19, in encode
+    return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+           ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+UnicodeEncodeError: 'charmap' codec can't encode characters in position 3-4: character maps to <undefined>

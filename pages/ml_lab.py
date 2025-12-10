@@ -191,9 +191,10 @@ def show():
 
         **Process:**
         1. Calculate Information Coefficient (IC) for each factor
-        2. Test interaction terms
-        3. Discover new factors
-        4. Remove redundant features
+        2. Analyze feature correlations (remove redundant features)
+        3. Select optimal feature set
+        4. Calculate optimal feature weights
+        5. Optional: PCA dimensionality reduction
 
         **Prerequisites:** ≥10,000 training samples from Phase 1
         """)
@@ -205,20 +206,66 @@ def show():
             sample_count = get_training_sample_count()
             st.success(f"✅ Training data available: {sample_count:,} samples")
 
-            if st.button("🔬 Calculate Factor ICs", type="primary"):
-                run_factor_analysis()
+            # Configuration
+            st.markdown("### ⚙️ Analysis Configuration")
+            
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                target_var = st.selectbox(
+                    "Target Variable",
+                    options=['return_3d', 'return_2d', 'return_4d'],
+                    index=0,
+                    help="Which forward return to predict"
+                )
+            
+            with col2:
+                ic_threshold = st.slider(
+                    "IC Threshold",
+                    min_value=0.01,
+                    max_value=0.10,
+                    value=0.03,
+                    step=0.01,
+                    help="Minimum |IC| to keep feature"
+                )
+            
+            with col3:
+                corr_threshold = st.slider(
+                    "Correlation Threshold",
+                    min_value=0.70,
+                    max_value=0.95,
+                    value=0.85,
+                    step=0.05,
+                    help="Max correlation for redundancy"
+                )
+            
+            run_pca = st.checkbox(
+                "Run PCA Analysis (optional)",
+                value=False,
+                help="Dimensionality reduction analysis"
+            )
+
+            # Run analysis button
+            if st.button("🔬 Run Factor Analysis", type="primary", key="run_factor_analysis"):
+                run_factor_analysis(target_var, ic_threshold, corr_threshold, run_pca)
+            
+            # Show results if available
+            if 'factor_analysis_results' in st.session_state:
+                show_factor_analysis_results()
         else:
             st.warning("⚠️ No training data found. Complete Phase 1 first.")
 
-    # ===== PHASE 3-5: COMING SOON =====
-    with st.expander("🧠 PHASE 3: Model Training", expanded=False):
-        st.info("Coming soon after Phase 2 completion")
+    # ===== PHASE 3: MODEL TRAINING & PREDICTIONS =====
+    from pages.ml_lab_phase3 import show_phase3
+    show_phase3()
 
-    with st.expander("📊 PHASE 4: Validation", expanded=False):
-        st.info("Coming soon after Phase 3 completion")
+    # ===== PHASE 4: MODEL VALIDATION =====
+    from pages.ml_lab_phase4 import show_phase4
+    show_phase4()
 
-    with st.expander("🚀 PHASE 5: Deployment", expanded=False):
-        st.info("Coming soon after Phase 4 completion")
+    # ===== PHASE 5: ML SCANNER (STANDALONE) =====
+    from pages.ml_lab_phase5 import show_phase5
+    show_phase5()
 
 
 def start_data_collection(start_date, end_date, forward_days, save_path):
@@ -459,9 +506,290 @@ def fill_data_gaps():
             st.code(traceback.format_exc())
 
 
-def run_factor_analysis():
-    """Placeholder for factor analysis"""
-    st.info("Factor analysis coming in Phase 2 implementation")
+def run_factor_analysis(target_var, ic_threshold, corr_threshold, run_pca):
+    """Run complete factor analysis"""
+    from ml.factor_analyzer import MLFactorAnalyzer
+    from ml.visualizations import MLVisualizer
+    
+    with st.spinner("🔬 Running factor analysis... This may take a few minutes."):
+        try:
+            # Initialize analyzer
+            analyzer = MLFactorAnalyzer(target=target_var)
+            
+            # Run full analysis
+            results = analyzer.run_full_analysis(
+                ic_threshold=ic_threshold,
+                correlation_threshold=corr_threshold,
+                run_pca=run_pca
+            )
+            
+            # Create visualizations
+            visualizer = MLVisualizer()
+            
+            # Get redundant pairs for visualization
+            _, redundant_pairs = analyzer.analyze_correlations(corr_threshold)
+            
+            figures = visualizer.create_summary_dashboard(
+                ic_results=results['ic_results'],
+                correlation_matrix=results['correlation_matrix'],
+                optimal_weights=results['optimal_weights'],
+                redundant_pairs=redundant_pairs
+            )
+            
+            # Store results in session state
+            st.session_state.factor_analysis_results = {
+                'analyzer': analyzer,
+                'results': results,
+                'figures': figures,
+                'redundant_pairs': redundant_pairs,
+                'target_var': target_var,
+                'ic_threshold': ic_threshold,
+                'corr_threshold': corr_threshold
+            }
+            
+            st.success("✅ Factor analysis complete!")
+            st.rerun()
+            
+        except Exception as e:
+            st.error(f"❌ Factor analysis failed: {e}")
+            import traceback
+            st.code(traceback.format_exc())
+
+
+def show_factor_analysis_results():
+    """Display factor analysis results"""
+    st.markdown("---")
+    st.markdown("## 📊 Factor Analysis Results")
+    
+    results_data = st.session_state.factor_analysis_results
+    results = results_data['results']
+    figures = results_data['figures']
+    analyzer = results_data['analyzer']
+    
+    # Summary metrics
+    st.markdown("### 📈 Summary Statistics")
+    
+    col1, col2, col3, col4, col5 = st.columns(5)
+    
+    with col1:
+        st.metric("Target Variable", results_data['target_var'])
+    with col2:
+        st.metric("Total Features", len(analyzer.features))
+    with col3:
+        strong_features = (results['ic_results']['abs_IC'] > 0.10).sum()
+        st.metric("Strong Features", strong_features, help="|IC| > 0.10")
+    with col4:
+        st.metric("Selected Features", len(results['selected_features']))
+    with col5:
+        reduction_pct = (1 - len(results['selected_features']) / len(analyzer.features)) * 100
+        st.metric("Reduction", f"{reduction_pct:.1f}%")
+    
+    # Tabs for different views
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+        "📊 IC Rankings",
+        "🔗 Correlations",
+        "🎯 Feature Selection",
+        "⚖️ Optimal Weights",
+        "📉 PCA (Optional)",
+        "📥 Export"
+    ])
+    
+    with tab1:
+        st.markdown("### Information Coefficient Rankings")
+        st.markdown("*Measures predictive power of each feature*")
+        
+        # Show IC bar chart
+        if 'ic_bar_chart' in figures:
+            st.plotly_chart(figures['ic_bar_chart'], use_container_width=True)
+        
+        # Show IC distribution
+        if 'ic_distribution' in figures:
+            st.plotly_chart(figures['ic_distribution'], use_container_width=True)
+        
+        # Show IC vs sample size
+        if 'ic_vs_sample_size' in figures:
+            st.plotly_chart(figures['ic_vs_sample_size'], use_container_width=True)
+        
+        # Show top 20 features table
+        st.markdown("#### Top 20 Features by |IC|")
+        top_20 = results['ic_results'].head(20)[['feature', 'IC_mean', 'abs_IC', 'p_value', 'significant', 'sample_size']]
+        st.dataframe(top_20, use_container_width=True, hide_index=True)
+    
+    with tab2:
+        st.markdown("### Feature Correlations")
+        st.markdown("*Identify redundant features*")
+        
+        # Show correlation heatmap
+        if 'correlation_heatmap' in figures:
+            st.plotly_chart(figures['correlation_heatmap'], use_container_width=True)
+        
+        # Show redundant pairs
+        if 'redundant_pairs' in figures:
+            st.plotly_chart(figures['redundant_pairs'], use_container_width=True)
+        
+        # Show redundant pairs table
+        redundant_pairs = results_data['redundant_pairs']
+        if redundant_pairs:
+            st.markdown(f"#### Redundant Feature Pairs (correlation > {results_data['corr_threshold']})")
+            pairs_df = pd.DataFrame(redundant_pairs)[['feature1', 'feature2', 'correlation', 'ic1', 'ic2', 'keep', 'remove']]
+            st.dataframe(pairs_df, use_container_width=True, hide_index=True)
+        else:
+            st.success("✅ No highly correlated feature pairs found!")
+    
+    with tab3:
+        st.markdown("### Feature Selection Results")
+        st.markdown(f"*Selected {len(results['selected_features'])} features based on IC threshold = {results_data['ic_threshold']}*")
+        
+        # Show selected features
+        selected_ic = results['ic_results'][results['ic_results']['feature'].isin(results['selected_features'])]
+        
+        col_a, col_b = st.columns(2)
+        
+        with col_a:
+            st.markdown("#### ✅ Selected Features")
+            st.dataframe(
+                selected_ic[['feature', 'IC_mean', 'abs_IC']].head(30),
+                use_container_width=True,
+                hide_index=True
+            )
+        
+        with col_b:
+            st.markdown("#### ❌ Removed Features")
+            removed_features = [f for f in analyzer.features if f not in results['selected_features']]
+            removed_ic = results['ic_results'][results['ic_results']['feature'].isin(removed_features)]
+            
+            if len(removed_ic) > 0:
+                st.dataframe(
+                    removed_ic[['feature', 'IC_mean', 'abs_IC']].head(30),
+                    use_container_width=True,
+                    hide_index=True
+                )
+            else:
+                st.info("No features removed")
+    
+    with tab4:
+        st.markdown("### Optimal Feature Weights")
+        st.markdown("*IC²-weighted feature importance*")
+        
+        # Show feature importance chart
+        if 'feature_importance' in figures:
+            st.plotly_chart(figures['feature_importance'], use_container_width=True)
+        
+        # Show weights table
+        st.markdown("#### Top 30 Feature Weights")
+        weights_df = pd.DataFrame([
+            {'feature': k, 'weight': v, 'weight_pct': f"{v*100:.2f}%"}
+            for k, v in results['optimal_weights'].items()
+        ]).sort_values('weight', ascending=False).head(30)
+        
+        st.dataframe(weights_df, use_container_width=True, hide_index=True)
+        
+        # Show interpretation
+        st.info("""
+        **How to use these weights:**
+        - Multiply each feature by its weight
+        - Sum weighted features to create composite score
+        - Higher weights = stronger predictive power
+        - Use for Phase 3 model training
+        """)
+    
+    with tab5:
+        st.markdown("### PCA Analysis (Optional)")
+        
+        if results['pca_results']:
+            pca_results = results['pca_results']
+            
+            st.success(f"✅ PCA Complete: {pca_results['n_components_95']} components explain 95% variance")
+            
+            # Show scree plot
+            from ml.visualizations import MLVisualizer
+            visualizer = MLVisualizer()
+            
+            scree_fig = visualizer.plot_pca_scree(pca_results)
+            st.plotly_chart(scree_fig, use_container_width=True)
+            
+            # Show loadings plot
+            loadings_fig = visualizer.plot_pca_loadings(pca_results, component_x=1, component_y=2, top_n=15)
+            st.plotly_chart(loadings_fig, use_container_width=True)
+            
+            # Show variance explained
+            st.markdown("#### Variance Explained by Component")
+            variance_df = pd.DataFrame({
+                'Component': [f'PC{i+1}' for i in range(min(10, len(pca_results['explained_variance_ratio'])))],
+                'Variance (%)': pca_results['explained_variance_ratio'][:10] * 100,
+                'Cumulative (%)': pca_results['cumulative_variance'][:10] * 100
+            })
+            st.dataframe(variance_df, use_container_width=True, hide_index=True)
+        else:
+            st.info("PCA analysis was not run. Enable 'Run PCA Analysis' to see results.")
+    
+    with tab6:
+        st.markdown("### 📥 Export Results")
+        
+        col_exp1, col_exp2, col_exp3 = st.columns(3)
+        
+        with col_exp1:
+            # Download IC results
+            ic_csv = results['ic_results'].to_csv(index=False)
+            st.download_button(
+                label="📊 Download IC Results (CSV)",
+                data=ic_csv,
+                file_name=f"ic_results_{results_data['target_var']}.csv",
+                mime="text/csv"
+            )
+        
+        with col_exp2:
+            # Download optimal weights
+            import json
+            weights_json = json.dumps(results['optimal_weights'], indent=2)
+            st.download_button(
+                label="⚖️ Download Weights (JSON)",
+                data=weights_json,
+                file_name=f"optimal_weights_{results_data['target_var']}.json",
+                mime="application/json"
+            )
+        
+        with col_exp3:
+            # Download selected features
+            features_json = json.dumps(results['selected_features'], indent=2)
+            st.download_button(
+                label="✅ Download Selected Features (JSON)",
+                data=features_json,
+                file_name=f"selected_features_{results_data['target_var']}.json",
+                mime="application/json"
+            )
+        
+        # Download HTML report
+        if results['report_path']:
+            st.markdown("---")
+            st.markdown("#### 📄 Full HTML Report")
+            
+            try:
+                with open(results['report_path'], 'r', encoding='utf-8') as f:
+                    html_content = f.read()
+                
+                st.download_button(
+                    label="📄 Download Full Report (HTML)",
+                    data=html_content,
+                    file_name=f"factor_analysis_report_{results_data['target_var']}.html",
+                    mime="text/html"
+                )
+                
+                st.success(f"✅ Report saved to: {results['report_path']}")
+            except Exception as e:
+                st.error(f"Error loading report: {e}")
+        
+        # Show file locations
+        st.markdown("---")
+        st.markdown("#### 📁 Saved Files")
+        st.code("""
+data/ml_training/analysis/
+├── ic_results.csv
+├── correlation_matrix.csv
+├── optimal_weights.json
+├── selected_features.json
+└── factor_analysis_report.html
+        """)
 
 
 if __name__ == "__main__":
