@@ -16,10 +16,11 @@ factor_analysis:
   ic_threshold: 0.05  # Information Coefficient significance threshold
   correlation_threshold: 0.8  # Remove factors with correlation above this
   
-  # COMPREHENSIVE FEATURE LIST (63 features total)
-  # Updated 2025-12-11: Added 9 new divergence features, removed 4 broken features
-  # Updated 2025-12-11: Added 6 dividend/MA/oscillator features
-  # Updated 2025-12-11: Training period extended to 2022-01-01 to 2025-11-30 (4 years)
+  # COMPREHENSIVE FEATURE LIST (60 features total)
+  # Updated 2025-12-11: Base features (48)
+  # Updated 2025-12-11: Added 8 cross-sectional ranks for peer comparison (56 total)
+  # Updated 2025-12-11: Added 4 time-decay features for signal freshness (60 total)
+  # Training period 2022-01-01 to 2025-11-30 (4 years, ~1000 trading days)
   
   factors_to_test:
     # === INSTITUTIONAL FLOW METRICS (Core Signals) ===
@@ -88,6 +89,38 @@ factor_analysis:
     # === ADDITIONAL FLOW METRICS ===
     - Flow_10D                     # 10-day cumulative flow (MEDIUM)
     - Price_Percentile             # Historical price percentile (MEDIUM-HIGH)
+    
+    # === DIVIDEND FEATURES (NEW - From Historical Data) ===
+    - IsExDivWeek                  # Binary: Within 5 days of ex-dividend date (HIGH)
+    - DivYield                     # Annualized dividend yield % (MEDIUM-HIGH)
+    - DaysToNextDiv                # Days until next expected dividend (LOW-MEDIUM)
+    
+    # === MOVING AVERAGE FEATURES (NEW - From Historical Data) ===
+    - DistFromMA20                 # % distance from 20-day MA (MEDIUM-HIGH)
+    - DistFromMA50                 # % distance from 50-day MA (MEDIUM)
+    
+    # === OSCILLATOR FEATURES (NEW - From Historical Data) ===
+    - RSI_14                       # 14-day Relative Strength Index (HIGH)
+    
+    # === CROSS-SECTIONAL RANKS: THREE-INDICATOR SYSTEM (NEW - Peer Comparison) ===
+    - MPI_Percentile_CS_Rank       # Peer ranking of MPI trend strength (CRITICAL)
+    - IBS_Percentile_CS_Rank       # Peer ranking of IBS momentum (CRITICAL)
+    - VPI_Percentile_CS_Rank       # Peer ranking of VPI volume strength (CRITICAL)
+    
+    # === CROSS-SECTIONAL RANKS: ACCELERATION METRICS (NEW - Normalized Peer Comparison) ===
+    - IBS_Accel_CS_Rank            # Peer ranking of IBS acceleration (HIGH)
+    - RVol_Accel_CS_Rank           # Peer ranking of volume acceleration (HIGH)
+    - RRange_Accel_CS_Rank         # Peer ranking of range acceleration (MEDIUM)
+    - VPI_Accel_CS_Rank            # Peer ranking of VPI acceleration (MEDIUM)
+    
+    # === CROSS-SECTIONAL RANKS: DIVERGENCE (NEW - Peer Comparison) ===
+    - Flow_Price_Gap_CS_Rank       # Peer ranking of price-flow divergence magnitude (MEDIUM)
+    
+    # === TIME-DECAY FEATURES (NEW - Signal Freshness & Staleness) ===
+    - Days_Since_High              # Bars since last 252-day high (HIGH)
+    - Days_Since_Low               # Bars since last 252-day low - CRITICAL for mean reversion (CRITICAL)
+    - Days_Since_Triple_Aligned    # Duration of three-indicator alignment (HIGH)
+    - Days_Since_Flow_Regime_Change # Days since last flow regime flip (MEDIUM)
 
 # Phase 3: Model Training
 model_training:

@@ -391,7 +391,18 @@ class MLDataCollector:
 
             labeled_samples.append(sample)
 
-        return labeled_samples
+        # ⭐ NEW: Convert to DataFrame for cross-sectional ranking
+        labeled_samples_df = pd.DataFrame(labeled_samples)
+        
+        # ⭐ NEW: Add cross-sectional ranks (peer comparison)
+        if len(labeled_samples_df) > 1:
+            self.logger.info(f"📊 Adding CS ranks for {len(labeled_samples_df)} stocks on {entry_date.strftime('%Y-%m-%d')}")
+            labeled_samples_df = add_cross_sectional_percentiles(labeled_samples_df)
+        else:
+            self.logger.info(f"⚠️  Only 1 stock on {entry_date.strftime('%Y-%m-%d')}, skipping CS ranks")
+        
+        # Convert back to list of dicts
+        return labeled_samples_df.to_dict('records')
 
     def _get_price_on_date(self, ticker: str, date: datetime, loader) -> float:
         """Get closing price on specific date"""
@@ -563,3 +574,72 @@ class MLDataCollector:
         checkpoint_path = f"data/ml_training/checkpoints/checkpoint_{current_date.strftime('%Y%m%d')}.parquet"
         os.makedirs(os.path.dirname(checkpoint_path), exist_ok=True)
         df.to_parquet(checkpoint_path)
+
+
+def add_cross_sectional_percentiles(df):
+    """
+    Add cross-sectional percentile ranks for peer comparison
+    
+    CRITICAL: Compares stocks to PEERS on SAME date, not own history
+    
+    Args:
+        df: DataFrame with entry_date, Ticker, and feature columns
+        
+    Returns:
+        DataFrame with added *_CS_Rank columns (0-100 scale)
+    """
+    import pandas as pd
+    
+    if 'entry_date' not in df.columns:
+        raise ValueError("entry_date required for cross-sectional ranks")
+    
+    # PHASE 1: Three-Indicator System (CRITICAL - Must Add)
+    three_indicator = [
+        'MPI_Percentile',  # Core indicator #1
+        'IBS_Percentile',  # Core indicator #2
+        'VPI_Percentile',  # Core indicator #3
+    ]
+    
+    # PHASE 1: Acceleration Metrics (HIGH - Should Add)
+    acceleration = [
+        'IBS_Accel',       # Most important acceleration
+        'RVol_Accel',      # Volume acceleration
+        'RRange_Accel',    # Range acceleration
+        'VPI_Accel',       # VPI acceleration
+    ]
+    
+    # PHASE 2: Divergence (MEDIUM - Nice to Add)
+    divergence = [
+        'Flow_Price_Gap',  # Divergence magnitude
+    ]
+    
+    # Combine features to rank (Phase 1 + Phase 2)
+    features_to_rank = three_indicator + acceleration + divergence
+    
+    print(f"\n📊 Adding cross-sectional ranks for {len(features_to_rank)} features...")
+    
+    for feature in features_to_rank:
+        if feature not in df.columns:
+            print(f"  ⚠️  Warning: {feature} not found, skipping CS rank")
+            continue
+        
+        # Rank within each date (percentile rank 0-100)
+        cs_rank_name = f'{feature}_CS_Rank'
+        df[cs_rank_name] = df.groupby('entry_date')[feature].rank(pct=True) * 100
+        
+        # Round for readability
+        df[cs_rank_name] = df[cs_rank_name].round(1)
+        
+        print(f"  ✅ Added {cs_rank_name}")
+    
+    # Fill NaN with neutral value (50.0 = median)
+    cs_rank_cols = [col for col in df.columns if col.endswith('_CS_Rank')]
+    for col in cs_rank_cols:
+        nan_count = df[col].isna().sum()
+        if nan_count > 0:
+            df[col] = df[col].fillna(50.0)
+            print(f"  📝 Filled {nan_count} NaN values in {col} with 50.0")
+    
+    print(f"✅ Added {len(cs_rank_cols)} cross-sectional rank features")
+    
+    return df

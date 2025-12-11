@@ -343,6 +343,9 @@ def add_enhanced_columns(df_daily: pd.DataFrame, ticker: str, rolling_window: in
         df['Is_Divergent'] = is_divergent
         df['Is_Accumulation'] = is_accumulation
 
+        # ⭐ NEW: Add time-decay features for signal freshness
+        df = add_time_decay_features(df)
+
         # Log successful calculation
         logger.debug(f"{ticker}: Signal={df['Signal_Bias'].iloc[-1]}, "
                     f"State={df['Signal_State'].iloc[-1]}, "
@@ -1150,6 +1153,108 @@ def calculate_volume_conviction(df: pd.DataFrame) -> pd.DataFrame:
 #   - Type 1: Price-Flow Misalignment (mean reversion)
 #   - Type 2: Classical Divergence (momentum exhaustion)
 #   - Type 3: Volume-Price Divergence (quality signals)
+
+
+def add_time_decay_features(df):
+    """
+    Add features measuring time since key events
+    
+    Critical for distinguishing fresh vs stale signals
+    
+    Args:
+        df: DataFrame with OHLCV data (must be sorted by date)
+        
+    Returns:
+        DataFrame with time-decay features added
+    """
+    import pandas as pd
+    import numpy as np
+    
+    df = df.copy()
+    df = df.sort_index()  # Ensure sorted by date
+    
+    logger.debug("⏱️  Adding time-decay features...")
+    
+    # 1. Days Since High (252-day rolling high)
+    rolling_high = df['High'].rolling(window=252, min_periods=20).max()
+    df['Days_Since_High'] = 0
+    
+    counter = 0
+    for i in range(len(df)):
+        if i == 0:
+            df.iloc[i, df.columns.get_loc('Days_Since_High')] = 0
+            continue
+            
+        if df['High'].iloc[i] >= rolling_high.iloc[i]:
+            counter = 0  # New high, reset counter
+        else:
+            counter += 1
+        
+        df.iloc[i, df.columns.get_loc('Days_Since_High')] = counter
+    
+    logger.debug(f"  ✅ Added Days_Since_High (max: {df['Days_Since_High'].max():.0f} days)")
+    
+    # 2. Days Since Low (CRITICAL - 252-day rolling low)
+    rolling_low = df['Low'].rolling(window=252, min_periods=20).min()
+    df['Days_Since_Low'] = 0
+    
+    counter = 0
+    for i in range(len(df)):
+        if i == 0:
+            df.iloc[i, df.columns.get_loc('Days_Since_Low')] = 0
+            continue
+            
+        if df['Low'].iloc[i] <= rolling_low.iloc[i]:
+            counter = 0  # New low, reset counter
+        else:
+            counter += 1
+        
+        df.iloc[i, df.columns.get_loc('Days_Since_Low')] = counter
+    
+    logger.debug(f"  ✅ Added Days_Since_Low (max: {df['Days_Since_Low'].max():.0f} days) - CRITICAL")
+    
+    # 3. Days Since Triple Aligned
+    if 'Is_Triple_Aligned' in df.columns:
+        df['Days_Since_Triple_Aligned'] = 0
+        counter = 0
+        
+        for i in range(len(df)):
+            if df['Is_Triple_Aligned'].iloc[i]:
+                counter += 1
+            else:
+                counter = 0
+            
+            df.iloc[i, df.columns.get_loc('Days_Since_Triple_Aligned')] = counter
+        
+        logger.debug(f"  ✅ Added Days_Since_Triple_Aligned (max: {df['Days_Since_Triple_Aligned'].max():.0f} days)")
+    else:
+        logger.debug(f"  ⚠️  Is_Triple_Aligned not found, skipping Days_Since_Triple_Aligned")
+    
+    # 4. Days Since Flow Regime Change
+    if 'Flow_10D' in df.columns:
+        flow_sign = np.sign(df['Flow_10D'])
+        flow_changed = (flow_sign != flow_sign.shift(1))
+        
+        df['Days_Since_Flow_Regime_Change'] = 0
+        counter = 0
+        
+        for i in range(len(df)):
+            if i == 0:
+                counter = 0
+            elif flow_changed.iloc[i]:
+                counter = 0
+            else:
+                counter += 1
+            
+            df.iloc[i, df.columns.get_loc('Days_Since_Flow_Regime_Change')] = counter
+        
+        logger.debug(f"  ✅ Added Days_Since_Flow_Regime_Change (max: {df['Days_Since_Flow_Regime_Change'].max():.0f} days)")
+    else:
+        logger.debug(f"  ⚠️  Flow_10D not found, skipping Days_Since_Flow_Regime_Change")
+    
+    logger.debug("✅ Time-decay features complete")
+    
+    return df
 
 
 logger.info("Technical Analysis Module loaded with optimized PURE MPI EXPANSION system (Market Regime removed)")
