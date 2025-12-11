@@ -4,27 +4,90 @@
 
 # Phase 1: Data Collection
 data_collection:
-  start_date: "2023-01-01"
-  end_date: "2024-12-31"
+  start_date: "2022-01-01"
+  end_date: "2025-11-30"
   forward_days: [2, 3, 4]  # Calculate returns for these holding periods (added 3-day for trajectory analysis)
-  checkpoint_frequency: 20  # Save checkpoint every N days
-  max_workers: 1  # Sequential processing for now
+  checkpoint_frequency: 30  # Save checkpoint every N days (optimized for speed vs safety)
+  max_workers: 2  # Parallel processing (2x speedup, very stable)
 
 # Phase 2: Factor Analysis
 factor_analysis:
   min_samples: 10000  # Minimum samples required
   ic_threshold: 0.05  # Information Coefficient significance threshold
   correlation_threshold: 0.8  # Remove factors with correlation above this
+  
+  # COMPREHENSIVE FEATURE LIST (63 features total)
+  # Updated 2025-12-11: Added 9 new divergence features, removed 4 broken features
+  # Updated 2025-12-11: Added 6 dividend/MA/oscillator features
+  # Updated 2025-12-11: Training period extended to 2022-01-01 to 2025-11-30 (4 years)
+  
   factors_to_test:
-    - Flow_Velocity_Rank
-    - Flow_Rank
-    - Flow_Percentile
-    - Volume_Conviction
-    - MPI_Percentile
-    - IBS_Percentile
-    - VPI_Percentile
-    - Signal_Bias
-    - HL_Pattern
+    # === INSTITUTIONAL FLOW METRICS (Core Signals) ===
+    - Flow_Velocity_Rank          # Cross-stock ranking of flow acceleration (HIGH PRIORITY)
+    - Flow_Rank                    # Cross-stock ranking of current flow strength (HIGH PRIORITY)
+    - Flow_Percentile              # Historical percentile of flow for this stock (HIGH PRIORITY)
+    - Flow_Velocity_Percentile     # Historical percentile of flow velocity (MEDIUM-HIGH)
+    - Volume_Conviction            # Ratio of up-day to down-day volume (CRITICAL)
+    - Volume_Conviction_Rank       # Cross-stock ranking of conviction (HIGH)
+    - Conviction_Velocity          # Rate of change in conviction (MEDIUM-HIGH)
+    
+    # === THREE-INDICATOR SYSTEM (Percentiles) ===
+    - MPI_Percentile               # Money flow position percentile (MEDIUM-HIGH)
+    - IBS_Percentile               # Internal bar strength percentile (MEDIUM)
+    - VPI_Percentile               # Volume positivity index percentile (LOW-MEDIUM)
+    
+    # === DIVERGENCE FEATURES (NEW - Fixed Math) ===
+    # Type 1: Price-Flow Misalignment (Mean Reversion)
+    - Flow_Price_Gap               # Price pct - Flow pct (-100 to +100) (HIGH)
+    - Gap_Severity                 # Absolute magnitude of gap (0-100) (HIGH)
+    - Is_Flow_Misaligned           # Binary: Significant misalignment (MEDIUM-HIGH)
+    
+    # Type 2: Classical Divergence (Momentum Exhaustion)
+    - Bullish_Divergence           # Binary: Price down + Flow up (HIGH)
+    - Bearish_Divergence           # Binary: Price up + Flow down (HIGH)
+    - Divergence_Strength          # Magnitude of slope difference (0-100) (MEDIUM-HIGH)
+    - Divergence_Duration          # Days since divergence started (MEDIUM)
+    
+    # Type 3: Volume-Price Divergence (Quality Signals)
+    - Is_Volume_Weak               # Binary: Strong price + weak volume (MEDIUM-HIGH)
+    - Volume_Price_Alignment       # Correlation score (0-100) (MEDIUM)
+    
+    # === SIGNAL & PATTERN FEATURES ===
+    - Signal_Bias                  # Categorical: BULLISH/BEARISH/NEUTRAL (HIGH)
+    - Conviction_Level             # Categorical: High/Moderate/Low (HIGH)
+    - Is_Triple_Aligned            # Binary: All 3 indicators aligned (HIGH)
+    - Is_Accumulation              # Binary: Accumulation pattern (MEDIUM)
+    - HL_Pattern                   # Categorical: HHL/HH/LHL/LL/- (MEDIUM)
+    
+    # === ACCELERATION METRICS ===
+    - IBS_Accel                    # 2nd derivative of IBS (MEDIUM)
+    - RVol_Accel                   # 2nd derivative of relative volume (MEDIUM-HIGH)
+    - RRange_Accel                 # 2nd derivative of relative range (MEDIUM)
+    - VPI_Accel                    # 2nd derivative of VPI (LOW)
+    
+    # === VOLUME METRICS ===
+    - Relative_Volume              # Current volume / 14-day avg (HIGH)
+    - RelVol_Velocity              # Rate of change in relative volume (MEDIUM-HIGH)
+    - VPI_Velocity                 # Rate of change in VPI (LOW)
+    
+    # === VOLATILITY/RANGE METRICS ===
+    - VW_Range_Velocity            # Rate of change in volume-weighted range (MEDIUM)
+    - VW_Range_Percentile          # Historical percentile of VW range (MEDIUM)
+    - Rel_Range_Signal             # Range signal strength (LOW)
+    
+    # === MPI CONTEXT ===
+    - MPI_Velocity                 # Rate of change in MPI (MEDIUM-HIGH)
+    - MPI_Zone                     # Zone classification 1-5 (MEDIUM)
+    
+    # === PRICE ACTION (Binary Flags) ===
+    - Higher_H                     # Made higher high (LOW-MEDIUM)
+    - Higher_HL                    # Made higher high AND low (LOW-MEDIUM)
+    - Lower_L                      # Made lower low (LOW-MEDIUM)
+    - Lower_HL                     # Made lower high AND low (LOW-MEDIUM)
+    
+    # === ADDITIONAL FLOW METRICS ===
+    - Flow_10D                     # 10-day cumulative flow (MEDIUM)
+    - Price_Percentile             # Historical price percentile (MEDIUM-HIGH)
 
 # Phase 3: Model Training
 model_training:

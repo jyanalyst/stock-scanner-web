@@ -251,6 +251,44 @@ class MLDataCollector:
 
         return scan_results
 
+    def _get_future_trading_date(self, base_date: datetime, trading_days: int, 
+                                stock_df: pd.DataFrame) -> Optional[datetime]:
+        """
+        Get future date that is N TRADING days ahead (not calendar days)
+        
+        CRITICAL FIX: This replaces calendar day arithmetic which caused
+        weekend signals to have compressed holding periods.
+        
+        Args:
+            base_date: Starting date (signal date)
+            trading_days: Number of trading days ahead (e.g., 2, 3, 4)
+            stock_df: Stock historical data with Date column
+        
+        Returns:
+            Future trading date or None if insufficient data
+            
+        Example:
+            Signal on Friday Nov 22, 2024
+            trading_days=2 → Returns Tuesday Nov 26, 2024 (not Sunday Nov 24)
+        """
+        try:
+            # Ensure Date column is datetime
+            stock_df['Date'] = pd.to_datetime(stock_df['Date'])
+            
+            # Get all trading dates AFTER base_date (strictly greater than)
+            future_dates = stock_df[stock_df['Date'] > base_date]['Date'].sort_values()
+            
+            # Check if we have enough future data
+            if len(future_dates) < trading_days:
+                return None
+            
+            # Return the Nth trading day (0-indexed, so subtract 1)
+            return future_dates.iloc[trading_days - 1]
+            
+        except Exception as e:
+            self.logger.error(f"Error getting future trading date: {e}")
+            return None
+
     def _calculate_forward_returns(self,
                                    scan_results: pd.DataFrame,
                                    entry_date: datetime) -> List[Dict]:
@@ -262,14 +300,14 @@ class MLDataCollector:
         CONVENTION: Signal Day = Day 0
         - entry_date = Day 0 (signal fires at close)
         - entry_price = Close price on Day 0
-        - exit_date = Day 0 + N trading days
+        - exit_date = Day 0 + N TRADING days (FIXED: was calendar days)
         - return_Nd = (Price_DayN - Price_Day0) / Price_Day0
 
         Example:
-            Signal: Monday Nov 20 @ $3.39 (Day 0)
-            return_2d: Wednesday Nov 22 @ $3.45 = +1.77%
-            return_3d: Thursday Nov 23 @ $3.48 = +2.65%
-            return_4d: Friday Nov 24 @ $3.50 = +3.24%
+            Signal: Friday Nov 22 @ $3.39 (Day 0)
+            return_2d: Tuesday Nov 26 @ $3.45 = +1.77% (2 TRADING days)
+            return_3d: Wednesday Nov 27 @ $3.48 = +2.65% (3 TRADING days)
+            return_4d: Thursday Nov 28 @ $3.50 = +3.24% (4 TRADING days)
 
         Returns list of labeled samples
         """
@@ -309,7 +347,14 @@ class MLDataCollector:
             forward_returns = {}
 
             for days in self.forward_days:
-                exit_date = entry_date + timedelta(days=days)
+                # CRITICAL FIX: Use actual trading days, not calendar days
+                exit_date = self._get_future_trading_date(entry_date, days, stock_df)
+                
+                if exit_date is None:
+                    # Insufficient future data (e.g., signal too close to present)
+                    forward_returns[f'return_{days}d'] = None
+                    forward_returns[f'win_{days}d'] = None
+                    continue
 
                 # Get future price using cached data
                 exit_price = self._get_price_on_date_cached(

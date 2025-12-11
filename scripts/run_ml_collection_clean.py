@@ -14,6 +14,7 @@ import os
 from datetime import datetime
 import logging
 import warnings
+import yaml
 
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -140,6 +141,28 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 
+def load_ml_config():
+    """Load ML configuration from YAML file"""
+    config_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'configs', 'ml_config.yaml')
+
+    try:
+        with open(config_path, 'r') as f:
+            config = yaml.safe_load(f)
+        return config
+    except Exception as e:
+        print(f"❌ Error loading config from {config_path}: {e}")
+        print("💡 Using default settings...")
+        return {
+            'data_collection': {
+                'start_date': '2023-01-01',
+                'end_date': '2024-12-31',
+                'forward_days': [2, 3, 4],
+                'checkpoint_frequency': 20,
+                'max_workers': 1
+            }
+        }
+
+
 class StreamlitWarningFilter:
     """Smart stderr filter that suppresses Streamlit warnings but preserves real errors"""
 
@@ -200,21 +223,41 @@ class StreamlitWarningFilter:
 def main():
     """Run ML data collection with enhanced visual progress bar"""
 
+    # Load configuration from YAML
+    config = load_ml_config()
+    data_config = config.get('data_collection', {})
+
+    # Extract settings from config
+    start_date = data_config.get('start_date', '2023-01-01')
+    end_date = data_config.get('end_date', '2024-12-31')
+    forward_days = data_config.get('forward_days', [2, 3, 4])
+    checkpoint_freq = data_config.get('checkpoint_frequency', 20)
+    max_workers = data_config.get('max_workers', 1)
+
+    # Calculate estimated time (rough approximation: ~0.1 hours per trading day)
+    from datetime import datetime
+    start_dt = datetime.strptime(start_date, '%Y-%m-%d')
+    end_dt = datetime.strptime(end_date, '%Y-%m-%d')
+    days_diff = (end_dt - start_dt).days
+    trading_days = max(1, int(days_diff * 0.7))  # Rough estimate of trading days
+    estimated_hours = trading_days * 0.1  # ~6 minutes per day with parallel processing
+
     print("=" * 80)
     print("🚀 ML DATA COLLECTION - ENHANCED MODE")
     print("=" * 80)
     print()
-    print("📅 Date Range: 2023-01-01 to 2024-12-31")
-    print("📊 Forward Returns: 2-day, 3-day, 4-day")
-    print("⏱️  Estimated Time: ~73 hours (730 trading days)")
+    print(f"📅 Date Range: {start_date} to {end_date}")
+    print(f"📊 Forward Returns: {', '.join([f'{d}-day' for d in forward_days])}")
+    print(f"⏱️  Estimated Time: ~{estimated_hours:.1f} hours ({trading_days} trading days)")
     print("📊 Visual Progress: Real-time with ETA")
-    print("💾 Checkpoints: Every 10 days")
+    print(f"💾 Checkpoints: Every {checkpoint_freq} days")
+    print(f"⚡ Parallel Workers: {max_workers}")
     print()
     print("=" * 80)
     print()
 
     # Confirm before starting
-    response = input("Ready to start? This will take ~73 hours. (yes/no): ")
+    response = input(f"Ready to start? This will take ~{estimated_hours:.1f} hours. (yes/no): ")
     if response.lower() not in ['yes', 'y']:
         print("❌ Collection cancelled.")
         return
@@ -236,9 +279,9 @@ def main():
         with open(os.devnull, 'w') as devnull:
             with redirect_stderr(devnull):
                 collector = MLDataCollector(
-                    start_date="2023-01-01",
-                    end_date="2024-12-31",
-                    forward_days=[2, 3, 4]
+                    start_date=start_date,
+                    end_date=end_date,
+                    forward_days=forward_days
                 )
 
                 # Get trading dates for progress tracking
@@ -286,8 +329,8 @@ def main():
                     })
                     pbar.refresh()
 
-                    # Save checkpoint every 10 dates
-                    if processed_dates - last_checkpoint >= 10:
+                    # Save checkpoint every N dates (from config)
+                    if processed_dates - last_checkpoint >= checkpoint_freq:
                         original_save_checkpoint(samples, current_date)
                         last_checkpoint = processed_dates
                         print(f"\n💾 Checkpoint saved: {samples_collected:,} samples at {current_date.strftime('%Y-%m-%d')}")

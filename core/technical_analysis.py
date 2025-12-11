@@ -60,7 +60,8 @@ def calculate_mpi_expansion(df: pd.DataFrame) -> pd.DataFrame:
     df['MPI_Velocity'] = df['MPI'] - df['MPI'].shift(1)
     
     # Step 5: Percentile Classification (100-day rolling of Velocity)
-    df['MPI_Percentile'] = df['MPI_Velocity'].rolling(100, min_periods=20).rank(pct=True) * 100
+    # CRITICAL FIX: Use .shift(1) to avoid lookahead bias (don't include current day in ranking)
+    df['MPI_Percentile'] = df['MPI_Velocity'].shift(1).rolling(100, min_periods=20).rank(pct=True) * 100
     
     # Fill NaN values
     df['MPI'] = df['MPI'].fillna(0.5)  # Neutral default
@@ -236,7 +237,18 @@ def add_enhanced_columns(df_daily: pd.DataFrame, ticker: str, rolling_window: in
         df = calculate_institutional_flow(df)
         df = classify_flow_regime(df)
         df = calculate_volume_conviction(df)
-        df = calculate_price_flow_divergence(df)
+        
+        # ===== NEW: COMPREHENSIVE DIVERGENCE DETECTION =====
+        # Use new divergence module (replaces old broken calculate_price_flow_divergence)
+        from core.divergence_analysis import DivergenceDetector
+        
+        divergence_detector = DivergenceDetector(
+            lookback_percentile=252,
+            lookback_slope=20,
+            min_slope_threshold=0.05,
+            misalignment_threshold=20.0
+        )
+        df = divergence_detector.calculate_all_divergences(df)
 
         # Note: calculate_percentile_ranks is deprecated as percentiles are now
         # calculated within each indicator function (MPI, IBS, VPI)
@@ -641,7 +653,8 @@ def calculate_ibs_acceleration(df: pd.DataFrame) -> pd.DataFrame:
     df['IBS_Accel'] = df['IBS_Velocity'] - df['IBS_Velocity'].shift(1)
     
     # Step 5: Percentile Classification (100-day rolling of Acceleration)
-    df['IBS_Percentile'] = df['IBS_Accel'].rolling(100, min_periods=20).rank(pct=True) * 100
+    # CRITICAL FIX: Use .shift(1) to avoid lookahead bias (don't include current day in ranking)
+    df['IBS_Percentile'] = df['IBS_Accel'].shift(1).rolling(100, min_periods=20).rank(pct=True) * 100
     
     # Fill NaN values
     df['IBS'] = df['IBS'].fillna(0.5)
@@ -686,7 +699,8 @@ def calculate_vpi_system(df: pd.DataFrame) -> pd.DataFrame:
     
     # Step 5: Percentile Classification (100-day rolling of Acceleration)
     # This is the final "VPI" metric used for scoring/signals
-    df['VPI_Percentile'] = df['VPI_Accel'].rolling(100, min_periods=20).rank(pct=True) * 100
+    # CRITICAL FIX: Use .shift(1) to avoid lookahead bias (don't include current day in ranking)
+    df['VPI_Percentile'] = df['VPI_Accel'].shift(1).rolling(100, min_periods=20).rank(pct=True) * 100
     
     # Fill NaN values
     df['VPI_Velocity'] = df['VPI_Velocity'].fillna(0.0)
@@ -1065,8 +1079,9 @@ def classify_flow_regime(df: pd.DataFrame) -> pd.DataFrame:
     """
     # Calculate INDIVIDUAL STOCK historical percentiles (100-day rolling)
     # These compare current values against the stock's own history
-    df['Flow_Percentile'] = df['Flow_10D'].rolling(window=100, min_periods=20).rank(pct=True) * 100
-    df['Flow_Velocity_Percentile'] = df['Flow_Velocity'].rolling(window=100, min_periods=20).rank(pct=True) * 100
+    # CRITICAL FIX: Use .shift(1) to avoid lookahead bias (don't include current day in ranking)
+    df['Flow_Percentile'] = df['Flow_10D'].shift(1).rolling(window=100, min_periods=20).rank(pct=True) * 100
+    df['Flow_Velocity_Percentile'] = df['Flow_Velocity'].shift(1).rolling(window=100, min_periods=20).rank(pct=True) * 100
 
     # Fill NaN values
     df['Flow_Percentile'] = df['Flow_Percentile'].fillna(50.0)
@@ -1128,40 +1143,13 @@ def calculate_volume_conviction(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def calculate_price_flow_divergence(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Calculate price-flow divergence signals
-
-    Core Concept: Identify misalignment between price action and institutional flow
-    - Price_Percentile: Where price sits in 252-day historical range
-    - Divergence_Gap: Price percentile - Flow percentile
-    - Divergence_Severity: Absolute magnitude of divergence (0-100 scale)
-
-    Positive gap = Bearish divergence (price strong, flow weak)
-    Negative gap = Bullish divergence (price weak, flow strong)
-
-    Args:
-        df: DataFrame with price and flow data
-
-    Returns:
-        DataFrame with divergence columns added
-    """
-    # Price percentile (where price sits in historical range)
-    df['Price_Percentile'] = df['Close'].rolling(252, min_periods=60).rank(pct=True)
-
-    # Flow percentile (already calculated in classify_flow_regime)
-    # Divergence gap: Price percentile - Flow percentile
-    df['Divergence_Gap'] = (df['Price_Percentile'] - df['Flow_Percentile']) * 100
-    
-    # Divergence severity (absolute magnitude, 0-100 scale)
-    df['Divergence_Severity'] = abs(df['Divergence_Gap'])
-
-    # Fill NaN values
-    df['Price_Percentile'] = df['Price_Percentile'].fillna(0.5)
-    df['Divergence_Gap'] = df['Divergence_Gap'].fillna(0.0)
-    df['Divergence_Severity'] = df['Divergence_Severity'].fillna(0.0)
-
-    return df
+# OLD FUNCTION REMOVED: calculate_price_flow_divergence()
+# This function had a critical math error (scale mismatch: 0-1 vs 0-100)
+# Replaced with comprehensive DivergenceDetector from core/divergence_analysis.py
+# The new module provides:
+#   - Type 1: Price-Flow Misalignment (mean reversion)
+#   - Type 2: Classical Divergence (momentum exhaustion)
+#   - Type 3: Volume-Price Divergence (quality signals)
 
 
 logger.info("Technical Analysis Module loaded with optimized PURE MPI EXPANSION system (Market Regime removed)")
