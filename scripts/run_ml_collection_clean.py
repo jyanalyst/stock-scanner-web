@@ -307,6 +307,45 @@ def main():
             # Override the collection method to track progress
             original_collect = collector.collect_training_data
 
+            def validate_checkpoint(samples, current_date, processed_dates):
+                """Validate checkpoint health and abort if broken"""
+                import pandas as pd
+                
+                sample_count = len(samples)
+                avg_per_date = sample_count / processed_dates  # Calculate at top to avoid scope issues
+                expected_min = processed_dates * 10  # At least 10 samples per date
+                
+                # CRITICAL: Check for 0 samples
+                if sample_count == 0:
+                    print(f"\n🚨 CHECKPOINT FAILURE: 0 samples after {processed_dates} dates!")
+                    print("   ABORTING - Something is fundamentally broken")
+                    print("\n   Possible causes:")
+                    print("   - Scanner returning empty results")
+                    print("   - Forward returns calculation failing")
+                    print("   - Data loading issues")
+                    return False
+                
+                # WARNING: Check for low sample count
+                if sample_count < expected_min:
+                    print(f"\n⚠️  WARNING: Low sample count ({sample_count:,} vs {expected_min:,} expected)")
+                    print(f"   Average: {avg_per_date:.1f} samples/date (expected: ~15-20)")
+                    if avg_per_date < 5:
+                        print("   🚨 CRITICAL: Average < 5 samples/date - ABORTING")
+                        return False
+                
+                # Check for critical columns
+                df = pd.DataFrame(samples)
+                required_cols = ['Ticker', 'entry_date', 'return_2d', 'MPI_Percentile']
+                missing = [col for col in required_cols if col not in df.columns]
+                
+                if missing:
+                    print(f"\n🚨 CHECKPOINT FAILURE: Missing columns: {missing}")
+                    print("   ABORTING - Data structure is broken")
+                    return False
+                
+                print(f"✅ Checkpoint OK: {sample_count:,} samples, {len(df.columns)} features, {avg_per_date:.1f} avg/date")
+                return True
+
             def enhanced_collect(*args, **kwargs):
                 nonlocal processed_dates, samples_collected, pbar
 
@@ -320,20 +359,38 @@ def main():
                     processed_dates = list(trading_dates).index(current_date) + 1
                     samples_collected = len(samples)
 
-                    # Update progress bar with enhanced info
+                    # Update progress bar with REAL-TIME sample count
                     pbar.n = processed_dates
                     pbar.set_postfix({
                         'samples': f'{samples_collected:,}',
-                        'date': current_date.strftime('%Y-%m-%d'),
-                        'rate': f'{processed_dates/(time.time()-start_time.timestamp())*3600:.1f}d/h'
+                        'avg': f'{samples_collected/processed_dates:.1f}/date'
                     })
                     pbar.refresh()
 
-                    # Save checkpoint every N dates (from config)
+                    # 🛡️ LAYER 1: EARLY FAILURE DETECTION (after 5 dates)
+                    if processed_dates == 5:
+                        if samples_collected == 0:
+                            print(f"\n🚨 CRITICAL ERROR: 0 samples collected after 5 dates!")
+                            print("   Possible causes:")
+                            print("   - Scanner returning empty results")
+                            print("   - Forward returns calculation failing")
+                            print("   - Data loading issues")
+                            print("\n❌ ABORTING - Please investigate before retrying")
+                            sys.exit(1)
+                        else:
+                            avg = samples_collected / processed_dates
+                            print(f"\n✅ PASSED early validation ({samples_collected} samples, {avg:.1f} avg/date)")
+
+                    # 🛡️ LAYER 3: CHECKPOINT VALIDATION (every N dates)
                     if processed_dates - last_checkpoint >= checkpoint_freq:
+                        # Validate before saving
+                        if not validate_checkpoint(samples, current_date, processed_dates):
+                            print("\n❌ ABORTING due to checkpoint validation failure")
+                            sys.exit(1)
+                        
+                        # Save checkpoint
                         original_save_checkpoint(samples, current_date)
                         last_checkpoint = processed_dates
-                        print(f"\n💾 Checkpoint saved: {samples_collected:,} samples at {current_date.strftime('%Y-%m-%d')}")
 
                 # Override checkpoint method
                 collector._save_checkpoint = enhanced_checkpoint

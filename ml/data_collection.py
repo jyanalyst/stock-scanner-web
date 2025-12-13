@@ -272,6 +272,13 @@ class MLDataCollector:
             trading_days=2 → Returns Tuesday Nov 26, 2024 (not Sunday Nov 24)
         """
         try:
+            # CRITICAL FIX: Make a copy to avoid mutating cached data!
+            stock_df = stock_df.copy()
+            
+            # Check if Date is index BEFORE trying to access it
+            if 'Date' not in stock_df.columns:
+                stock_df = stock_df.reset_index()
+            
             # Ensure Date column is datetime
             stock_df['Date'] = pd.to_datetime(stock_df['Date'])
             
@@ -425,6 +432,9 @@ class MLDataCollector:
             if stock_df is None or stock_df.empty:
                 return None
 
+            # CRITICAL FIX: Make a copy to avoid mutating cached data!
+            stock_df = stock_df.copy()
+            
             # Ensure Date column exists and is datetime
             if 'Date' not in stock_df.columns:
                 stock_df = stock_df.reset_index()
@@ -468,6 +478,9 @@ class MLDataCollector:
             if stock_df is None or stock_df.empty:
                 return 0
 
+            # CRITICAL FIX: Make a copy to avoid mutating cached data!
+            stock_df = stock_df.copy()
+            
             # Ensure Date column exists and is datetime
             if 'Date' not in stock_df.columns:
                 stock_df = stock_df.reset_index()
@@ -576,6 +589,9 @@ class MLDataCollector:
         df.to_parquet(checkpoint_path)
 
 
+# Global flag to track if we've already printed the CS rank summary
+_cs_rank_summary_printed = False
+
 def add_cross_sectional_percentiles(df):
     """
     Add cross-sectional percentile ranks for peer comparison
@@ -589,6 +605,7 @@ def add_cross_sectional_percentiles(df):
         DataFrame with added *_CS_Rank columns (0-100 scale)
     """
     import pandas as pd
+    global _cs_rank_summary_printed
     
     if 'entry_date' not in df.columns:
         raise ValueError("entry_date required for cross-sectional ranks")
@@ -616,11 +633,13 @@ def add_cross_sectional_percentiles(df):
     # Combine features to rank (Phase 1 + Phase 2)
     features_to_rank = three_indicator + acceleration + divergence
     
-    print(f"\n📊 Adding cross-sectional ranks for {len(features_to_rank)} features...")
+    # Silent operation - only print summary once
+    missing_features = []
+    added_features = []
     
     for feature in features_to_rank:
         if feature not in df.columns:
-            print(f"  ⚠️  Warning: {feature} not found, skipping CS rank")
+            missing_features.append(feature)
             continue
         
         # Rank within each date (percentile rank 0-100)
@@ -629,8 +648,7 @@ def add_cross_sectional_percentiles(df):
         
         # Round for readability
         df[cs_rank_name] = df[cs_rank_name].round(1)
-        
-        print(f"  ✅ Added {cs_rank_name}")
+        added_features.append(cs_rank_name)
     
     # Fill NaN with neutral value (50.0 = median)
     cs_rank_cols = [col for col in df.columns if col.endswith('_CS_Rank')]
@@ -638,8 +656,12 @@ def add_cross_sectional_percentiles(df):
         nan_count = df[col].isna().sum()
         if nan_count > 0:
             df[col] = df[col].fillna(50.0)
-            print(f"  📝 Filled {nan_count} NaN values in {col} with 50.0")
     
-    print(f"✅ Added {len(cs_rank_cols)} cross-sectional rank features")
+    # Print summary only once (first call)
+    if not _cs_rank_summary_printed:
+        print(f"\n📊 Cross-Sectional Ranks: {len(added_features)}/{len(features_to_rank)} features")
+        if missing_features:
+            print(f"   ⚠️  Missing: {', '.join(missing_features)}")
+        _cs_rank_summary_printed = True
     
     return df
