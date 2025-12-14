@@ -295,49 +295,58 @@ class MLFeaturePreprocessor:
         
         return X_train_scaled, X_test_scaled
     
-    def split_data_timeseries(self, 
+    def split_data_timeseries(self,
                               df: pd.DataFrame,
                               features: List[str],
                               target: str,
-                              split_date: str = '2024-01-01') -> Tuple[pd.DataFrame, pd.DataFrame, pd.Series, pd.Series]:
+                              split_date: str = '2024-01-01',
+                              embargo_days: int = 20) -> Tuple[pd.DataFrame, pd.DataFrame, pd.Series, pd.Series]:
         """
-        Split data by date (time-series split)
-        
+        Split data by date (time-series split) with embargo period
+
+        CRITICAL FIX: Adds embargo period to prevent data leakage from rolling windows
+
         Args:
             df: Full dataset
             features: Feature columns
             target: Target column
             split_date: Date to split on (train before, test after)
-        
+            embargo_days: Days to exclude around split date (prevents leakage)
+
         Returns:
             Tuple of (X_train, X_test, y_train, y_test)
         """
-        logger.info(f"Performing time-series split at {split_date}")
-        
+        logger.info(f"Performing time-series split at {split_date} with {embargo_days}-day embargo")
+
         # Ensure entry_date is datetime
         if 'entry_date' not in df.columns:
             raise ValueError("entry_date column not found in data")
-        
+
         df['entry_date'] = pd.to_datetime(df['entry_date'])
-        split_date = pd.to_datetime(split_date)
-        
-        # Split by date
-        train_mask = df['entry_date'] < split_date
-        test_mask = df['entry_date'] >= split_date
-        
+        split_dt = pd.to_datetime(split_date)
+        embargo_dt = split_dt - pd.Timedelta(days=embargo_days)
+
+        # CRITICAL FIX: Create embargo period to prevent data leakage
+        # Features use rolling windows, so data near split date contains leaked information
+        train_mask = df['entry_date'] < embargo_dt
+        test_mask = df['entry_date'] >= split_dt
+
         train_df = df[train_mask]
         test_df = df[test_mask]
-        
+
         # Extract features and target
         X_train = train_df[features]
         X_test = test_df[features]
         y_train = train_df[target]
         y_test = test_df[target]
-        
+
+        embargo_samples = len(df[(df['entry_date'] >= embargo_dt) & (df['entry_date'] < split_dt)])
+
         logger.info(f"Train set: {len(X_train):,} samples ({train_df['entry_date'].min()} to {train_df['entry_date'].max()})")
         logger.info(f"Test set: {len(X_test):,} samples ({test_df['entry_date'].min()} to {test_df['entry_date'].max()})")
+        logger.info(f"Embargo period: {embargo_dt} to {split_dt} ({embargo_samples} samples discarded)")
         logger.info(f"Train/Test split: {len(X_train)/(len(X_train)+len(X_test))*100:.1f}% / {len(X_test)/(len(X_train)+len(X_test))*100:.1f}%")
-        
+
         return X_train, X_test, y_train, y_test
     
     def split_data_random(self,
@@ -431,9 +440,37 @@ class MLFeaturePreprocessor:
                 self.df, features, target, test_size
             )
         
-        # Step 6: Normalize features
+        # Step 6: Handle missing values (impute with median)
+        logger.info("Handling missing values...")
+        from sklearn.impute import SimpleImputer
+
+        imputer = SimpleImputer(strategy='median')
+        X_train_imputed = pd.DataFrame(
+            imputer.fit_transform(X_train),
+            columns=X_train.columns,
+            index=X_train.index
+        )
+        X_test_imputed = pd.DataFrame(
+            imputer.transform(X_test),
+            columns=X_test.columns,
+            index=X_test.index
+        )
+
+        # Check for constant features and remove them
+        constant_features = []
+        for col in X_train_imputed.columns:
+            if X_train_imputed[col].std() == 0:
+                constant_features.append(col)
+                logger.warning(f"⚠️ Removing constant feature: {col}")
+
+        if constant_features:
+            X_train_imputed = X_train_imputed.drop(columns=constant_features)
+            X_test_imputed = X_test_imputed.drop(columns=constant_features)
+            logger.info(f"Removed {len(constant_features)} constant features")
+
+        # Step 7: Normalize features
         X_train_scaled, X_test_scaled = self.normalize_features(
-            X_train, X_test, method=normalization
+            X_train_imputed, X_test_imputed, method=normalization
         )
         
         # Step 7: Compile results

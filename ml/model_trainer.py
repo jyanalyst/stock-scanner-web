@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 from sklearn.linear_model import LogisticRegression, LinearRegression
-from sklearn.model_selection import GridSearchCV, cross_val_score
+from sklearn.model_selection import GridSearchCV, cross_val_score, TimeSeriesSplit
 from sklearn.base import BaseEstimator, ClassifierMixin, RegressorMixin
 from typing import Dict, List, Tuple, Optional
 import logging
@@ -171,21 +171,25 @@ class MLModelTrainer:
                                        X_train: np.ndarray,
                                        y_train: np.ndarray,
                                        tune_hyperparameters: bool = True,
-                                       cv_folds: int = 5) -> RandomForestClassifier:
+                                       cv_folds: int = 5,
+                                       use_timeseries_cv: bool = True) -> RandomForestClassifier:
         """
         Train Random Forest Classifier
-        
+
+        CRITICAL FIX: Uses TimeSeriesSplit to prevent look-ahead bias in CV
+
         Args:
             X_train: Training features
             y_train: Training labels
             tune_hyperparameters: Whether to perform GridSearch
             cv_folds: Number of cross-validation folds
-        
+            use_timeseries_cv: Use TimeSeriesSplit (prevents look-ahead bias)
+
         Returns:
             Trained RandomForestClassifier
         """
         logger.info("Training Random Forest Classifier...")
-        
+
         if tune_hyperparameters:
             # Quick hyperparameter grid
             param_grid = {
@@ -195,23 +199,30 @@ class MLModelTrainer:
                 'min_samples_leaf': [1, 2],
                 'max_features': ['sqrt', 'log2']
             }
-            
+
             rf = RandomForestClassifier(random_state=self.random_state, n_jobs=-1)
-            
-            logger.info(f"Performing GridSearchCV with {cv_folds} folds...")
+
+            # CRITICAL FIX: Use TimeSeriesSplit to prevent look-ahead bias
+            if use_timeseries_cv:
+                cv_splitter = TimeSeriesSplit(n_splits=cv_folds, gap=5)
+                logger.info(f"Using TimeSeriesSplit with {cv_folds} folds (gap=5) to prevent look-ahead bias")
+            else:
+                cv_splitter = cv_folds
+                logger.info(f"Using standard {cv_folds}-fold CV (WARNING: may have look-ahead bias)")
+
             grid_search = GridSearchCV(
-                rf, param_grid, cv=cv_folds, 
+                rf, param_grid, cv=cv_splitter,
                 scoring='f1', n_jobs=-1, verbose=1
             )
-            
+
             grid_search.fit(X_train, y_train)
-            
+
             self.best_params['rf_classifier'] = grid_search.best_params_
             self.cv_scores['rf_classifier'] = grid_search.best_score_
-            
+
             logger.info(f"Best params: {grid_search.best_params_}")
             logger.info(f"Best CV F1 score: {grid_search.best_score_:.4f}")
-            
+
             model = grid_search.best_estimator_
         else:
             # Use default parameters
@@ -222,9 +233,9 @@ class MLModelTrainer:
                 n_jobs=-1
             )
             model.fit(X_train, y_train)
-            
+
             logger.info("Trained with default parameters")
-        
+
         self.models['rf_classifier'] = model
         return model
     
@@ -232,21 +243,25 @@ class MLModelTrainer:
                                       X_train: np.ndarray,
                                       y_train: np.ndarray,
                                       tune_hyperparameters: bool = True,
-                                      cv_folds: int = 5) -> RandomForestRegressor:
+                                      cv_folds: int = 5,
+                                      use_timeseries_cv: bool = True) -> RandomForestRegressor:
         """
         Train Random Forest Regressor
-        
+
+        CRITICAL FIX: Uses TimeSeriesSplit to prevent look-ahead bias in CV
+
         Args:
             X_train: Training features
             y_train: Training targets
             tune_hyperparameters: Whether to perform GridSearch
             cv_folds: Number of cross-validation folds
-        
+            use_timeseries_cv: Use TimeSeriesSplit (prevents look-ahead bias)
+
         Returns:
             Trained RandomForestRegressor
         """
         logger.info("Training Random Forest Regressor...")
-        
+
         if tune_hyperparameters:
             # Quick hyperparameter grid
             param_grid = {
@@ -256,23 +271,30 @@ class MLModelTrainer:
                 'min_samples_leaf': [1, 2],
                 'max_features': ['sqrt', 'log2']
             }
-            
+
             rf = RandomForestRegressor(random_state=self.random_state, n_jobs=-1)
-            
-            logger.info(f"Performing GridSearchCV with {cv_folds} folds...")
+
+            # CRITICAL FIX: Use TimeSeriesSplit to prevent look-ahead bias
+            if use_timeseries_cv:
+                cv_splitter = TimeSeriesSplit(n_splits=cv_folds, gap=5)
+                logger.info(f"Using TimeSeriesSplit with {cv_folds} folds (gap=5) to prevent look-ahead bias")
+            else:
+                cv_splitter = cv_folds
+                logger.info(f"Using standard {cv_folds}-fold CV (WARNING: may have look-ahead bias)")
+
             grid_search = GridSearchCV(
-                rf, param_grid, cv=cv_folds,
+                rf, param_grid, cv=cv_splitter,
                 scoring='neg_mean_absolute_error', n_jobs=-1, verbose=1
             )
-            
+
             grid_search.fit(X_train, y_train)
-            
+
             self.best_params['rf_regressor'] = grid_search.best_params_
             self.cv_scores['rf_regressor'] = -grid_search.best_score_  # Convert back to positive MAE
-            
+
             logger.info(f"Best params: {grid_search.best_params_}")
             logger.info(f"Best CV MAE: {-grid_search.best_score_:.4f}")
-            
+
             model = grid_search.best_estimator_
         else:
             # Use default parameters
@@ -283,9 +305,9 @@ class MLModelTrainer:
                 n_jobs=-1
             )
             model.fit(X_train, y_train)
-            
+
             logger.info("Trained with default parameters")
-        
+
         self.models['rf_regressor'] = model
         return model
     
@@ -293,25 +315,29 @@ class MLModelTrainer:
                                  X_train: np.ndarray,
                                  y_train: np.ndarray,
                                  tune_hyperparameters: bool = True,
-                                 cv_folds: int = 5) -> Optional[object]:
+                                 cv_folds: int = 5,
+                                 use_timeseries_cv: bool = True) -> Optional[object]:
         """
         Train XGBoost Classifier
-        
+
+        CRITICAL FIX: Uses TimeSeriesSplit to prevent look-ahead bias in CV
+
         Args:
             X_train: Training features
             y_train: Training labels
             tune_hyperparameters: Whether to perform GridSearch
             cv_folds: Number of cross-validation folds
-        
+            use_timeseries_cv: Use TimeSeriesSplit (prevents look-ahead bias)
+
         Returns:
             Trained XGBClassifier or None if XGBoost not available
         """
         if not XGBOOST_AVAILABLE:
             logger.warning("XGBoost not available, skipping")
             return None
-        
+
         logger.info("Training XGBoost Classifier...")
-        
+
         if tune_hyperparameters:
             # Quick hyperparameter grid
             param_grid = {
@@ -321,23 +347,30 @@ class MLModelTrainer:
                 'subsample': [0.8, 1.0],
                 'colsample_bytree': [0.8, 1.0]
             }
-            
+
             xgb = XGBClassifier(random_state=self.random_state, n_jobs=-1, eval_metric='logloss')
-            
-            logger.info(f"Performing GridSearchCV with {cv_folds} folds...")
+
+            # CRITICAL FIX: Use TimeSeriesSplit to prevent look-ahead bias
+            if use_timeseries_cv:
+                cv_splitter = TimeSeriesSplit(n_splits=cv_folds, gap=5)
+                logger.info(f"Using TimeSeriesSplit with {cv_folds} folds (gap=5) to prevent look-ahead bias")
+            else:
+                cv_splitter = cv_folds
+                logger.info(f"Using standard {cv_folds}-fold CV (WARNING: may have look-ahead bias)")
+
             grid_search = GridSearchCV(
-                xgb, param_grid, cv=cv_folds,
+                xgb, param_grid, cv=cv_splitter,
                 scoring='f1', n_jobs=-1, verbose=1
             )
-            
+
             grid_search.fit(X_train, y_train)
-            
+
             self.best_params['xgb_classifier'] = grid_search.best_params_
             self.cv_scores['xgb_classifier'] = grid_search.best_score_
-            
+
             logger.info(f"Best params: {grid_search.best_params_}")
             logger.info(f"Best CV F1 score: {grid_search.best_score_:.4f}")
-            
+
             model = grid_search.best_estimator_
         else:
             # Use default parameters
@@ -350,9 +383,9 @@ class MLModelTrainer:
                 eval_metric='logloss'
             )
             model.fit(X_train, y_train)
-            
+
             logger.info("Trained with default parameters")
-        
+
         self.models['xgb_classifier'] = model
         return model
     
@@ -360,25 +393,29 @@ class MLModelTrainer:
                                 X_train: np.ndarray,
                                 y_train: np.ndarray,
                                 tune_hyperparameters: bool = True,
-                                cv_folds: int = 5) -> Optional[object]:
+                                cv_folds: int = 5,
+                                use_timeseries_cv: bool = True) -> Optional[object]:
         """
         Train XGBoost Regressor
-        
+
+        CRITICAL FIX: Uses TimeSeriesSplit to prevent look-ahead bias in CV
+
         Args:
             X_train: Training features
             y_train: Training targets
             tune_hyperparameters: Whether to perform GridSearch
             cv_folds: Number of cross-validation folds
-        
+            use_timeseries_cv: Use TimeSeriesSplit (prevents look-ahead bias)
+
         Returns:
             Trained XGBRegressor or None if XGBoost not available
         """
         if not XGBOOST_AVAILABLE:
             logger.warning("XGBoost not available, skipping")
             return None
-        
+
         logger.info("Training XGBoost Regressor...")
-        
+
         if tune_hyperparameters:
             # Quick hyperparameter grid
             param_grid = {
@@ -388,23 +425,30 @@ class MLModelTrainer:
                 'subsample': [0.8, 1.0],
                 'colsample_bytree': [0.8, 1.0]
             }
-            
+
             xgb = XGBRegressor(random_state=self.random_state, n_jobs=-1)
-            
-            logger.info(f"Performing GridSearchCV with {cv_folds} folds...")
+
+            # CRITICAL FIX: Use TimeSeriesSplit to prevent look-ahead bias
+            if use_timeseries_cv:
+                cv_splitter = TimeSeriesSplit(n_splits=cv_folds, gap=5)
+                logger.info(f"Using TimeSeriesSplit with {cv_folds} folds (gap=5) to prevent look-ahead bias")
+            else:
+                cv_splitter = cv_folds
+                logger.info(f"Using standard {cv_folds}-fold CV (WARNING: may have look-ahead bias)")
+
             grid_search = GridSearchCV(
-                xgb, param_grid, cv=cv_folds,
+                xgb, param_grid, cv=cv_splitter,
                 scoring='neg_mean_absolute_error', n_jobs=-1, verbose=1
             )
-            
+
             grid_search.fit(X_train, y_train)
-            
+
             self.best_params['xgb_regressor'] = grid_search.best_params_
             self.cv_scores['xgb_regressor'] = -grid_search.best_score_
-            
+
             logger.info(f"Best params: {grid_search.best_params_}")
             logger.info(f"Best CV MAE: {-grid_search.best_score_:.4f}")
-            
+
             model = grid_search.best_estimator_
         else:
             # Use default parameters
@@ -416,9 +460,9 @@ class MLModelTrainer:
                 n_jobs=-1
             )
             model.fit(X_train, y_train)
-            
+
             logger.info("Trained with default parameters")
-        
+
         self.models['xgb_regressor'] = model
         return model
     

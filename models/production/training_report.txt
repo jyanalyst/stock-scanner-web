@@ -1,0 +1,90 @@
+================================================================================
+MODEL EVALUATION SUMMARY
+================================================================================
+
+📊 CLASSIFICATION RESULTS:
+--------------------------------------------------------------------------------
+
+Baseline:
+  Accuracy:  0.4816
+  Precision: 0.4957
+  Recall:    0.4525
+  F1-Score:  0.4731
+  ROC-AUC:   0.4760
+  Confusion Matrix:
+    TN:  6117  FP:  5821
+    FN:  6923  TP:  5721
+
+LogisticRegression:
+  Accuracy:  0.5129
+  Precision: 0.5393
+  Recall:    0.3627
+  F1-Score:  0.4337
+  ROC-AUC:   0.5290
+  Confusion Matrix:
+    TN:  8021  FP:  3917
+    FN:  8058  TP:  4586
+
+RandomForest:
+  Accuracy:  0.5156
+  Precision: 0.5371
+  Recall:    0.4215
+  F1-Score:  0.4723
+  ROC-AUC:   0.5264
+  Confusion Matrix:
+    TN:  7346  FP:  4592
+    FN:  7315  TP:  5329
+
+
+📈 REGRESSION RESULTS:
+--------------------------------------------------------------------------------
+
+Baseline:
+  MAE:                  0.052068
+  RMSE:                 0.065995
+  R²:                   -2.2877
+  IC:                   -0.0449
+  Directional Accuracy: 0.4788
+
+RandomForest:
+  MAE:                  0.023104
+  RMSE:                 0.036541
+  R²:                   -0.0079
+  IC:                   0.0620
+  Directional Accuracy: 0.5256
+
+
+💰 PROFIT SIMULATION:
+--------------------------------------------------------------------------------
+
+Baseline:
+  Total Trades:   11,542
+  Win Rate:       49.57%
+  Total Return:   3851.30%
+  Mean Return:    0.3337%
+  Mean Win:       2.7448%
+  Mean Loss:      -2.0395%
+  Profit Factor:  1.32
+  Sharpe Ratio:   1.39
+
+LogisticRegression:
+  Total Trades:   8,503
+  Win Rate:       53.93%
+  Total Return:   2706.69%
+  Mean Return:    0.3183%
+  Mean Win:       2.4109%
+  Mean Loss:      -2.1404%
+  Profit Factor:  1.32
+  Sharpe Ratio:   1.42
+
+RandomForest:
+  Total Trades:   9,921
+  Win Rate:       53.71%
+  Total Return:   4176.12%
+  Mean Return:    0.4209%
+  Mean Win:       2.5300%
+  Mean Loss:      -2.0311%
+  Profit Factor:  1.45
+  Sharpe Ratio:   1.83
+
+================================================================================

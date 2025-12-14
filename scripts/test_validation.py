@@ -48,14 +48,13 @@ def main():
     
     try:
         walk_forward_results = validator.walk_forward_validation(
-            train_start='2023-01-01',
-            train_end='2023-12-31',
             test_periods=[
                 ('2024-01-01', '2024-03-31'),  # Q1
                 ('2024-04-01', '2024-06-30'),  # Q2
                 ('2024-07-01', '2024-09-30'),  # Q3
                 ('2024-10-01', '2024-12-31'),  # Q4
-            ]
+            ],
+            embargo_days=20  # Prevent data leakage from rolling windows
         )
         
         print("✅ Walk-forward validation complete!\n")
@@ -64,7 +63,7 @@ def main():
         print("📊 RESULTS BY QUARTER:")
         print("-" * 80)
         for period_result in walk_forward_results['period_metrics']:
-            print(f"\n{period_result['period']} ({period_result['n_samples']} samples):")
+            print(f"\n{period_result['period']} ({period_result['test_samples']} test samples, {period_result['train_samples']} train samples):")
             metrics = period_result['metrics']
             print(f"  Accuracy:  {metrics.get('accuracy', 0):.2%}")
             print(f"  Precision: {metrics.get('precision', 0):.2%}")

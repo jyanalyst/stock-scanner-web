@@ -34,23 +34,23 @@ class MLValidator:
         
         logger.info(f"Initialized MLValidator (target={target})")
     
-    def walk_forward_validation(self, 
-                                train_start: str = '2023-01-01',
-                                train_end: str = '2023-12-31',
-                                test_periods: List[Tuple[str, str]] = None) -> Dict:
+    def walk_forward_validation(self,
+                                test_periods: List[Tuple[str, str]] = None,
+                                embargo_days: int = 20) -> Dict:
         """
-        Perform walk-forward validation
-        
+        Perform EXPANDING WINDOW walk-forward validation
+
+        CRITICAL FIX: Retrains model for each test period using all available data before it
+
         Args:
-            train_start: Training data start date
-            train_end: Training data end date
             test_periods: List of (start, end) tuples for test periods
-        
+            embargo_days: Days to exclude before test period (prevents data leakage)
+
         Returns:
             Dictionary with validation results
         """
-        logger.info("Starting walk-forward validation...")
-        
+        logger.info("Starting EXPANDING WINDOW walk-forward validation...")
+
         # Default test periods (2024 quarters)
         if test_periods is None:
             test_periods = [
@@ -59,84 +59,96 @@ class MLValidator:
                 ('2024-07-01', '2024-09-30'),  # Q3
                 ('2024-10-01', '2024-12-31'),  # Q4
             ]
-        
+
         # Load full dataset
         logger.info("Loading training data...")
         df_full = self.preprocessor.load_training_data()
-        
+
         # Ensure entry_date is datetime
         df_full['entry_date'] = pd.to_datetime(df_full['entry_date'])
-        
+
         # Load Phase 2 features
         if self.preprocessor.selected_features is None:
             self.preprocessor.load_phase2_results()
-        
+
         # Select features
         features = self.preprocessor.select_features(
             include_technical=True,
             include_fundamental=False
         )
-        
-        # Prepare training data
-        logger.info("Preparing training data...")
-        train_mask = (df_full['entry_date'] >= train_start) & (df_full['entry_date'] <= train_end)
-        df_train = df_full[train_mask].copy()
-        
-        X_train = df_train[features].values
-        y_train = df_train[self.target].values
-        
-        # Normalize
-        from sklearn.preprocessing import StandardScaler
-        scaler = StandardScaler()
-        X_train_scaled = scaler.fit_transform(X_train)
-        
+
         results = {
-            'train_period': f"{train_start} to {train_end}",
+            'validation_type': 'expanding_window_walk_forward',
+            'embargo_days': embargo_days,
             'test_periods': [],
             'overall_metrics': {},
             'period_metrics': []
         }
-        
-        # Train model on training period
-        logger.info(f"Training model on {train_start} to {train_end}...")
-        model = self.trainer.train_random_forest_classifier(
-            X_train_scaled, 
-            y_train,
-            tune_hyperparameters=False  # Use default params for speed
-        )
-        
-        # Test on each period
+
+        # Test on each period with expanding training window
         all_y_true = []
         all_y_pred = []
         all_y_proba = []
-        
-        for period_start, period_end in test_periods:
-            logger.info(f"Testing on {period_start} to {period_end}...")
-            
-            # Filter test data for this period
-            mask = (df_full['entry_date'] >= period_start) & (df_full['entry_date'] <= period_end)
-            df_period = df_full[mask].copy()
-            
-            if len(df_period) == 0:
-                logger.warning(f"No data for period {period_start} to {period_end}")
+
+        for i, (period_start, period_end) in enumerate(test_periods):
+            logger.info(f"Testing period {i+1}/{len(test_periods)}: {period_start} to {period_end}")
+
+            # CRITICAL FIX: Expanding window - train on ALL data before this test period
+            embargo_date = pd.to_datetime(period_start) - pd.Timedelta(days=embargo_days)
+            train_mask = df_full['entry_date'] < embargo_date
+
+            df_train = df_full[train_mask].copy()
+
+            if len(df_train) == 0:
+                logger.warning(f"No training data available before embargo date {embargo_date}")
                 continue
-            
-            # Prepare features
+
+            logger.info(f"Training on expanding window: {df_train['entry_date'].min()} to {df_train['entry_date'].max()} ({len(df_train)} samples)")
+
+            # Prepare training features
+            X_train = df_train[features].values
+            y_train = df_train[self.target].values
+
+            # Fresh scaler for each period (prevents data leakage)
+            from sklearn.preprocessing import StandardScaler
+            scaler = StandardScaler()
+            X_train_scaled = scaler.fit_transform(X_train)
+
+            # CRITICAL FIX: Retrain model for each test period
+            logger.info(f"Retraining model for period {period_start} to {period_end}...")
+            model = self.trainer.train_random_forest_classifier(
+                X_train_scaled,
+                y_train,
+                tune_hyperparameters=False,  # Use default params for speed
+                use_timeseries_cv=False      # Don't use TS CV during WF (already temporal)
+            )
+
+            # Filter test data for this period
+            test_mask = (df_full['entry_date'] >= period_start) & (df_full['entry_date'] <= period_end)
+            df_period = df_full[test_mask].copy()
+
+            if len(df_period) == 0:
+                logger.warning(f"No test data for period {period_start} to {period_end}")
+                continue
+
+            logger.info(f"Testing on {len(df_period)} samples")
+
+            # Prepare test features
             X_period = df_period[features].values
             y_period = df_period[self.target].values
-            
-            # Scale features
+
+            # Scale test features with training scaler
             X_period_scaled = scaler.transform(X_period)
-            
+
             # Predict
             y_pred = model.predict(X_period_scaled)
             y_proba = model.predict_proba(X_period_scaled)
-            
+
             # Evaluate
             metrics = self.evaluator.evaluate_classification(
                 y_period, y_pred, y_proba
             )
-            
+
             # Calculate profit metrics
             returns = df_period['return_3d'].values if 'return_3d' in df_period.columns else None
             if returns is not None:
@@ -144,35 +156,38 @@ class MLValidator:
                     y_period, y_pred, returns
                 )
                 metrics.update(profit_metrics)
-            
+
             period_result = {
                 'period': f"{period_start} to {period_end}",
-                'n_samples': len(df_period),
+                'train_samples': len(df_train),
+                'test_samples': len(df_period),
+                'train_end_date': str(df_train['entry_date'].max()),
+                'test_start_date': period_start,
                 'metrics': metrics
             }
-            
+
             results['period_metrics'].append(period_result)
             results['test_periods'].append((period_start, period_end))
-            
+
             # Accumulate for overall metrics
             all_y_true.extend(y_period)
             all_y_pred.extend(y_pred)
             all_y_proba.extend(y_proba)
-        
+
         # Calculate overall metrics across all test periods
         if all_y_true:
             all_y_true = np.array(all_y_true)
             all_y_pred = np.array(all_y_pred)
             all_y_proba = np.array(all_y_proba)
-            
+
             overall_metrics = self.evaluator.evaluate_classification(
                 all_y_true, all_y_pred, all_y_proba
             )
-            
+
             results['overall_metrics'] = overall_metrics
             results['n_total_samples'] = len(all_y_true)
-        
-        logger.info("Walk-forward validation complete")
+
+        logger.info("Expanding window walk-forward validation complete")
         return results
     
     def optimize_threshold(self, 
@@ -287,33 +302,39 @@ class MLValidator:
         logger.info("Threshold optimization complete")
         return results
     
-    def generate_validation_summary(self, 
+    def generate_validation_summary(self,
                                    walk_forward_results: Dict,
                                    threshold_results: Dict) -> Dict:
         """
         Generate comprehensive validation summary
-        
+
         Args:
             walk_forward_results: Results from walk-forward validation
             threshold_results: Results from threshold optimization
-        
+
         Returns:
             Summary dictionary
         """
+        # Get training period from first period result
+        first_period = walk_forward_results['period_metrics'][0] if walk_forward_results['period_metrics'] else {}
+        train_period = f"{first_period.get('train_end_date', 'Unknown')} (expanding window)"
+
         summary = {
             'validation_date': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
             'target': self.target,
             'walk_forward': {
-                'train_period': walk_forward_results['train_period'],
+                'validation_type': walk_forward_results.get('validation_type', 'unknown'),
+                'embargo_days': walk_forward_results.get('embargo_days', 0),
+                'train_period': train_period,
                 'n_test_periods': len(walk_forward_results['test_periods']),
                 'overall_accuracy': walk_forward_results['overall_metrics'].get('accuracy', 0),
                 'overall_f1': walk_forward_results['overall_metrics'].get('f1', 0),
                 'period_accuracies': [
-                    p['metrics'].get('accuracy', 0) 
+                    p['metrics'].get('accuracy', 0)
                     for p in walk_forward_results['period_metrics']
                 ],
                 'accuracy_std': np.std([
-                    p['metrics'].get('accuracy', 0) 
+                    p['metrics'].get('accuracy', 0)
                     for p in walk_forward_results['period_metrics']
                 ])
             },
@@ -325,7 +346,7 @@ class MLValidator:
             },
             'recommendation': self._generate_recommendation(walk_forward_results, threshold_results)
         }
-        
+
         return summary
     
     def _generate_recommendation(self, 
