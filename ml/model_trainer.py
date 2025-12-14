@@ -30,42 +30,57 @@ class BaselineClassifier(BaseEstimator, ClassifierMixin):
     """
     Baseline classifier using weighted composite score
     Uses Phase 2 optimal weights to create a score, then applies threshold
+
+    CRITICAL FIX: Standardizes features before applying weights to prevent
+    scale mismatch issues (e.g., Daily_Flow=500 vs IBS_Accel=0.05)
     """
-    
-    def __init__(self, weights: Dict[str, float], threshold: float = 0.0):
+
+    def __init__(self, weights: Dict[str, float], scaler: Optional[object] = None, threshold: float = 0.0):
         """
         Args:
             weights: Dictionary of feature weights from Phase 2
+            scaler: StandardScaler fitted on training data (required for proper scaling)
             threshold: Decision threshold (default: 0.0)
         """
         self.weights = weights
+        self.scaler = scaler
         self.threshold = threshold
         self.feature_names_ = list(weights.keys())
         self.classes_ = np.array([0, 1])
-    
+
+        if scaler is None:
+            logger.warning("⚠️ BaselineClassifier: No scaler provided - predictions may be dominated by high-magnitude features")
+
     def fit(self, X, y):
         """Fit is a no-op for baseline model"""
         return self
-    
+
     def predict_proba(self, X):
         """Calculate weighted score and convert to probabilities"""
         if isinstance(X, pd.DataFrame):
-            scores = np.zeros(len(X))
-            for i, feat in enumerate(self.feature_names_):
-                if feat in X.columns:
-                    scores += X[feat].values * self.weights[feat]
+            # Convert to numpy array for scaling
+            X_array = X[self.feature_names_].values
         else:
-            # Assume X columns match feature_names_ order
-            scores = np.zeros(len(X))
-            for i, weight in enumerate(self.weights.values()):
-                scores += X[:, i] * weight
-        
+            X_array = X
+
+        # CRITICAL FIX: Standardize features before applying weights
+        if self.scaler is not None:
+            X_scaled = self.scaler.transform(X_array)
+        else:
+            # Fallback to no scaling (not recommended)
+            X_scaled = X_array
+
+        # Apply weights to standardized features
+        scores = np.zeros(len(X_scaled))
+        for i, weight in enumerate(self.weights.values()):
+            scores += X_scaled[:, i] * weight
+
         # Convert scores to probabilities using sigmoid
         proba_positive = 1 / (1 + np.exp(-scores))
         proba_negative = 1 - proba_positive
-        
+
         return np.column_stack([proba_negative, proba_positive])
-    
+
     def predict(self, X):
         """Predict class based on threshold"""
         proba = self.predict_proba(X)
@@ -76,35 +91,50 @@ class BaselineRegressor(BaseEstimator, RegressorMixin):
     """
     Baseline regressor using IC-weighted linear combination
     Uses Phase 2 IC values and weights for prediction
+
+    CRITICAL FIX: Standardizes features before applying weights to prevent
+    scale mismatch issues (e.g., Daily_Flow=500 vs IBS_Accel=0.05)
     """
-    
-    def __init__(self, weights: Dict[str, float], ic_values: Optional[Dict[str, float]] = None):
+
+    def __init__(self, weights: Dict[str, float], scaler: Optional[object] = None, ic_values: Optional[Dict[str, float]] = None):
         """
         Args:
             weights: Dictionary of feature weights from Phase 2
+            scaler: StandardScaler fitted on training data (required for proper scaling)
             ic_values: Dictionary of IC values (optional, uses weights if not provided)
         """
         self.weights = weights
+        self.scaler = scaler
         self.ic_values = ic_values if ic_values else weights
         self.feature_names_ = list(weights.keys())
-    
+
+        if scaler is None:
+            logger.warning("⚠️ BaselineRegressor: No scaler provided - predictions may be dominated by high-magnitude features")
+
     def fit(self, X, y):
         """Fit is a no-op for baseline model"""
         return self
-    
+
     def predict(self, X):
         """Predict using weighted linear combination"""
         if isinstance(X, pd.DataFrame):
-            predictions = np.zeros(len(X))
-            for feat in self.feature_names_:
-                if feat in X.columns:
-                    predictions += X[feat].values * self.weights[feat] * self.ic_values.get(feat, 1.0)
+            # Convert to numpy array for scaling
+            X_array = X[self.feature_names_].values
         else:
-            # Assume X columns match feature_names_ order
-            predictions = np.zeros(len(X))
-            for i, (weight, ic) in enumerate(zip(self.weights.values(), self.ic_values.values())):
-                predictions += X[:, i] * weight * ic
-        
+            X_array = X
+
+        # CRITICAL FIX: Standardize features before applying weights
+        if self.scaler is not None:
+            X_scaled = self.scaler.transform(X_array)
+        else:
+            # Fallback to no scaling (not recommended)
+            X_scaled = X_array
+
+        # Apply weights to standardized features
+        predictions = np.zeros(len(X_scaled))
+        for i, (weight, ic) in enumerate(zip(self.weights.values(), self.ic_values.values())):
+            predictions += X_scaled[:, i] * weight * ic
+
         return predictions
 
 
@@ -126,16 +156,16 @@ class MLModelTrainer:
         
         logger.info(f"Initialized MLModelTrainer (random_state={random_state})")
     
-    def create_baseline_classifier(self, weights: Dict[str, float]) -> BaselineClassifier:
+    def create_baseline_classifier(self, weights: Dict[str, float], scaler: Optional[object] = None) -> BaselineClassifier:
         """Create baseline classifier"""
         logger.info("Creating baseline classifier")
-        return BaselineClassifier(weights=weights)
-    
-    def create_baseline_regressor(self, weights: Dict[str, float], 
+        return BaselineClassifier(weights=weights, scaler=scaler)
+
+    def create_baseline_regressor(self, weights: Dict[str, float], scaler: Optional[object] = None,
                                   ic_values: Optional[Dict[str, float]] = None) -> BaselineRegressor:
         """Create baseline regressor"""
         logger.info("Creating baseline regressor")
-        return BaselineRegressor(weights=weights, ic_values=ic_values)
+        return BaselineRegressor(weights=weights, scaler=scaler, ic_values=ic_values)
     
     def train_random_forest_classifier(self,
                                        X_train: np.ndarray,

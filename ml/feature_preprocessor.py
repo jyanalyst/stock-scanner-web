@@ -81,55 +81,114 @@ class MLFeaturePreprocessor:
     
     def categorize_features(self, features: List[str]) -> Dict[str, List[str]]:
         """
-        Categorize features by type
-        
+        DYNAMICALLY categorize features by type based on naming patterns
+
         Args:
             features: List of feature names
-        
+
         Returns:
             Dictionary of category: [features]
         """
-        # Define fundamental features
-        fundamental_features = [
-            'income_available_for_distribution', 'total_debt', 'dpu',
-            'revenue', 'net_income', 'total_assets', 'total_liabilities',
-            'portfolio_occupancy', 'gross_margin', 'operating_margin', 
-            'net_margin', 'debt_to_equity', 'revenue_yoy_change',
-            'eps_yoy_change', 'dpu_yoy_change'
-        ]
-        
-        # Define signal features
-        signal_features = [
-            'Signal_Bias_Numeric', 'Signal_State_Numeric', 
-            'Conviction_Level_Numeric', 'Sentiment_Label_Numeric'
-        ]
-        
-        # Categorize
+        # Initialize categories
         categories = {
             'technical': [],
             'fundamental': [],
             'signal': [],
+            'cross_sectional': [],  # NEW: Cross-sectional rank features
+            'time_decay': [],       # NEW: Time-decay features
             'other': []
         }
-        
+
+        # Define keyword patterns for dynamic categorization
+        fundamental_keywords = [
+            'income_available_for_distribution', 'total_debt', 'dpu',
+            'revenue', 'net_income', 'total_assets', 'total_liabilities',
+            'portfolio_occupancy', 'gross_margin', 'operating_margin',
+            'net_margin', 'debt_to_equity', 'revenue_yoy_change',
+            'eps_yoy_change', 'dpu_yoy_change', 'interest_coverage_ratio',
+            'gearing_ratio', 'nav_per_unit', 'free_cash_flow', 'operating_cash_flow',
+            'net_debt', 'cash_and_equivalents'
+        ]
+
+        signal_keywords = [
+            'Signal_Bias_Numeric', 'Signal_State_Numeric',
+            'Conviction_Level_Numeric', 'Sentiment_Label_Numeric',
+            'sentiment_score'
+        ]
+
+        technical_keywords = [
+            'price', 'volume', 'flow', 'mpi', 'ibs', 'vpi', 'rvol', 'vwap',
+            'percentile', 'accel', 'velocity', 'range', 'volatility', 'momentum',
+            'trend', 'support', 'resistance', 'breakout', 'divergence'
+        ]
+
+        # Categorize each feature
         for feature in features:
-            if feature in fundamental_features:
+            # Time-decay features (highest priority)
+            if 'Days_Since_' in feature:
+                categories['time_decay'].append(feature)
+
+            # Cross-sectional rank features (high priority)
+            elif '_CS_Rank' in feature or '_Rank' in feature:
+                categories['cross_sectional'].append(feature)
+
+            # Fundamental features (exact match)
+            elif feature in fundamental_keywords:
                 categories['fundamental'].append(feature)
-            elif feature in signal_features:
+
+            # Signal features (exact match)
+            elif feature in signal_keywords:
                 categories['signal'].append(feature)
-            elif any(keyword in feature.lower() for keyword in ['price', 'volume', 'flow', 'mpi', 'ibs', 'vpi', 'rvol', 'vwap', 'percentile', 'accel', 'velocity']):
+
+            # Technical features (keyword match)
+            elif any(keyword in feature.lower() for keyword in technical_keywords):
                 categories['technical'].append(feature)
+
+            # Everything else
             else:
                 categories['other'].append(feature)
-        
-        logger.info(f"Categorized features: Technical={len(categories['technical'])}, "
+
+        logger.info(f"📊 Categorized features: Technical={len(categories['technical'])}, "
                    f"Fundamental={len(categories['fundamental'])}, "
                    f"Signal={len(categories['signal'])}, "
+                   f"Cross-sectional={len(categories['cross_sectional'])}, "
+                   f"Time-decay={len(categories['time_decay'])}, "
                    f"Other={len(categories['other'])}")
-        
+
         return categories
-    
-    def select_features(self, 
+
+    def preprocess_time_decay_features(self, X: pd.DataFrame) -> pd.DataFrame:
+        """
+        Apply special preprocessing to time-decay features
+
+        Time-decay features (Days_Since_*) grow monotonically and need log transformation
+        to prevent them from dominating the model.
+
+        Args:
+            X: Feature DataFrame
+
+        Returns:
+            DataFrame with additional log-transformed time-decay features
+        """
+        X_processed = X.copy()
+        time_decay_cols = [col for col in X.columns if 'Days_Since_' in col]
+
+        if time_decay_cols:
+            logger.info(f"🔄 Applying log transformation to {len(time_decay_cols)} time-decay features")
+
+            for col in time_decay_cols:
+                # Log transformation: log(1 + days) to handle zero values
+                log_col = f'{col}_log'
+                X_processed[log_col] = np.log1p(X[col])
+
+                # Log statistics for monitoring
+                original_mean = X[col].mean()
+                log_mean = X_processed[log_col].mean()
+                logger.info(f"  {col}: mean={original_mean:.1f} → {log_col}: mean={log_mean:.2f}")
+
+        return X_processed
+
+    def select_features(self,
                        include_technical: bool = True,
                        include_fundamental: bool = False,
                        include_signal: bool = True,
