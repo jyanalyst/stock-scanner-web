@@ -222,11 +222,11 @@ def show():
             with col2:
                 ic_threshold = st.slider(
                     "IC Threshold",
-                    min_value=0.01,
+                    min_value=0.001,
                     max_value=0.10,
-                    value=0.03,
-                    step=0.01,
-                    help="Minimum |IC| to keep feature"
+                    value=0.01,
+                    step=0.005,
+                    help="Minimum |IC| to keep feature (cross-sectional IC)"
                 )
             
             with col3:

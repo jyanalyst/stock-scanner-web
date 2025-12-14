@@ -77,7 +77,7 @@ def test_factor_analysis():
         
         # Step 5: Select features
         print("\n5️⃣ Selecting optimal features...")
-        selected_features = analyzer.select_features(ic_threshold=0.03, correlation_threshold=0.85)
+        selected_features = analyzer.select_features(ic_threshold=0.01, correlation_threshold=0.85)
         print(f"✅ Selected {len(selected_features)} features")
         print(f"✅ Reduction: {len(analyzer.features)} → {len(selected_features)} ({len(selected_features)/len(analyzer.features)*100:.1f}%)")
         

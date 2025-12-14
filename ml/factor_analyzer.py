@@ -18,6 +18,7 @@ from typing import Dict, List, Tuple, Optional
 import logging
 import json
 import os
+import warnings
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
@@ -101,75 +102,120 @@ class MLFactorAnalyzer:
         
         return self.df
     
-    def calculate_information_coefficient(self, 
+    def calculate_information_coefficient(self,
                                          rolling_window: Optional[int] = None) -> pd.DataFrame:
         """
-        Calculate Information Coefficient (IC) for each feature
-        
-        IC = Spearman correlation between feature ranks and return ranks
-        
+        Calculate CROSS-SECTIONAL Information Coefficient
+
+        IC = Average Spearman correlation between feature ranks and return ranks
+             calculated SEPARATELY for each date
+
         Args:
-            rolling_window: If provided, calculate IC over rolling windows for stability
-        
+            rolling_window: If provided, calculate rolling IC statistics
+
         Returns:
             DataFrame with IC statistics for each feature
         """
-        logger.info(f"Calculating Information Coefficient for {len(self.features)} features")
-        
+        logger.info(f"Calculating Cross-Sectional IC for {len(self.features)} features")
+
+        # Ensure entry_date exists
+        if 'entry_date' not in self.df.columns:
+            logger.error("entry_date column required for cross-sectional IC")
+            raise ValueError("entry_date column required for cross-sectional IC")
+
+        # Ensure entry_date is datetime
+        self.df['entry_date'] = pd.to_datetime(self.df['entry_date'])
+        unique_dates = sorted(self.df['entry_date'].unique())
+
+        logger.info(f"Analyzing {len(unique_dates)} unique dates")
+
         ic_results = []
-        
+        constant_input_warnings_suppressed = 0
+
         for feature in self.features:
             try:
-                # Get feature and target values, drop NaN
-                feature_data = self.df[[feature, self.target]].dropna()
-                
-                if len(feature_data) < 100:  # Minimum sample size
-                    logger.warning(f"Skipping {feature}: insufficient data ({len(feature_data)} samples)")
+                # Calculate IC for each date separately
+                date_ics = []
+
+                for date in unique_dates:
+                    # Get all stocks on this specific date
+                    date_data = self.df[self.df['entry_date'] == date]
+
+                    # Drop NaN for this feature and target
+                    date_data = date_data[[feature, self.target]].dropna()
+
+                    # Need minimum 5 stocks for meaningful correlation
+                    if len(date_data) < 5:
+                        continue
+
+                    # Calculate IC for this date (cross-sectional correlation)
+                    # Suppress ConstantInputWarning for constant arrays (common in cross-sectional data)
+                    with warnings.catch_warnings():
+                        warnings.filterwarnings("ignore", category=stats.ConstantInputWarning)
+                        ic_date, _ = spearmanr(date_data[feature], date_data[self.target])
+
+                    if not np.isnan(ic_date):
+                        date_ics.append(ic_date)
+                    else:
+                        # Count suppressed warnings (when arrays are constant)
+                        constant_input_warnings_suppressed += 1
+
+                # Need minimum 50 dates for meaningful statistics
+                if len(date_ics) < 50:
+                    logger.warning(f"Skipping {feature}: insufficient dates ({len(date_ics)})")
                     continue
-                
-                # Calculate Spearman correlation (rank-based)
-                ic, p_value = spearmanr(feature_data[feature], feature_data[self.target])
-                
-                # Calculate IC over rolling windows for stability
-                if rolling_window and len(feature_data) > rolling_window:
+
+                # Calculate statistics across dates
+                ic_mean = np.mean(date_ics)
+                ic_std = np.std(date_ics)
+                ic_ir = ic_mean / ic_std if ic_std > 0 else np.nan  # Information Ratio
+
+                # Calculate p-value using t-test
+                # H0: IC = 0 (no predictive power)
+                # t = IC_mean * sqrt(n) / IC_std
+                t_stat = ic_mean * np.sqrt(len(date_ics)) / ic_std if ic_std > 0 else 0
+                p_value = 2 * (1 - stats.t.cdf(abs(t_stat), len(date_ics) - 1))
+
+                # Calculate rolling IC stability (optional)
+                if rolling_window and len(date_ics) > rolling_window:
                     rolling_ics = []
-                    for i in range(0, len(feature_data) - rolling_window, rolling_window // 2):
-                        window_data = feature_data.iloc[i:i+rolling_window]
-                        if len(window_data) >= 50:
-                            window_ic, _ = spearmanr(window_data[feature], window_data[self.target])
-                            if not np.isnan(window_ic):
-                                rolling_ics.append(window_ic)
-                    
-                    ic_std = np.std(rolling_ics) if rolling_ics else np.nan
-                    ic_ir = ic / ic_std if ic_std > 0 else np.nan  # Information Ratio
+                    for i in range(len(date_ics) - rolling_window):
+                        rolling_ic_mean = np.mean(date_ics[i:i+rolling_window])
+                        rolling_ics.append(rolling_ic_mean)
+
+                    ic_rolling_std = np.std(rolling_ics) if rolling_ics else np.nan
                 else:
-                    ic_std = np.nan
-                    ic_ir = np.nan
-                
+                    ic_rolling_std = np.nan
+
                 ic_results.append({
                     'feature': feature,
-                    'IC_mean': ic,
+                    'IC_mean': ic_mean,
                     'IC_std': ic_std,
                     'IC_IR': ic_ir,
+                    'IC_rolling_std': ic_rolling_std,
                     'p_value': p_value,
-                    'abs_IC': abs(ic),
-                    'sample_size': len(feature_data),
+                    'abs_IC': abs(ic_mean),
+                    'n_dates': len(date_ics),
+                    'pct_positive_ic': (np.array(date_ics) > 0).mean(),
+                    'sample_size': len(date_ics),
                     'significant': p_value < 0.05
                 })
-                
+
             except Exception as e:
                 logger.error(f"Error calculating IC for {feature}: {e}")
                 continue
-        
+
         self.ic_results = pd.DataFrame(ic_results)
-        
+
         # Sort by absolute IC (predictive power regardless of direction)
         self.ic_results = self.ic_results.sort_values('abs_IC', ascending=False)
-        
-        logger.info(f"Calculated IC for {len(self.ic_results)} features")
+
+        logger.info(f"Calculated Cross-Sectional IC for {len(self.ic_results)} features")
+        if constant_input_warnings_suppressed > 0:
+            logger.info(f"Suppressed {constant_input_warnings_suppressed} constant input warnings")
+        logger.info(f"Features with |IC| > 0.02: {(self.ic_results['abs_IC'] > 0.02).sum()}")
         logger.info(f"Features with |IC| > 0.05: {(self.ic_results['abs_IC'] > 0.05).sum()}")
-        logger.info(f"Features with |IC| > 0.10: {(self.ic_results['abs_IC'] > 0.10).sum()}")
-        
+
         return self.ic_results
     
     def analyze_correlations(self, threshold: float = 0.85) -> Tuple[pd.DataFrame, List[Dict]]:
@@ -227,40 +273,60 @@ class MLFactorAnalyzer:
         
         return self.correlation_matrix, redundant_pairs
     
-    def select_features(self, 
-                       ic_threshold: float = 0.03,
+    def select_features(self,
+                       ic_threshold: float = 0.01,  # Changed from 0.03 to 0.01
                        correlation_threshold: float = 0.85) -> List[str]:
         """
-        Select optimal feature set by removing weak and redundant features
-        
+        Select optimal feature set
+
+        CORRECTED ORDER:
+        1. Start with all features sorted by IC
+        2. Remove redundant pairs (keep higher IC)
+        3. Apply IC threshold to remaining features
+
         Args:
-            ic_threshold: Minimum absolute IC to keep feature
-            correlation_threshold: Maximum correlation for redundancy
-        
+            ic_threshold: Minimum absolute IC to keep feature (default 0.01)
+            correlation_threshold: Maximum correlation for redundancy (default 0.85)
+
         Returns:
             List of selected feature names
         """
         logger.info(f"Selecting features (IC threshold={ic_threshold}, corr threshold={correlation_threshold})")
-        
+
         if self.ic_results is None:
             raise ValueError("Must run calculate_information_coefficient() first")
-        
-        # Step 1: Remove weak features (low IC)
-        strong_features = self.ic_results[self.ic_results['abs_IC'] >= ic_threshold]['feature'].tolist()
-        logger.info(f"Step 1: {len(strong_features)} features with |IC| >= {ic_threshold}")
-        
-        # Step 2: Remove redundant features
+
+        # Step 1: Start with all features, sorted by IC
+        all_features = self.ic_results.sort_values('abs_IC', ascending=False).copy()
+
+        logger.info(f"Step 1: Starting with {len(all_features)} features")
+
+        # Step 2: Analyze correlations and identify redundant pairs
         _, redundant_pairs = self.analyze_correlations(correlation_threshold)
-        
-        features_to_remove = set([pair['remove'] for pair in redundant_pairs])
+
+        # Identify features to remove (lower IC of each redundant pair)
+        features_to_remove = set()
+        for pair in redundant_pairs:
+            features_to_remove.add(pair['remove'])
+
         logger.info(f"Step 2: Removing {len(features_to_remove)} redundant features")
-        
-        # Final selected features
-        self.selected_features = [f for f in strong_features if f not in features_to_remove]
-        
+
+        # Step 3: Keep non-redundant features
+        remaining_features = all_features[
+            ~all_features['feature'].isin(features_to_remove)
+        ].copy()
+
+        logger.info(f"Step 3: {len(remaining_features)} features after redundancy removal")
+
+        # Step 4: Apply IC threshold
+        self.selected_features = remaining_features[
+            remaining_features['abs_IC'] >= ic_threshold
+        ]['feature'].tolist()
+
+        logger.info(f"Step 4: {len(self.selected_features)} features after IC threshold")
         logger.info(f"Final selection: {len(self.selected_features)} features")
-        logger.info(f"Reduction: {len(self.features)} → {len(self.selected_features)} ({len(self.selected_features)/len(self.features)*100:.1f}%)")
-        
+        logger.info(f"Reduction: {len(all_features)} → {len(self.selected_features)} ({len(self.selected_features)/len(all_features)*100:.1f}%)")
+
         return self.selected_features
     
     def calculate_optimal_weights(self, method: str = 'ic_squared') -> Dict[str, float]:

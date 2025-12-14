@@ -1213,42 +1213,51 @@ def add_time_decay_features(df):
     
     logger.debug(f"  ✅ Added Days_Since_Low (max: {df['Days_Since_Low'].max():.0f} days) - CRITICAL")
     
-    # 3. Days Since Triple Aligned
+    # 3. Days Since Triple Aligned (FIXED LOGIC)
     if 'Is_Triple_Aligned' in df.columns:
         df['Days_Since_Triple_Aligned'] = 0
-        counter = 0
-        
+        days_since_last_alignment = 0
+
         for i in range(len(df)):
             if df['Is_Triple_Aligned'].iloc[i]:
-                counter += 1
+                # Currently aligned → Reset counter to 0
+                days_since_last_alignment = 0
             else:
-                counter = 0
-            
-            df.iloc[i, df.columns.get_loc('Days_Since_Triple_Aligned')] = counter
-        
-        logger.debug(f"  ✅ Added Days_Since_Triple_Aligned (max: {df['Days_Since_Triple_Aligned'].max():.0f} days)")
+                # Not aligned → Increment "days since last alignment"
+                days_since_last_alignment += 1
+
+            df.iloc[i, df.columns.get_loc('Days_Since_Triple_Aligned')] = days_since_last_alignment
+
+        non_zero_count = (df['Days_Since_Triple_Aligned'] > 0).sum()
+        logger.debug(f"  ✅ Days_Since_Triple_Aligned (max: {df['Days_Since_Triple_Aligned'].max():.0f} days, non-zero: {non_zero_count})")
     else:
         logger.debug(f"  ⚠️  Is_Triple_Aligned not found, skipping Days_Since_Triple_Aligned")
     
-    # 4. Days Since Flow Regime Change
+    # 4. Days Since Flow Regime Change (FIXED LOGIC)
     if 'Flow_10D' in df.columns:
-        flow_sign = np.sign(df['Flow_10D'])
-        flow_changed = (flow_sign != flow_sign.shift(1))
-        
         df['Days_Since_Flow_Regime_Change'] = 0
-        counter = 0
-        
+        days_since_change = 0
+        previous_sign = None
+
         for i in range(len(df)):
+            current_sign = np.sign(df['Flow_10D'].iloc[i])
+
             if i == 0:
-                counter = 0
-            elif flow_changed.iloc[i]:
-                counter = 0
+                # First row - no previous regime to compare
+                previous_sign = current_sign
+                days_since_change = 0
+            elif current_sign != previous_sign and previous_sign != 0 and current_sign != 0:
+                # Regime changed (positive ↔ negative)
+                days_since_change = 0  # Reset counter
+                previous_sign = current_sign
             else:
-                counter += 1
-            
-            df.iloc[i, df.columns.get_loc('Days_Since_Flow_Regime_Change')] = counter
-        
-        logger.debug(f"  ✅ Added Days_Since_Flow_Regime_Change (max: {df['Days_Since_Flow_Regime_Change'].max():.0f} days)")
+                # Regime continues (same sign)
+                days_since_change += 1
+
+            df.iloc[i, df.columns.get_loc('Days_Since_Flow_Regime_Change')] = days_since_change
+
+        non_zero_count = (df['Days_Since_Flow_Regime_Change'] > 0).sum()
+        logger.debug(f"  ✅ Days_Since_Flow_Regime_Change (max: {df['Days_Since_Flow_Regime_Change'].max():.0f} days, non-zero: {non_zero_count})")
     else:
         logger.debug(f"  ⚠️  Flow_10D not found, skipping Days_Since_Flow_Regime_Change")
     
