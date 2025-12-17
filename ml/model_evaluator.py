@@ -383,3 +383,69 @@ class ModelEvaluator:
         logger.info(f"Best model: {best_model} ({metric}={best_value:.4f})")
         
         return best_model, best_metrics
+    
+    def diagnose_overfitting(self, model, X_train, y_train, X_test, y_test) -> Dict:
+        """
+        Diagnose overfitting by comparing train vs test performance
+        
+        Args:
+            model: Trained model
+            X_train: Training features
+            y_train: Training labels
+            X_test: Test features
+            y_test: Test labels
+        
+        Returns:
+            Dictionary with diagnosis results
+        """
+        from sklearn.metrics import accuracy_score, f1_score
+        
+        # Training performance
+        y_train_pred = model.predict(X_train)
+        train_acc = accuracy_score(y_train, y_train_pred)
+        train_f1 = f1_score(y_train, y_train_pred, zero_division=0)
+        
+        # Test performance
+        y_test_pred = model.predict(X_test)
+        test_acc = accuracy_score(y_test, y_test_pred)
+        test_f1 = f1_score(y_test, y_test_pred, zero_division=0)
+        
+        # Calculate gaps
+        acc_gap = train_acc - test_acc
+        f1_gap = train_f1 - test_f1
+        
+        print("=" * 60)
+        print("OVERFITTING DIAGNOSIS")
+        print("=" * 60)
+        print(f"{'Metric':<15} {'Train':<12} {'Test':<12} {'Gap':<12} {'Status'}")
+        print("-" * 60)
+        
+        # Accuracy
+        acc_status = "✅ OK" if acc_gap < 0.05 else "⚠️ WARNING" if acc_gap < 0.10 else "🔴 OVERFIT"
+        print(f"{'Accuracy':<15} {train_acc:<12.2%} {test_acc:<12.2%} {acc_gap:<12.2%} {acc_status}")
+        
+        # F1
+        f1_status = "✅ OK" if f1_gap < 0.05 else "⚠️ WARNING" if f1_gap < 0.10 else "🔴 OVERFIT"
+        print(f"{'F1-Score':<15} {train_f1:<12.2%} {test_f1:<12.2%} {f1_gap:<12.2%} {f1_status}")
+        
+        print("-" * 60)
+        
+        if acc_gap > 0.10 or f1_gap > 0.10:
+            print("🔴 MODEL IS OVERFITTING - Increase regularization:")
+            print("   - Reduce max_depth")
+            print("   - Increase min_samples_split and min_samples_leaf")
+            print("   - Reduce max_samples")
+        elif acc_gap > 0.05 or f1_gap > 0.05:
+            print("⚠️ MILD OVERFITTING - Consider light regularization")
+        else:
+            print("✅ MODEL GENERALIZES WELL")
+        
+        return {
+            'train_acc': train_acc,
+            'test_acc': test_acc,
+            'acc_gap': acc_gap,
+            'train_f1': train_f1,
+            'test_f1': test_f1,
+            'f1_gap': f1_gap,
+            'is_overfitting': acc_gap > 0.10 or f1_gap > 0.10
+        }

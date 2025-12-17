@@ -332,7 +332,7 @@ def show_live_predictions():
             # Display table
             st.dataframe(
                 display_df_formatted,
-                use_container_width=True,
+                width="stretch",
                 hide_index=True
             )
             
@@ -445,7 +445,7 @@ def show_performance_dashboard():
             # Display top 10
             st.dataframe(
                 importance_df.head(10),
-                use_container_width=True,
+                width="stretch",
                 hide_index=True
             )
             

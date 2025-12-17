@@ -600,20 +600,20 @@ def show_factor_analysis_results():
         
         # Show IC bar chart
         if 'ic_bar_chart' in figures:
-            st.plotly_chart(figures['ic_bar_chart'], use_container_width=True)
+            st.plotly_chart(figures['ic_bar_chart'], width="stretch")
         
         # Show IC distribution
         if 'ic_distribution' in figures:
-            st.plotly_chart(figures['ic_distribution'], use_container_width=True)
+            st.plotly_chart(figures['ic_distribution'], width="stretch")
         
         # Show IC vs sample size
         if 'ic_vs_sample_size' in figures:
-            st.plotly_chart(figures['ic_vs_sample_size'], use_container_width=True)
+            st.plotly_chart(figures['ic_vs_sample_size'], width="stretch")
         
         # Show top 20 features table
         st.markdown("#### Top 20 Features by |IC|")
         top_20 = results['ic_results'].head(20)[['feature', 'IC_mean', 'abs_IC', 'p_value', 'significant', 'sample_size']]
-        st.dataframe(top_20, use_container_width=True, hide_index=True)
+        st.dataframe(top_20, width="stretch", hide_index=True)
     
     with tab2:
         st.markdown("### Feature Correlations")
@@ -621,18 +621,18 @@ def show_factor_analysis_results():
         
         # Show correlation heatmap
         if 'correlation_heatmap' in figures:
-            st.plotly_chart(figures['correlation_heatmap'], use_container_width=True)
+            st.plotly_chart(figures['correlation_heatmap'], width="stretch")
         
         # Show redundant pairs
         if 'redundant_pairs' in figures:
-            st.plotly_chart(figures['redundant_pairs'], use_container_width=True)
+            st.plotly_chart(figures['redundant_pairs'], width="stretch")
         
         # Show redundant pairs table
         redundant_pairs = results_data['redundant_pairs']
         if redundant_pairs:
             st.markdown(f"#### Redundant Feature Pairs (correlation > {results_data['corr_threshold']})")
             pairs_df = pd.DataFrame(redundant_pairs)[['feature1', 'feature2', 'correlation', 'ic1', 'ic2', 'keep', 'remove']]
-            st.dataframe(pairs_df, use_container_width=True, hide_index=True)
+            st.dataframe(pairs_df, width="stretch", hide_index=True)
         else:
             st.success("✅ No highly correlated feature pairs found!")
     
@@ -649,7 +649,7 @@ def show_factor_analysis_results():
             st.markdown("#### ✅ Selected Features")
             st.dataframe(
                 selected_ic[['feature', 'IC_mean', 'abs_IC']].head(30),
-                use_container_width=True,
+                width="stretch",
                 hide_index=True
             )
         
@@ -661,7 +661,7 @@ def show_factor_analysis_results():
             if len(removed_ic) > 0:
                 st.dataframe(
                     removed_ic[['feature', 'IC_mean', 'abs_IC']].head(30),
-                    use_container_width=True,
+                    width="stretch",
                     hide_index=True
                 )
             else:
@@ -673,7 +673,7 @@ def show_factor_analysis_results():
         
         # Show feature importance chart
         if 'feature_importance' in figures:
-            st.plotly_chart(figures['feature_importance'], use_container_width=True)
+            st.plotly_chart(figures['feature_importance'], width="stretch")
         
         # Show weights table
         st.markdown("#### Top 30 Feature Weights")
@@ -682,7 +682,7 @@ def show_factor_analysis_results():
             for k, v in results['optimal_weights'].items()
         ]).sort_values('weight', ascending=False).head(30)
         
-        st.dataframe(weights_df, use_container_width=True, hide_index=True)
+        st.dataframe(weights_df, width="stretch", hide_index=True)
         
         # Show interpretation
         st.info("""
@@ -706,11 +706,11 @@ def show_factor_analysis_results():
             visualizer = MLVisualizer()
             
             scree_fig = visualizer.plot_pca_scree(pca_results)
-            st.plotly_chart(scree_fig, use_container_width=True)
+            st.plotly_chart(scree_fig, width="stretch")
             
             # Show loadings plot
             loadings_fig = visualizer.plot_pca_loadings(pca_results, component_x=1, component_y=2, top_n=15)
-            st.plotly_chart(loadings_fig, use_container_width=True)
+            st.plotly_chart(loadings_fig, width="stretch")
             
             # Show variance explained
             st.markdown("#### Variance Explained by Component")
@@ -719,7 +719,7 @@ def show_factor_analysis_results():
                 'Variance (%)': pca_results['explained_variance_ratio'][:10] * 100,
                 'Cumulative (%)': pca_results['cumulative_variance'][:10] * 100
             })
-            st.dataframe(variance_df, use_container_width=True, hide_index=True)
+            st.dataframe(variance_df, width="stretch", hide_index=True)
         else:
             st.info("PCA analysis was not run. Enable 'Run PCA Analysis' to see results.")
     

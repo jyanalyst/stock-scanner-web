@@ -6,6 +6,7 @@ Analyzes which features predict forward returns using:
 - Feature selection
 - Optimal weight calculation
 - Optional PCA
+- Statistical significance testing with bootstrap CI
 """
 
 import pandas as pd
@@ -217,7 +218,220 @@ class MLFactorAnalyzer:
         logger.info(f"Features with |IC| > 0.05: {(self.ic_results['abs_IC'] > 0.05).sum()}")
 
         return self.ic_results
-    
+
+    def calculate_ic_with_significance(self,
+                                      n_bootstrap: int = 1000) -> pd.DataFrame:
+        """
+        Calculate IC with bootstrap confidence intervals and significance testing
+
+        Args:
+            n_bootstrap: Number of bootstrap samples for CI
+
+        Returns:
+            DataFrame with IC statistics including significance tests
+        """
+        from ml.statistical_validator import StatisticalValidator
+
+        logger.info(f"Calculating IC with bootstrap CI (n_bootstrap={n_bootstrap})")
+
+        if self.ic_results is None:
+            raise ValueError("Must run calculate_information_coefficient() first")
+
+        stat_validator = StatisticalValidator()
+
+        # Get IC values for each feature across dates
+        ic_with_ci = []
+
+        for _, row in self.ic_results.iterrows():
+            feature = row['feature']
+
+            # Get all IC values for this feature across dates
+            # (We need to reconstruct this from the original calculation)
+            if 'entry_date' not in self.df.columns:
+                logger.error("entry_date column required for bootstrap CI")
+                continue
+
+            unique_dates = sorted(self.df['entry_date'].unique())
+            date_ics = []
+
+            for date in unique_dates:
+                date_data = self.df[self.df['entry_date'] == date]
+                date_data = date_data[[feature, self.target]].dropna()
+
+                if len(date_data) < 5:
+                    continue
+
+                with warnings.catch_warnings():
+                    warnings.filterwarnings("ignore", category=stats.ConstantInputWarning)
+                    ic_date, _ = spearmanr(date_data[feature], date_data[self.target])
+
+                if not np.isnan(ic_date):
+                    date_ics.append(ic_date)
+
+            if len(date_ics) < 10:  # Need minimum samples for bootstrap
+                continue
+
+            date_ics = np.array(date_ics)
+
+            # Bootstrap confidence interval
+            boot_ci = stat_validator.bootstrap_confidence_interval(
+                date_ics,
+                np.mean,
+                n_bootstrap=n_bootstrap
+            )
+
+            # Test significance
+            sig_test = stat_validator.test_ic_significance(date_ics)
+
+            ic_with_ci.append({
+                'feature': feature,
+                'ic_point': row['IC_mean'],
+                'ic_mean': boot_ci['mean'],
+                'ic_std': boot_ci['std'],
+                'ic_lower_ci': boot_ci['lower_ci'],
+                'ic_upper_ci': boot_ci['upper_ci'],
+                'ci_width': boot_ci['upper_ci'] - boot_ci['lower_ci'],
+                't_statistic': sig_test['t_statistic'],
+                'p_value': sig_test['p_value'],
+                'cohens_d': sig_test['cohens_d'],
+                'is_significant': sig_test['is_significant'],
+                'n_samples': len(date_ics),
+                'abs_ic': abs(boot_ci['mean'])
+            })
+
+        result_df = pd.DataFrame(ic_with_ci)
+        result_df = result_df.sort_values('abs_ic', ascending=False)
+
+        logger.info(f"Calculated bootstrap CI for {len(result_df)} features")
+        logger.info(f"Features with significant IC: {result_df['is_significant'].sum()}")
+
+        return result_df
+
+    def analyze_multihorizon_ic_rigorous(self,
+                                       horizons: List[int] = [1, 2, 3, 4, 5]) -> Tuple[pd.DataFrame, Dict, str]:
+        """
+        Multi-horizon IC analysis with proper statistical testing
+        Includes multiple testing correction and regime stability
+
+        Args:
+            horizons: List of holding periods to test (e.g., [1, 2, 3, 4, 5])
+
+        Returns:
+            summary: Summary DataFrame across horizons
+            detailed_results: Dict with detailed results per horizon
+            optimal_horizon: Recommended optimal horizon (or None if no significant)
+        """
+        from ml.statistical_validator import StatisticalValidator
+
+        stat_validator = StatisticalValidator(alpha=0.05, power=0.80)
+        n_horizons = len(horizons)
+
+        # Bonferroni correction for multiple testing
+        alpha_corrected = stat_validator.bonferroni_correction(n_horizons)
+
+        logger.info(f"Testing {n_horizons} horizons with Bonferroni correction (alpha={alpha_corrected:.4f})")
+
+        detailed_results = {}
+        summary_data = []
+
+        for horizon in horizons:
+            logger.info(f"\nAnalyzing horizon: {horizon}d")
+
+            # Temporarily change target
+            original_target = self.target
+            self.target = f'return_{horizon}d'
+
+            try:
+                # First calculate basic IC (required for bootstrap)
+                self.calculate_information_coefficient()
+                
+                # Then calculate IC with significance
+                ic_df = self.calculate_ic_with_significance(n_bootstrap=1000)
+
+                # Apply Bonferroni correction
+                ic_df['p_value_corrected'] = stat_validator.benjamini_hochberg_correction(
+                    ic_df['p_value'].values
+                )
+                ic_df['is_significant_corrected'] = ic_df['p_value_corrected'] < alpha_corrected
+
+                # Sort by absolute IC
+                ic_df['abs_ic'] = ic_df['ic_mean'].abs()
+                ic_df = ic_df.sort_values('abs_ic', ascending=False)
+
+                # Summary statistics
+                significant_features = ic_df[ic_df['is_significant_corrected']]
+                positive_ic = (ic_df['ic_mean'] > 0).sum()
+                negative_ic = (ic_df['ic_mean'] < 0).sum()
+
+                summary_data.append({
+                    'horizon': f'{horizon}d',
+                    'n_features': len(ic_df),
+                    'n_significant': len(significant_features),
+                    'mean_abs_ic': ic_df['abs_ic'].mean(),
+                    'median_abs_ic': ic_df['abs_ic'].median(),
+                    'top_ic': ic_df.iloc[0]['ic_mean'] if len(ic_df) > 0 else 0,
+                    'top_ic_lower_ci': ic_df.iloc[0]['ic_lower_ci'] if len(ic_df) > 0 else 0,
+                    'top_ic_upper_ci': ic_df.iloc[0]['ic_upper_ci'] if len(ic_df) > 0 else 0,
+                    'positive_ic_count': positive_ic,
+                    'negative_ic_count': negative_ic,
+                    'max_p_value_corrected': significant_features['p_value_corrected'].max() if len(significant_features) > 0 else 1.0,
+                })
+
+                detailed_results[f'{horizon}d'] = {
+                    'ic_results': ic_df,
+                    'n_significant': len(significant_features),
+                    'significant_features': significant_features['feature'].tolist()
+                }
+
+            finally:
+                # Restore original target
+                self.target = original_target
+
+        # Create summary DataFrame
+        summary = pd.DataFrame(summary_data)
+
+        # Display results
+        logger.info("\n" + "=" * 80)
+        logger.info("MULTI-HORIZON IC ANALYSIS (WITH STATISTICAL SIGNIFICANCE)")
+        logger.info("=" * 80)
+        print(summary[['horizon', 'n_significant', 'mean_abs_ic', 'top_ic', 'top_ic_lower_ci', 'top_ic_upper_ci']].to_string(index=False))
+        logger.info("=" * 80)
+
+        # Identify optimal horizon
+        # Must have: (1) significant features, (2) highest mean IC, (3) positive lower CI
+        valid_horizons = summary[
+            (summary['n_significant'] > 0) &
+            (summary['top_ic_lower_ci'] > 0)
+        ]
+
+        if len(valid_horizons) == 0:
+            logger.warning("\n⚠️ NO STATISTICALLY SIGNIFICANT HORIZONS FOUND")
+            logger.warning("Possible issues:")
+            logger.warning("  - Features have no predictive power")
+            logger.warning("  - Sample size too small")
+            logger.warning("  - Signal-to-noise ratio too low")
+            logger.warning("\n❌ STOP: Do not proceed to Phase 2 without significant IC")
+            return summary, detailed_results, None
+
+        # Select horizon with highest mean IC among valid ones
+        optimal_idx = valid_horizons['mean_abs_ic'].idxmax()
+        optimal_row = summary.loc[optimal_idx]
+        optimal_horizon = optimal_row['horizon']
+
+        logger.info(f"\n✅ OPTIMAL HOLDING PERIOD: {optimal_horizon}")
+        logger.info(f"   Significant features: {optimal_row['n_significant']:.0f}")
+        logger.info(f"   Mean IC: {optimal_row['mean_abs_ic']:.4f}")
+        logger.info(f"   Top feature IC: {optimal_row['top_ic']:.4f} [{optimal_row['top_ic_lower_ci']:.4f}, {optimal_row['top_ic_upper_ci']:.4f}]")
+        logger.info(f"   Max corrected p-value: {optimal_row['max_p_value_corrected']:.4f}")
+
+        # Show top significant features for optimal horizon
+        optimal_features = detailed_results[optimal_horizon]['significant_features']
+        logger.info(f"\n✅ Top significant features for {optimal_horizon}:")
+        for feat in optimal_features[:5]:
+            logger.info(f"   - {feat}")
+
+        return summary, detailed_results, optimal_horizon
+
     def analyze_correlations(self, threshold: float = 0.85) -> Tuple[pd.DataFrame, List[Dict]]:
         """
         Analyze feature correlations to identify redundant features

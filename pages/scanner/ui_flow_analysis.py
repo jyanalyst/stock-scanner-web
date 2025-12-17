@@ -89,7 +89,7 @@ def show_institutional_flow_analysis(filtered_stocks: pd.DataFrame) -> None:
             flow_data,
             column_config=flow_config,
             hide_index=True,
-            use_container_width=True
+            width="stretch"
         )
         
         # Flow insights
@@ -148,7 +148,7 @@ def show_institutional_flow_analysis(filtered_stocks: pd.DataFrame) -> None:
             conviction_data,
             column_config=conviction_config,
             hide_index=True,
-            use_container_width=True
+            width="stretch"
         )
         
         # Conviction insights
@@ -201,7 +201,7 @@ def show_institutional_flow_analysis(filtered_stocks: pd.DataFrame) -> None:
             divergence_data,
             column_config=divergence_config,
             hide_index=True,
-            use_container_width=True
+            width="stretch"
         )
         
         # Divergence insights

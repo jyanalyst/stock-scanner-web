@@ -1,0 +1,20 @@
+{
+  "regularization_level": "moderate",
+  "best_params": {
+    "class_weight": "balanced",
+    "max_depth": 15,
+    "max_features": 0.3,
+    "max_samples": 0.8,
+    "min_samples_leaf": 20,
+    "min_samples_split": 50,
+    "n_estimators": 300
+  },
+  "cv_score": 0.4876796570840792,
+  "training_time": 103.9280526638031,
+  "test_results": {
+    "train_acc": 0.7571844895976686,
+    "test_acc": 0.5229436172809373,
+    "acc_gap": 0.2342408723167313,
+    "is_overfitting": true
+  }
+}

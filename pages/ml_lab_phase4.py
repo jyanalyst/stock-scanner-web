@@ -297,7 +297,7 @@ def show_validation_results():
             })
         
         periods_df = pd.DataFrame(periods_data)
-        st.dataframe(periods_df, use_container_width=True, hide_index=True)
+        st.dataframe(periods_df, width="stretch", hide_index=True)
         
         # Performance chart
         st.markdown("##### Performance by Quarter")
@@ -336,7 +336,7 @@ def show_validation_results():
         
         st.dataframe(
             threshold_df,
-            use_container_width=True,
+            width="stretch",
             hide_index=True
         )
         

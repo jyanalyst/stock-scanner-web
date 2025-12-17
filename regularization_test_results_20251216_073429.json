@@ -1,0 +1,33 @@
+{
+  "timestamp": "20251216_073429",
+  "baseline_results": {
+    "train_acc": 0.4733263174937262,
+    "test_acc": 0.4815718818647791,
+    "acc_gap": -0.008245564371052894,
+    "train_f1": 0.42879719051799825,
+    "test_f1": 0.47308360208385014,
+    "f1_gap": -0.04428641156585189,
+    "is_overfitting": false
+  },
+  "regularized_results": {
+    "train_acc": 0.7571844895976686,
+    "test_acc": 0.5229436172809373,
+    "acc_gap": 0.2342408723167313,
+    "train_f1": 0.7434241478123262,
+    "test_f1": 0.5076206071293614,
+    "f1_gap": 0.23580354068296483,
+    "is_overfitting": true
+  },
+  "recommendation": "INCREASE_REGULARIZATION",
+  "training_time": 103.9280526638031,
+  "best_params": {
+    "class_weight": "balanced",
+    "max_depth": 15,
+    "max_features": 0.3,
+    "max_samples": 0.8,
+    "min_samples_leaf": 20,
+    "min_samples_split": 50,
+    "n_estimators": 300
+  },
+  "cv_score": 0.4876796570840792
+}

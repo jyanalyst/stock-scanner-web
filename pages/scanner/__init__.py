@@ -44,6 +44,14 @@ def display_scan_results(results_df):
         # - "Analysis (Analyst Reports)" page for comprehensive analyst report analysis
         # - "Analysis (Earnings Reports)" page for comprehensive earnings report analysis
 
+        # === FEATURE LAB SECTION (NEW) ===
+        # Add Feature Lab for style learning and weight optimization
+        try:
+            from pages.scanner.feature_lab.ui_components import show_feature_lab_section
+            show_feature_lab_section()
+        except Exception as e:
+            st.warning(f"⚠️ Feature Lab unavailable: {e}")
+
         # Display error log section at the bottom
         display_error_log_section()
 

@@ -46,11 +46,18 @@ def main():
     files_to_fix = [
         'pages/scanner/ui.py',
         'pages/scanner/data.py',
+        'pages/scanner/ui_flow_analysis.py',
+        'pages/scanner/feature_lab/ui_components.py',
         'pages/factor_analysis.py',
         'pages/earnings_trend_analyzer.py',
         'pages/earnings_reports_analysis.py',
         'pages/common/ui_components.py',
-        'pages/analyst_reports_analysis.py'
+        'pages/analyst_reports_analysis.py',
+        'pages/rvol_backtest/ui.py',
+        'pages/reit_analysis.py',
+        'pages/ml_lab.py',
+        'pages/ml_lab_phase3.py',
+        'pages/ml_lab_phase4.py'
     ]
 
     total_fixed = 0

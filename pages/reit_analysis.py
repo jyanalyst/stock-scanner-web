@@ -386,7 +386,7 @@ def display_section_1_quick_snapshot(reit_data: pd.Series, current_price: float)
     if pnav_metrics:
         st.markdown("#### P/NAV Valuation Spectrum")
         spectrum_chart = create_pnav_spectrum_chart(pnav_metrics['p_nav_ratio'])
-        st.plotly_chart(spectrum_chart, use_container_width=True)
+        st.plotly_chart(spectrum_chart, width="stretch")
 
     # Investment Criteria Check
     st.markdown("#### Investment Criteria Check")
@@ -428,7 +428,7 @@ def display_section_1_quick_snapshot(reit_data: pd.Series, current_price: float)
                 'Status': st.column_config.TextColumn('Status', width='small')
             },
             hide_index=True,
-            use_container_width=True
+            width="stretch"
         )
 
         met_count = sum(1 for _, met, _ in criteria_checks if met)
@@ -523,7 +523,7 @@ def display_section_2_economic_model(reit_data: pd.Series) -> None:
                 'Status': st.column_config.TextColumn('Risk Level')
             },
             hide_index=True,
-            use_container_width=True
+            width="stretch"
         )
 
     # Key insights
@@ -588,7 +588,7 @@ def display_completeness_grid(completeness: Dict) -> None:
             'Value': st.column_config.TextColumn('Current Value', width='medium')
         },
         hide_index=True,
-        use_container_width=True
+        width="stretch"
     )
 
     complete_count = sum(1 for info in completeness.values() if info['present'])
@@ -929,7 +929,7 @@ def display_nav_trend_chart(reit_df: pd.DataFrame) -> None:
         margin=dict(l=20, r=20, t=40, b=20)
     )
 
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
 
 def display_adjustment_breakdown(sector_median: float, adjustments: Dict) -> None:
@@ -960,7 +960,7 @@ def display_adjustment_breakdown(sector_median: float, adjustments: Dict) -> Non
             'Reason': st.column_config.TextColumn('Reason', width='large')
         },
         hide_index=True,
-        use_container_width=True
+        width="stretch"
     )
 
 
@@ -1033,7 +1033,7 @@ def display_fair_value_range(fair_values: Dict, current_price: float) -> None:
         margin=dict(l=20, r=20, t=40, b=20)
     )
 
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
     # Summary
     base_fair = fair_values['base']
@@ -1169,7 +1169,7 @@ def display_section_4_valuation(reit_data: pd.Series, reit_df: pd.DataFrame, cur
             'Value': st.column_config.TextColumn('Value', width='medium')
         },
         hide_index=True,
-        use_container_width=True
+        width="stretch"
     )
 
 
@@ -1558,7 +1558,7 @@ def display_dpu_trend_chart(reit_df: pd.DataFrame) -> None:
         margin=dict(l=20, r=20, t=40, b=20)
     )
 
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
 
 def display_sustainability_dashboard(sustainability: Dict) -> None:
@@ -1639,7 +1639,7 @@ def display_operating_metrics_grid(reit_data: pd.Series) -> None:
                 'Significance': st.column_config.TextColumn('Business Impact', width='large')
             },
             hide_index=True,
-            use_container_width=True
+            width="stretch"
         )
 
 
@@ -1945,7 +1945,7 @@ def display_scorecard_table(scorecard: Dict) -> None:
             'Status': st.column_config.TextColumn('Assessment', width='large')
         },
         hide_index=True,
-        use_container_width=True
+        width="stretch"
     )
 
 
@@ -1993,7 +1993,7 @@ def display_balance_sheet_radar(scorecard: Dict) -> None:
         margin=dict(l=20, r=20, t=20, b=20)
     )
 
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
 
 def determine_balance_sheet_grade(total_score: int) -> Dict:
@@ -2108,7 +2108,7 @@ def display_debt_maturity_chart(reit_data: pd.Series) -> None:
         margin=dict(l=20, r=20, t=40, b=20)
     )
 
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
 
 def display_debt_composition(reit_data: pd.Series) -> None:
@@ -2141,7 +2141,7 @@ def display_debt_composition(reit_data: pd.Series) -> None:
         margin=dict(l=20, r=20, t=40, b=20)
     )
 
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
 
 def perform_stress_test(reit_data: pd.Series) -> Dict:
@@ -2465,7 +2465,7 @@ def display_red_flags_table(red_flags: Dict) -> None:
             'Impact': st.column_config.TextColumn('Business Impact', width='large')
         },
         hide_index=True,
-        use_container_width=True
+        width="stretch"
     )
 
 
@@ -2845,7 +2845,7 @@ def display_summary_dashboard(all_scores: Dict, reit_data: pd.Series, current_pr
             'Description': st.column_config.TextColumn('Focus Area', width='large')
         },
         hide_index=True,
-        use_container_width=True
+        width="stretch"
     )
 
     # Key metrics summary

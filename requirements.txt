@@ -10,6 +10,9 @@ python-dotenv
 APScheduler
 requests
 
+# Statistical analysis (ADDED for Phase 0-1)
+scipy
+
 # Analyst report processing (minimal dependencies)
 PyPDF2
 

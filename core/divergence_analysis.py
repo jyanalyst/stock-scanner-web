@@ -179,8 +179,8 @@ class DivergenceDetector:
         df['Divergence_Strength'] = df['Slope_Difference'].clip(0, 100)  # Cap at 100
         
         # Divergence duration: Count consecutive days since divergence started
-        df['Div_Active'] = df['Bullish_Divergence'] | df['Bearish_Divergence']
-        
+        df['Div_Active'] = (df['Bullish_Divergence'] | df['Bearish_Divergence']).astype(bool)
+
         # Calculate duration using cumsum trick
         df['Div_Group'] = (df['Div_Active'] != df['Div_Active'].shift()).cumsum()
         df['Divergence_Duration'] = df.groupby('Div_Group').cumcount().where(df['Div_Active'], 0)

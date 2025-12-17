@@ -172,11 +172,13 @@ class MLModelTrainer:
                                        y_train: np.ndarray,
                                        tune_hyperparameters: bool = True,
                                        cv_folds: int = 5,
-                                       use_timeseries_cv: bool = True) -> RandomForestClassifier:
+                                       use_timeseries_cv: bool = True,
+                                       regularization_level: str = 'moderate') -> RandomForestClassifier:
         """
-        Train Random Forest Classifier
+        Train Random Forest Classifier with proper regularization
 
         CRITICAL FIX: Uses TimeSeriesSplit to prevent look-ahead bias in CV
+        CRITICAL FIX: Regularized parameter grid to prevent overfitting
 
         Args:
             X_train: Training features
@@ -184,21 +186,46 @@ class MLModelTrainer:
             tune_hyperparameters: Whether to perform GridSearch
             cv_folds: Number of cross-validation folds
             use_timeseries_cv: Use TimeSeriesSplit (prevents look-ahead bias)
+            regularization_level: 'light', 'moderate', 'heavy'
 
         Returns:
             Trained RandomForestClassifier
         """
-        logger.info("Training Random Forest Classifier...")
+        logger.info(f"Training Random Forest Classifier (regularization: {regularization_level})...")
 
         if tune_hyperparameters:
-            # Quick hyperparameter grid
-            param_grid = {
-                'n_estimators': [100, 200],
-                'max_depth': [10, None],
-                'min_samples_split': [2, 5],
-                'min_samples_leaf': [1, 2],
-                'max_features': ['sqrt', 'log2']
-            }
+            # Select grid based on regularization level
+            if regularization_level == 'light':
+                param_grid = {
+                    'n_estimators': [100, 200],
+                    'max_depth': [15, 20, 30],
+                    'min_samples_split': [5, 10],
+                    'min_samples_leaf': [2, 5],
+                    'max_features': ['sqrt', 0.5],
+                    'class_weight': [None, 'balanced']
+                }
+            elif regularization_level == 'moderate':
+                param_grid = {
+                    'n_estimators': [100, 200, 300],
+                    'max_depth': [10, 15, 20],
+                    'min_samples_split': [10, 20],
+                    'min_samples_leaf': [5, 10],
+                    'max_features': ['sqrt', 0.3],
+                    'max_samples': [0.8, 0.9],
+                    'class_weight': ['balanced', 'balanced_subsample']
+                }
+            elif regularization_level == 'heavy':
+                param_grid = {
+                    'n_estimators': [200, 300],
+                    'max_depth': [5, 10, 15],
+                    'min_samples_split': [20, 50],
+                    'min_samples_leaf': [10, 20],
+                    'max_features': [0.3, 'sqrt'],
+                    'max_samples': [0.7, 0.8],
+                    'class_weight': ['balanced']
+                }
+            else:
+                raise ValueError(f"Unknown regularization level: {regularization_level}")
 
             rf = RandomForestClassifier(random_state=self.random_state, n_jobs=-1)
 
@@ -225,10 +252,15 @@ class MLModelTrainer:
 
             model = grid_search.best_estimator_
         else:
-            # Use default parameters
+            # Conservative defaults with regularization
             model = RandomForestClassifier(
                 n_estimators=200,
-                max_depth=None,
+                max_depth=15,  # Bounded!
+                min_samples_split=10,
+                min_samples_leaf=5,
+                max_features='sqrt',
+                max_samples=0.8,
+                class_weight='balanced',
                 random_state=self.random_state,
                 n_jobs=-1
             )

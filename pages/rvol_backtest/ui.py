@@ -299,7 +299,7 @@ def execute_optimization(ticker: str, start_date: date, end_date: date, backtest
         st.info(f"**Order Expiry:** {backtest_params.get('order_expiry_days', 'None')} days")
 
     # Execute optimization
-    if st.button("🚀 Start Optimization", type="primary", use_container_width=True):
+    if st.button("🚀 Start Optimization", type="primary", width="stretch"):
         run_optimization_process(df, backtest_params)
 
 def run_optimization_process(df: pd.DataFrame, backtest_params: Dict):
@@ -450,7 +450,7 @@ def show_optimization_results(results_df: pd.DataFrame):
     display_df['Total P&L ($)'] = display_df['Total P&L ($)'].apply(lambda x: f"${x:,.0f}" if pd.notna(x) else "N/A")
     display_df['Max Drawdown ($)'] = display_df['Max Drawdown ($)'].apply(lambda x: f"${x:,.0f}" if pd.notna(x) else "N/A")
 
-    st.dataframe(display_df, use_container_width=True)
+    st.dataframe(display_df, width="stretch")
 
     # Sharpe ratio chart
     show_sharpe_chart(results_df)
@@ -502,7 +502,7 @@ def show_sharpe_chart(results_df: pd.DataFrame):
         showlegend=True
     )
 
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
     # Chart insights
     st.markdown("**Chart Insights:**")
@@ -547,7 +547,7 @@ def show_trade_log(results_df: pd.DataFrame):
         'Exit Reason': ['VWAP_Target', 'Stop_Loss', 'VWAP_Target']
     })
 
-    st.dataframe(sample_trades, use_container_width=True)
+    st.dataframe(sample_trades, width="stretch")
 
     st.markdown("**Note:** Actual trade log will show all completed trades for the optimal threshold")
 
