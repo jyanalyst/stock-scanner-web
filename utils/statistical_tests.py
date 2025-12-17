@@ -46,7 +46,7 @@ def mann_whitney_test(winners: List[float], non_winners: List[float]) -> Dict[st
         )
 
         # Check significance at 5% level
-        significant = p_value < 0.05
+        significant = bool(p_value < 0.05)
 
         return {
             "p_value": float(p_value),
@@ -128,7 +128,7 @@ def cohens_d(winners: List[float], non_winners: List[float]) -> Dict[str, Any]:
         return {
             "cohens_d": float(cohens_d_value),
             "magnitude": magnitude,
-            "meaningful": meaningful
+            "meaningful": bool(meaningful)
         }
 
     except Exception as e:
@@ -177,7 +177,7 @@ def correlation_analysis(feature_values: pd.Series, existing_df: pd.DataFrame) -
             max_correlation = 0.0
 
         # Check if redundant (correlation > 0.8)
-        redundant = abs(max_correlation) > 0.8
+        redundant = bool(abs(max_correlation) > 0.8)
 
         return {
             "correlations": correlations,
@@ -264,9 +264,9 @@ def analyze_feature_complete(feature_name: str, selection_history: Dict[str, Any
         non_winner_mean = float(np.mean(non_winners_values))
 
         # Determine overall recommendation
-        significant = mann_whitney.get('significant', False)
-        meaningful = cohens_d_result.get('meaningful', False)
-        redundant = correlation_result.get('redundant', False)
+        significant = bool(mann_whitney.get('significant', False))
+        meaningful = bool(cohens_d_result.get('meaningful', False))
+        redundant = bool(correlation_result.get('redundant', False))
 
         if significant and meaningful and not redundant:
             recommendation = "STRONG_CANDIDATE"
