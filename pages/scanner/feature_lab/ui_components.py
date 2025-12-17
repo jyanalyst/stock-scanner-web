@@ -6,6 +6,10 @@ tracking progress toward building a personalized trading model.
 """
 
 import streamlit as st
+import json
+import yaml
+from pathlib import Path
+import plotly.graph_objects as go
 from datetime import datetime, date, timedelta
 from typing import List, Dict, Any, Optional, Tuple
 import pandas as pd
@@ -417,10 +421,261 @@ def show_recent_selections():
         st.error(f"Failed to load recent selections: {e}")
 
 
+def _calculate_feature_for_ui(feature_name: str):
+    """Calculate feature for all historical data (UI helper)"""
+    try:
+        from pages.scanner.feature_lab.feature_tracker import FeatureTracker
+
+        tracker = FeatureTracker()
+
+        # Start tracking if not already
+        if not tracker.start_feature_tracking(feature_name):
+            st.error(f"Failed to start tracking for {feature_name}")
+            return
+
+        # Calculate feature
+        with st.spinner(f"Calculating {feature_name} for all historical dates..."):
+            success = tracker.calculate_feature_for_all_history(feature_name)
+
+        if success:
+            st.success(f"✅ Successfully calculated {feature_name} for all historical selections!")
+            st.rerun()
+        else:
+            st.error(f"❌ Failed to calculate {feature_name}")
+
+    except Exception as e:
+        st.error(f"Error calculating feature: {e}")
+
+
+def _analyze_feature_for_ui(feature_name: str):
+    """Analyze feature significance (UI helper)"""
+    try:
+        from pages.scanner.feature_lab.feature_tracker import FeatureTracker
+
+        tracker = FeatureTracker()
+
+        with st.spinner(f"Analyzing statistical significance of {feature_name}..."):
+            analysis = tracker.analyze_feature_significance(feature_name)
+
+        if 'error' not in analysis:
+            st.session_state.current_feature_analysis = analysis
+            st.success("✅ Analysis completed!")
+            st.rerun()
+        else:
+            st.error(f"❌ Analysis failed: {analysis['error']}")
+
+    except Exception as e:
+        st.error(f"Error analyzing feature: {e}")
+
+
 def show_features_testing_tab():
-    """Tab 2: Features in Testing - Placeholder for now"""
+    """Tab 2: Features in Testing - Analyze experimental features"""
     st.markdown("### 🔬 Features in Testing")
-    st.info("🚧 This tab will be implemented in Phase 2. For now, focus on collecting historical data in the Historical Backfill tab.")
+    st.markdown("**Goal:** Test experimental features to see if they distinguish winners from non-winners")
+
+    try:
+        # Load feature config
+        config_path = Path("configs/feature_config.yaml")
+        if not config_path.exists():
+            st.error("Feature config not found")
+            return
+
+        with open(config_path, 'r') as f:
+            config = yaml.safe_load(f)
+
+        experimental_features = config.get('experimental_features', {})
+
+        # Load features testing data
+        testing_path = Path("data/feature_lab/features_testing.json")
+        if testing_path.exists():
+            with open(testing_path, 'r') as f:
+                testing_data = json.load(f)
+        else:
+            testing_data = {"features": {}}
+
+        # Section 1: Feature Selection and Calculation
+        st.markdown("#### 1️⃣ Select Feature to Test")
+
+        col1, col2, col3 = st.columns([3, 1, 1])
+
+        with col1:
+            available_features = list(experimental_features.keys())
+            selected_feature = st.selectbox(
+                "Choose experimental feature:",
+                available_features,
+                help="Select a feature to test against your historical winner selections"
+            )
+
+            if selected_feature:
+                feature_info = experimental_features[selected_feature]
+                st.info(f"**{feature_info['name']}**: {feature_info['description']}")
+
+        with col2:
+            if st.button("🚀 Calculate Feature", type="primary", use_container_width=True):
+                _calculate_feature_for_ui(selected_feature)
+
+        with col3:
+            if st.button("📊 Analyze Results", use_container_width=True):
+                _analyze_feature_for_ui(selected_feature)
+
+        # Section 2: Features Status
+        st.markdown("#### 2️⃣ Features Testing Status")
+
+        if testing_data.get('features'):
+            for feature_name, feature_data in testing_data['features'].items():
+                status = feature_data.get('status', 'unknown')
+                status_emoji = {
+                    'initialized': '📝',
+                    'calculated': '✅',
+                    'analyzed': '📊',
+                    'calculation_failed': '❌',
+                    'analysis_failed': '❌'
+                }.get(status, '❓')
+
+                with st.expander(f"{status_emoji} {feature_name} - {status.replace('_', ' ').title()}", expanded=False):
+                    st.write(f"**Started:** {feature_data.get('started_at', 'Unknown')[:19]}")
+
+                    if status == 'analyzed':
+                        analysis = feature_data.get('analysis_results', {})
+                        if analysis:
+                            col1, col2, col3 = st.columns(3)
+                            with col1:
+                                st.metric("Winner Mean", f"{analysis.get('winner_mean', 0):.2f}")
+                            with col2:
+                                st.metric("Non-Winner Mean", f"{analysis.get('non_winner_mean', 0):.2f}")
+                            with col3:
+                                recommendation = analysis.get('recommendation_text', 'Unknown')
+                                if 'STRONG' in recommendation:
+                                    st.success(recommendation)
+                                elif 'NOT' in recommendation:
+                                    st.error(recommendation)
+                                else:
+                                    st.warning(recommendation)
+        else:
+            st.info("No features have been tested yet. Select a feature above and click 'Calculate Feature' to begin.")
+
+        # Section 3: Current Analysis Results
+        st.markdown("#### 3️⃣ Analysis Results")
+
+        # Get current analysis from session state or testing data
+        current_analysis = getattr(st.session_state, 'current_feature_analysis', None)
+
+        if current_analysis and 'error' not in current_analysis:
+            feature_name = current_analysis.get('feature_name', 'Unknown')
+
+            # Metrics Row
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.metric("Winner Mean", f"{current_analysis.get('winner_mean', 0):.2f}")
+            with col2:
+                st.metric("Non-Winner Mean", f"{current_analysis.get('non_winner_mean', 0):.2f}")
+            with col3:
+                p_value = current_analysis.get('mann_whitney_p', 1.0)
+                st.metric("P-Value", f"{p_value:.4f}")
+            with col4:
+                cohens_d = current_analysis.get('cohens_d', 0.0)
+                st.metric("Cohen's d", f"{cohens_d:.2f}")
+
+            # Recommendation
+            recommendation = current_analysis.get('recommendation_text', '')
+            if recommendation:
+                if 'STRONG' in recommendation:
+                    st.success(f"🎯 **{feature_name}**: {recommendation}")
+                elif 'NOT' in recommendation:
+                    st.error(f"❌ **{feature_name}**: {recommendation}")
+                elif 'REDUNDANT' in recommendation:
+                    st.warning(f"⚠️ **{feature_name}**: {recommendation}")
+                else:
+                    st.info(f"🤔 **{feature_name}**: {recommendation}")
+
+            # Box Plot
+            st.markdown("**Distribution Comparison:**")
+            winner_values = current_analysis.get('winners_values', [])
+            non_winner_values = current_analysis.get('non_winners_values', [])
+
+            if winner_values and non_winner_values:
+                fig = go.Figure()
+
+                fig.add_trace(go.Box(
+                    y=winner_values,
+                    name="Winners",
+                    marker_color='green',
+                    boxmean=True
+                ))
+
+                fig.add_trace(go.Box(
+                    y=non_winner_values,
+                    name="Non-Winners",
+                    marker_color='red',
+                    boxmean=True
+                ))
+
+                fig.update_layout(
+                    title=f"{feature_name} Distribution: Winners vs Non-Winners",
+                    yaxis_title=feature_name,
+                    showlegend=True
+                )
+
+                st.plotly_chart(fig, use_container_width=True)
+
+        elif current_analysis and 'error' in current_analysis:
+            st.error(f"Analysis failed: {current_analysis['error']}")
+        else:
+            st.info("Click 'Analyze Results' to see statistical analysis of the selected feature.")
+
+        # Section 4: Action Buttons
+        st.markdown("#### 4️⃣ Actions")
+
+        col1, col2, col3 = st.columns(3)
+
+        with col1:
+            if st.button("✅ Validate Feature", use_container_width=True,
+                        disabled=not (current_analysis and current_analysis.get('recommendation') == 'STRONG_CANDIDATE')):
+                st.success("Feature validated and ready for weight optimization!")
+                # TODO: Move to optimization phase
+
+        with col2:
+            if st.button("🗑️ Discard Feature", use_container_width=True):
+                if current_analysis:
+                    # Remove from testing data
+                    if selected_feature in testing_data.get('features', {}):
+                        del testing_data['features'][selected_feature]
+                        testing_data['last_modified'] = datetime.now().isoformat()
+
+                        with open(testing_path, 'w') as f:
+                            json.dump(testing_data, f, indent=2)
+
+                        st.success(f"Discarded {selected_feature} from testing")
+                        st.rerun()
+                else:
+                    st.warning("No feature selected for discarding")
+
+        with col3:
+            if st.button("📤 Export Results", use_container_width=True):
+                if current_analysis:
+                    # Create export data
+                    export_data = {
+                        "feature_analysis": current_analysis,
+                        "exported_at": datetime.now().isoformat(),
+                        "version": "1.0"
+                    }
+
+                    # Convert to JSON and offer download
+                    json_str = json.dumps(export_data, indent=2)
+
+                    st.download_button(
+                        label="Download JSON",
+                        data=json_str,
+                        file_name=f"feature_analysis_{selected_feature}_{datetime.now().strftime('%Y%m%d')}.json",
+                        mime="application/json",
+                        use_container_width=True
+                    )
+                else:
+                    st.warning("No analysis results to export")
+
+    except Exception as e:
+        st.error(f"Failed to load features testing interface: {e}")
+        st.info("Make sure all required files are present: configs/feature_config.yaml, data/feature_lab/features_testing.json")
 
 
 def show_weight_optimization_tab():

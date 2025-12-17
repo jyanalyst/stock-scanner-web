@@ -1,0 +1,15 @@
+experimental_features:
+  DistFromMA20:
+    name: "Distance from 20-day MA"
+    description: "% distance from 20-day moving average"
+  RSI_14:
+    name: "14-period RSI"
+    description: "Relative Strength Index"
+  VolumeRank:
+    name: "Volume Percentile"
+    description: "Cross-sectional volume ranking"
+
+thresholds:
+  p_value: 0.05
+  cohens_d: 0.3
+  correlation: 0.8

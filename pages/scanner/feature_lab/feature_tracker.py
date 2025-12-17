@@ -451,3 +451,193 @@ class FeatureTracker:
         except Exception as e:
             logger.error(f"Failed to export to CSV: {e}")
             return ""
+
+    def start_feature_tracking(self, feature_name: str) -> bool:
+        """
+        Register a new feature test and initialize tracking.
+
+        Args:
+            feature_name: Name of the feature to start tracking
+
+        Returns:
+            True if successfully started tracking
+        """
+        try:
+            import yaml
+            from pathlib import Path
+
+            # Load feature config
+            config_path = Path("configs/feature_config.yaml")
+            if not config_path.exists():
+                logger.error("Feature config not found")
+                return False
+
+            with open(config_path, 'r') as f:
+                config = yaml.safe_load(f)
+
+            if feature_name not in config.get('experimental_features', {}):
+                logger.error(f"Feature {feature_name} not found in config")
+                return False
+
+            # Load features testing data
+            testing_path = self.data_dir / "features_testing.json"
+            if testing_path.exists():
+                with open(testing_path, 'r') as f:
+                    testing_data = json.load(f)
+            else:
+                testing_data = {
+                    "version": "1.0",
+                    "created_date": datetime.now().isoformat(),
+                    "features": {}
+                }
+
+            # Initialize feature tracking
+            testing_data["features"][feature_name] = {
+                "status": "initialized",
+                "started_at": datetime.now().isoformat(),
+                "feature_info": config['experimental_features'][feature_name],
+                "calculation_progress": {
+                    "total_dates": 0,
+                    "processed_dates": 0,
+                    "percentage": 0.0
+                },
+                "analysis_results": None
+            }
+
+            testing_data["last_modified"] = datetime.now().isoformat()
+
+            # Save updated testing data
+            with open(testing_path, 'w') as f:
+                json.dump(testing_data, f, indent=2)
+
+            logger.info(f"Started tracking feature: {feature_name}")
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to start feature tracking for {feature_name}: {e}")
+            return False
+
+    def calculate_feature_for_all_history(self, feature_name: str) -> bool:
+        """
+        Calculate the specified feature for all historical selections.
+
+        Args:
+            feature_name: Name of the feature to calculate
+
+        Returns:
+            True if calculation completed successfully
+        """
+        try:
+            from pages.scanner.feature_lab.feature_experiments import add_feature_to_history
+
+            # Calculate feature for all history
+            success = add_feature_to_history(feature_name, str(self.selection_file))
+
+            if success:
+                # Update tracking status
+                self._update_feature_status(feature_name, "calculated")
+
+            return success
+
+        except Exception as e:
+            logger.error(f"Failed to calculate feature {feature_name}: {e}")
+            self._update_feature_status(feature_name, "calculation_failed", str(e))
+            return False
+
+    def analyze_feature_significance(self, feature_name: str) -> Dict[str, Any]:
+        """
+        Analyze the statistical significance of a feature.
+
+        Args:
+            feature_name: Name of the feature to analyze
+
+        Returns:
+            Analysis results dictionary
+        """
+        try:
+            from utils.statistical_tests import analyze_feature_complete
+
+            # Load selection history
+            selection_history = self._load_selection_history()
+
+            # Run complete analysis
+            analysis = analyze_feature_complete(feature_name, selection_history)
+
+            if 'error' not in analysis:
+                # Update tracking status
+                self._update_feature_status(feature_name, "analyzed", analysis_results=analysis)
+
+            return analysis
+
+        except Exception as e:
+            logger.error(f"Failed to analyze feature {feature_name}: {e}")
+            error_result = {"error": str(e), "feature_name": feature_name}
+            self._update_feature_status(feature_name, "analysis_failed", str(e))
+            return error_result
+
+    def get_features_for_optimization(self) -> List[str]:
+        """
+        Get list of features that passed significance testing and are ready for optimization.
+
+        Returns:
+            List of feature names ready for optimization
+        """
+        try:
+            # Load features testing data
+            testing_path = self.data_dir / "features_testing.json"
+            if not testing_path.exists():
+                return []
+
+            with open(testing_path, 'r') as f:
+                testing_data = json.load(f)
+
+            ready_features = []
+            for feature_name, feature_data in testing_data.get('features', {}).items():
+                analysis_results = feature_data.get('analysis_results', {})
+
+                # Check if feature passed all criteria
+                if (feature_data.get('status') == 'analyzed' and
+                    analysis_results.get('recommendation') == 'STRONG_CANDIDATE'):
+                    ready_features.append(feature_name)
+
+            return ready_features
+
+        except Exception as e:
+            logger.error(f"Failed to get features for optimization: {e}")
+            return []
+
+    def _update_feature_status(self, feature_name: str, status: str,
+                             error_message: str = None, analysis_results: Dict = None) -> None:
+        """
+        Update the status of a feature in the testing data.
+
+        Args:
+            feature_name: Name of the feature
+            status: New status
+            error_message: Error message if applicable
+            analysis_results: Analysis results if applicable
+        """
+        try:
+            testing_path = self.data_dir / "features_testing.json"
+            if not testing_path.exists():
+                return
+
+            with open(testing_path, 'r') as f:
+                testing_data = json.load(f)
+
+            if feature_name in testing_data.get('features', {}):
+                testing_data['features'][feature_name]['status'] = status
+
+                if error_message:
+                    testing_data['features'][feature_name]['error'] = error_message
+
+                if analysis_results:
+                    testing_data['features'][feature_name]['analysis_results'] = analysis_results
+
+                testing_data['last_modified'] = datetime.now().isoformat()
+
+                with open(testing_path, 'w') as f:
+                    json.dump(testing_data, f, indent=2)
+
+        except Exception as e:
+            logger.error(f"Failed to update feature status: {e}")
