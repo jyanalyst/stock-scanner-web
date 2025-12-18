@@ -13,6 +13,7 @@ import plotly.graph_objects as go
 from datetime import datetime, date, timedelta
 from typing import List, Dict, Any, Optional, Tuple
 import pandas as pd
+import numpy as np
 
 from pages.common.ui_components import (
     create_section_header, create_info_box, create_success_box,
@@ -240,11 +241,11 @@ def show_scan_results_and_winner_selection(scan_date: date):
     def get_outcome_badge(ticker):
         if ticker not in outcomes:
             return "❓"
-        
+
         outcome = outcomes[ticker].get('outcome')
         return_pct = outcomes[ticker].get('return_pct', 0.0)
         day = outcomes[ticker].get('day', 0)
-        
+
         badge = "❓"
         if outcome == 'TRUE_BREAK':
             badge = "✅"
@@ -254,8 +255,30 @@ def show_scan_results_and_winner_selection(scan_date: date):
             badge = "⏱️"
         elif outcome == 'INSUFFICIENT_DATA':
             badge = "⚠️"
-            
-        return f"{badge} {outcome} (Day {day}, {return_pct:+.1f}%)"
+
+        # Add signal high/low display
+        signal_high = outcomes[ticker].get('signal_high', np.nan)
+        signal_low = outcomes[ticker].get('signal_low', np.nan)
+
+        range_display = ""
+        if not (pd.isna(signal_high) or pd.isna(signal_low)):
+            # Use 3 decimals for prices < 1.00, otherwise 2
+            # Handle zero values to avoid division by zero
+            if signal_high == 0.0:
+                high_str = "0.000"
+            else:
+                decimals = 3 if signal_high < 1.00 else 2
+                high_str = f"{signal_high:.{decimals}f}"
+
+            if signal_low == 0.0:
+                low_str = "0.000"
+            else:
+                decimals = 3 if signal_low < 1.00 else 2
+                low_str = f"{signal_low:.{decimals}f}"
+
+            range_display = f" | High: {high_str} Low: {low_str}"
+
+        return f"{badge} {outcome} (Day {day}, {return_pct:+.1f}%){range_display}"
 
     # Bullish Signals Selection
     if bullish_signals > 0:

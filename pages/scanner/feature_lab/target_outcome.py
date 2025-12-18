@@ -85,10 +85,14 @@ def get_future_prices(
             
         # Extract Close prices for next {days} trading days
         prices = df['Close'].head(days).tolist()
-        
+
         # Convert to float (handle any string values)
         prices = [float(p) for p in prices]
-        
+
+        # Log date range for debugging
+        if len(df) > 0:
+            logger.info(f"{ticker}: Scan date={start_date}, Data range={df['Date'].min().date()} to {df['Date'].max().date()}, Found {len(prices)} price points")
+
         return prices
         
     except Exception as e:
@@ -203,7 +207,12 @@ def get_target_outcome_with_metrics(
     # Note: For a breakout strategy, we assume entry at signal_high (or close to it)
     # But for calculation consistency, let's use signal_high as the reference base
     base_price = signal_high
-    
+
+    # Guard against invalid base prices (zero or negative)
+    if base_price <= 0:
+        logger.warning(f"Invalid base price: {base_price}, skipping return calculations")
+        return result  # Return with default 0.0 values
+
     # Calculate return at outcome day
     if day > 0 and day < len(price_series):
         outcome_close = price_series[day]
@@ -238,48 +247,60 @@ def calculate_outcomes_for_scan(
 ) -> Dict[str, Dict[str, Any]]:
     """
     Calculate outcomes for all stocks in a historical scan.
-    
+
     Args:
         scan_date: The date the scanner ran (Day 0)
-        scan_results: DataFrame with columns including 'Ticker', 'High', 'Low'
-        price_data_loader: Function that takes (ticker, start_date, days) 
+        scan_results: DataFrame with columns including 'Ticker', 'High', 'Low' or 'Ref_High', 'Ref_Low'
+        price_data_loader: Function that takes (ticker, start_date, days)
                           and returns List[float] of closing prices.
                           Defaults to get_future_prices if None.
-    
+
     Returns:
         dict: {ticker: outcome_data} for all stocks in scan_results
     """
     if price_data_loader is None:
         price_data_loader = get_future_prices
-        
+
     outcomes = {}
-    
+
     if scan_results is None or scan_results.empty:
         return outcomes
-        
-    # Ensure we have required columns
-    required_cols = ['Ticker', 'High', 'Low']
-    if not all(col in scan_results.columns for col in required_cols):
-        logger.error(f"Scan results missing required columns: {required_cols}")
+
+    # Always use High/Low from scan date OHLC
+    if 'High' in scan_results.columns and 'Low' in scan_results.columns:
+        high_col = 'High'
+        low_col = 'Low'
+        logger.info("Using High/Low for target outcome calculation (scan date OHLC)")
+    else:
+        available_cols = list(scan_results.columns)
+        logger.error(f"Missing required High/Low columns. Available: {available_cols}")
         return outcomes
+
+    logger.info(f"Calculating outcomes for scan_date={scan_date}, {len(scan_results)} stocks")
         
     for _, row in scan_results.iterrows():
         ticker = row['Ticker']
-        signal_high = float(row['High'])
-        signal_low = float(row['Low'])
-        
+        signal_high = float(row[high_col])
+        signal_low = float(row[low_col])
+
         # Get future prices
         # We need Day 0 + 3 days = 4 days total
         price_series = price_data_loader(ticker, scan_date, days=4)
-        
+
+        # Log data validation for debugging
+        if len(price_series) < 4:
+            logger.warning(f"{ticker}: Insufficient price data - got {len(price_series)} days, need 4")
+        else:
+            logger.info(f"{ticker}: Scan date={scan_date}, Found {len(price_series)} price points")
+
         # Calculate outcome
         outcome_data = get_target_outcome_with_metrics(
-            signal_high, 
-            signal_low, 
-            price_series, 
+            signal_high,
+            signal_low,
+            price_series,
             max_days=3
         )
-        
+
         outcomes[ticker] = outcome_data
         
     return outcomes
