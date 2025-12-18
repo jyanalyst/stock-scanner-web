@@ -9,6 +9,7 @@ altair
 python-dotenv
 APScheduler
 requests
+PyYAML
 
 # Statistical analysis (ADDED for Phase 0-1)
 scipy
