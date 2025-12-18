@@ -63,8 +63,9 @@ def get_future_prices(
             logger.error(f"Missing required columns in {ticker}.csv")
             return []
         
-        # Parse dates (handle multiple formats)
-        df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
+        # Parse dates with dayfirst=True to handle DD/MM/YYYY format (Singapore standard)
+        # CRITICAL: Must use dayfirst=True to avoid American date format misinterpretation
+        df['Date'] = pd.to_datetime(df['Date'], dayfirst=True, format='mixed', errors='coerce')
         
         # Drop rows with invalid dates
         df = df.dropna(subset=['Date'])
@@ -103,26 +104,35 @@ def get_target_outcome(
     signal_high: float,
     signal_low: float,
     price_series: List[float],
-    max_days: int = 3
+    max_days: int = 3,
+    signal_type: str = "BULLISH"
 ) -> Tuple[str, int]:
     """
     Core function that determines outcome based on Day 0 range.
     
+    CRITICAL: Logic inverts for bearish signals!
+    
     Args:
-        signal_high: Day 0 High (breakout target)
-        signal_low: Day 0 Low (breakdown invalidation)
+        signal_high: Day 0 High (breakout target for bullish, invalidation for bearish)
+        signal_low: Day 0 Low (invalidation for bullish, breakout target for bearish)
         price_series: List of closes [day0, day1, day2, day3]
                       Index 0 = signal day, Index 1+ = days after signal
         max_days: Days to monitor after signal (default: 3)
+        signal_type: "BULLISH" or "BEARISH" (or any string containing these words)
     
     Returns:
         tuple: (outcome, day) where outcome is:
-            'TRUE_BREAK': Price closed above signal_high
-            'INVALIDATION': Price closed below signal_low
-            'TIMEOUT': Price stayed within range for max_days
-            'INSUFFICIENT_DATA': Not enough price data
-            'INVALID_RANGE': signal_high <= signal_low (data error)
-            'AMBIGUOUS': Edge case (shouldn't happen)
+            BULLISH SIGNALS:
+                'TRUE_BREAK': Price closed above signal_high (winner!)
+                'INVALIDATION': Price closed below signal_low (loser!)
+            BEARISH SIGNALS:
+                'TRUE_BREAK': Price closed below signal_low (winner!)
+                'INVALIDATION': Price closed above signal_high (loser!)
+            BOTH:
+                'TIMEOUT': Price stayed within range for max_days
+                'INSUFFICIENT_DATA': Not enough price data
+                'INVALID_RANGE': signal_high <= signal_low (data error)
+                'AMBIGUOUS': Edge case (shouldn't happen)
     """
     # Validation: Check range validity
     if signal_high <= signal_low:
@@ -135,6 +145,13 @@ def get_target_outcome(
     if len(price_series) < 2:
         return 'INSUFFICIENT_DATA', 0
     
+    # Determine if bearish signal (check for "BEARISH" in signal_type string)
+    is_bearish = "BEARISH" in signal_type.upper()
+    
+    # Floating point tolerance: treat values within 0.0001 as equal
+    # This prevents issues like 2.28000001 being treated as > 2.28
+    EPSILON = 1e-4
+    
     # Check each day after signal (days 1, 2, 3...)
     # Limit by available data and max_days
     check_days = min(len(price_series) - 1, max_days)
@@ -142,13 +159,30 @@ def get_target_outcome(
     for day in range(1, check_days + 1):
         close = price_series[day]
         
-        # Breakout above Day 0 High → Winner
-        if close > signal_high:
-            return 'TRUE_BREAK', day
-        
-        # Breakdown below Day 0 Low → Loser
-        elif close < signal_low:
-            return 'INVALIDATION', day
+        if is_bearish:
+            # BEARISH SIGNAL: Win when price drops, lose when price rises
+            # Valid range: signal_low <= close <= signal_high (boundaries are OK)
+            # Use epsilon for floating point comparison
+            if close < signal_low - EPSILON:
+                logger.debug(f"BEARISH TRUE_BREAK: close={close:.4f} < signal_low={signal_low:.4f}")
+                return 'TRUE_BREAK', day  # Price broke DOWN below signal_low (winner!)
+            elif close > signal_high + EPSILON:
+                logger.debug(f"BEARISH INVALIDATION: close={close:.4f} > signal_high={signal_high:.4f}")
+                return 'INVALIDATION', day  # Price broke UP above signal_high (loser!)
+            else:
+                logger.debug(f"BEARISH IN RANGE: signal_low={signal_low:.4f} <= close={close:.4f} <= signal_high={signal_high:.4f}")
+        else:
+            # BULLISH SIGNAL: Win when price rises, lose when price drops
+            # Valid range: signal_low <= close <= signal_high (boundaries are OK)
+            # Use epsilon for floating point comparison
+            if close > signal_high + EPSILON:
+                logger.debug(f"BULLISH TRUE_BREAK: close={close:.4f} > signal_high={signal_high:.4f}")
+                return 'TRUE_BREAK', day  # Price broke UP above signal_high (winner!)
+            elif close < signal_low - EPSILON:
+                logger.debug(f"BULLISH INVALIDATION: close={close:.4f} < signal_low={signal_low:.4f}")
+                return 'INVALIDATION', day  # Price broke DOWN below signal_low (loser!)
+            else:
+                logger.debug(f"BULLISH IN RANGE: signal_low={signal_low:.4f} <= close={close:.4f} <= signal_high={signal_high:.4f}")
     
     # If we checked all required days and found no break
     if check_days == max_days:
@@ -168,10 +202,20 @@ def get_target_outcome_with_metrics(
     signal_high: float,
     signal_low: float,
     price_series: List[float],
-    max_days: int = 3
+    max_days: int = 3,
+    signal_type: str = "BULLISH"
 ) -> Dict[str, Any]:
     """
     Enhanced version with return calculations and metrics.
+    
+    CRITICAL: Base price differs for bullish vs bearish signals!
+    
+    Args:
+        signal_high: Day 0 High
+        signal_low: Day 0 Low
+        price_series: List of closes [day0, day1, day2, day3]
+        max_days: Days to monitor (default: 3)
+        signal_type: "BULLISH" or "BEARISH"
     
     Returns:
         dict: {
@@ -186,7 +230,7 @@ def get_target_outcome_with_metrics(
             'days_in_range': int      # Days price stayed within range
         }
     """
-    outcome, day = get_target_outcome(signal_high, signal_low, price_series, max_days)
+    outcome, day = get_target_outcome(signal_high, signal_low, price_series, max_days, signal_type)
     
     result = {
         'outcome': outcome,
@@ -202,11 +246,12 @@ def get_target_outcome_with_metrics(
     
     if not price_series or len(price_series) < 2:
         return result
-        
-    # Calculate returns relative to signal_high (assumed entry for breakout)
-    # Note: For a breakout strategy, we assume entry at signal_high (or close to it)
-    # But for calculation consistency, let's use signal_high as the reference base
-    base_price = signal_high
+    
+    # CRITICAL: Choose base price based on signal type
+    # Bullish: Entry at signal_high (breakout above)
+    # Bearish: Entry at signal_low (breakdown below / short entry)
+    is_bearish = "BEARISH" in signal_type.upper()
+    base_price = signal_low if is_bearish else signal_high
 
     # Guard against invalid base prices (zero or negative)
     if base_price <= 0:
@@ -277,11 +322,28 @@ def calculate_outcomes_for_scan(
         return outcomes
 
     logger.info(f"Calculating outcomes for scan_date={scan_date}, {len(scan_results)} stocks")
+    
+    # Check if Signal_Bias column exists for bearish/bullish detection
+    has_signal_bias = 'Signal_Bias' in scan_results.columns
+    if has_signal_bias:
+        logger.info("Signal_Bias column found - will apply correct logic for bearish signals")
+    else:
+        logger.warning("Signal_Bias column not found - defaulting all signals to BULLISH logic")
         
     for _, row in scan_results.iterrows():
         ticker = row['Ticker']
         signal_high = float(row[high_col])
         signal_low = float(row[low_col])
+        
+        # Extract signal type (bullish or bearish)
+        signal_type = "BULLISH"  # Default
+        if has_signal_bias:
+            signal_bias = str(row['Signal_Bias']).upper()
+            if 'BEARISH' in signal_bias:
+                signal_type = "BEARISH"
+                logger.info(f"{ticker}: Detected BEARISH signal - using inverted logic")
+            else:
+                signal_type = "BULLISH"
 
         # Get future prices
         # We need Day 0 + 3 days = 4 days total
@@ -293,12 +355,13 @@ def calculate_outcomes_for_scan(
         else:
             logger.info(f"{ticker}: Scan date={scan_date}, Found {len(price_series)} price points")
 
-        # Calculate outcome
+        # Calculate outcome with signal type
         outcome_data = get_target_outcome_with_metrics(
             signal_high,
             signal_low,
             price_series,
-            max_days=3
+            max_days=3,
+            signal_type=signal_type
         )
 
         outcomes[ticker] = outcome_data

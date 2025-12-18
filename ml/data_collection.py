@@ -279,8 +279,8 @@ class MLDataCollector:
             if 'Date' not in stock_df.columns:
                 stock_df = stock_df.reset_index()
             
-            # Ensure Date column is datetime
-            stock_df['Date'] = pd.to_datetime(stock_df['Date'])
+            # Ensure Date column is datetime with Singapore format (DD/MM/YYYY)
+            stock_df['Date'] = pd.to_datetime(stock_df['Date'], dayfirst=True, format='mixed')
             
             # Get all trading dates AFTER base_date (strictly greater than)
             future_dates = stock_df[stock_df['Date'] > base_date]['Date'].sort_values()
@@ -415,7 +415,7 @@ class MLDataCollector:
         """Get closing price on specific date"""
         try:
             df = loader.load_historical_data(ticker)
-            df['Date'] = pd.to_datetime(df['Date'])
+            df['Date'] = pd.to_datetime(df['Date'], dayfirst=True, format='mixed')
 
             # Find closest trading day
             df = df[df['Date'] <= date]
@@ -435,10 +435,10 @@ class MLDataCollector:
             # CRITICAL FIX: Make a copy to avoid mutating cached data!
             stock_df = stock_df.copy()
             
-            # Ensure Date column exists and is datetime
+            # Ensure Date column exists and is datetime with Singapore format (DD/MM/YYYY)
             if 'Date' not in stock_df.columns:
                 stock_df = stock_df.reset_index()
-            stock_df['Date'] = pd.to_datetime(stock_df['Date'])
+            stock_df['Date'] = pd.to_datetime(stock_df['Date'], dayfirst=True, format='mixed')
 
             # Find closest trading day
             df = stock_df[stock_df['Date'] <= date]
@@ -454,7 +454,7 @@ class MLDataCollector:
         """Calculate max drawdown during holding period"""
         try:
             df = loader.load_historical_data(ticker)
-            df['Date'] = pd.to_datetime(df['Date'])
+            df['Date'] = pd.to_datetime(df['Date'], dayfirst=True, format='mixed')
 
             # Filter to holding period
             mask = (df['Date'] >= start_date) & (df['Date'] <= end_date)
@@ -481,10 +481,10 @@ class MLDataCollector:
             # CRITICAL FIX: Make a copy to avoid mutating cached data!
             stock_df = stock_df.copy()
             
-            # Ensure Date column exists and is datetime
+            # Ensure Date column exists and is datetime with Singapore format (DD/MM/YYYY)
             if 'Date' not in stock_df.columns:
                 stock_df = stock_df.reset_index()
-            stock_df['Date'] = pd.to_datetime(stock_df['Date'])
+            stock_df['Date'] = pd.to_datetime(stock_df['Date'], dayfirst=True, format='mixed')
 
             # Filter to holding period
             mask = (stock_df['Date'] >= start_date) & (stock_df['Date'] <= end_date)
@@ -514,7 +514,8 @@ class MLDataCollector:
         if 'Date' not in reference_df.columns:
             reference_df = reference_df.reset_index()
         
-        reference_df['Date'] = pd.to_datetime(reference_df['Date'])
+        # CRITICAL FIX: Parse with Singapore format (DD/MM/YYYY)
+        reference_df['Date'] = pd.to_datetime(reference_df['Date'], dayfirst=True, format='mixed')
 
         # Filter to date range
         mask = (reference_df['Date'] >= self.start_date) & \
