@@ -1,0 +1,72 @@
+HYBRID HISTORICAL DATA UPDATE REPORT (UNADJUSTED)
+======================================================================
+
+Date: 2025-12-18 09:57:04
+EOD File: 18_Dec_2025.csv
+Current Working Day: 2025-12-18
+Dividend Adjustment: DISABLED
+Columns: 8 (pristine)
+
+Updated: 1/54
+Already Current: 53
+Failed: 0
+EOD Days Added: 0
+yfinance Days Added: 1
+Total Data Points: 1
+Duration: 0.9 seconds
+
+Details:
+  A17U.SG: current - Already current
+  C38U.SG: current - Already current
+  M44U.SG: current - Already current
+  ME8U.SG: current - Already current
+  AJBU.SG: current - Already current
+  J69U.SG: current - Already current
+  N2IU.SG: current - Already current
+  BUOU.SG: current - Already current
+  K71U.SG: current - Already current
+  JYEU.SG: current - Already current
+  HMN.SG: current - Already current
+  NTDU.SG: current - Already current
+  DCRU.SG: current - Already current
+  8C8U.SG: current - Already current
+  AU8U.SG: current - Already current
+  9CI.SG: current - Already current
+  Z25.SG: current - Already current
+  AWX.SG: current - Already current
+  E28.SG: current - Already current
+  558.SG: current - Already current
+  MZH.SG: current - Already current
+  BN2.SG: current - Already current
+  Z74.SG: current - Already current
+  YF8.SG: current - Already current
+  8YZ.SG: current - Already current
+  BS6.SG: current - Already current
+  S58.SG: current - Already current
+  5E2.SG: current - Already current
+  OV8.SG: current - Already current
+  F34.SG: current - Already current
+  EB5.SG: current - Already current
+  P8Z.SG: current - Already current
+  5TP.SG: current - Already current
+  C52.SG: current - Already current
+  G13.SG: current - Already current
+  S08.SG: current - Already current
+  5LY.SG: current - Already current
+  DU4.SG: current - Already current
+  5WH.SG: current - Already current
+  S56.SG: current - Already current
+  AP4.SG: current - Already current
+  544.SG: current - Already current
+  G92.SG: current - Already current
+  RXS.SG: current - Already current
+  41O.SG: current - Already current
+  OYY.SG: current - Already current
+  CLN.SG: success - Added 1 days (EOD: 0, yfinance: 1)
+  ER0.SG: current - Already current
+  1E3.SG: current - Already current
+  E3B.SG: current - Already current
+  P52.SG: current - Already current
+  F9D.SG: current - Already current
+  OU8.SG: current - Already current
+  RE4.SG: current - Already current

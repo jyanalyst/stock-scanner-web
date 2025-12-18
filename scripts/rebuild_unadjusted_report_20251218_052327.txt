@@ -1,0 +1,63 @@
+UNADJUSTED (PRISTINE) DATA REBUILD REPORT
+======================================================================
+
+Date: 2025-12-18 05:23:27
+Date Range: 2020-01-01 to 2025-12-18
+Dividend Adjustment: DISABLED (auto_adjust=False)
+Columns: 8 (Date, Code, Shortname, Open, High, Low, Close, Vol)
+
+Success: 6/54 (11.1%)
+Failed: 48
+Total Days: 6,727
+Disk Space: 0.4 MB
+Duration: 0.3 minutes
+
+Failed Downloads:
+  • A17U.SG: No data returned
+  • C38U.SG: No data returned
+  • M44U.SG: No data returned
+  • ME8U.SG: No data returned
+  • AJBU.SG: No data returned
+  • J69U.SG: No data returned
+  • N2IU.SG: No data returned
+  • BUOU.SG: No data returned
+  • K71U.SG: No data returned
+  • JYEU.SG: No data returned
+  • HMN.SG: No data returned
+  • NTDU.SG: No data returned
+  • DCRU.SG: No data returned
+  • 8C8U.SG: No data returned
+  • AU8U.SG: No data returned
+  • 9CI.SG: No data returned
+  • AWX.SG: No data returned
+  • E28.SG: No data returned
+  • 558.SG: No data returned
+  • MZH.SG: No data returned
+  • BN2.SG: No data returned
+  • Z74.SG: No data returned
+  • YF8.SG: No data returned
+  • 8YZ.SG: No data returned
+  • BS6.SG: No data returned
+  • OV8.SG: No data returned
+  • F34.SG: No data returned
+  • EB5.SG: No data returned
+  • P8Z.SG: No data returned
+  • 5TP.SG: No data returned
+  • C52.SG: No data returned
+  • G13.SG: No data returned
+  • S08.SG: No data returned
+  • 5LY.SG: No data returned
+  • DU4.SG: No data returned
+  • 5WH.SG: No data returned
+  • S56.SG: No data returned
+  • AP4.SG: No data returned
+  • 544.SG: No data returned
+  • G92.SG: No data returned
+  • RXS.SG: No data returned
+  • OYY.SG: No data returned
+  • ER0.SG: No data returned
+  • 1E3.SG: No data returned
+  • P52.SG: No data returned
+  • F9D.SG: No data returned
+  • OU8.SG: No data returned
+  • RE4.SG: No data returned
