@@ -42,6 +42,9 @@ def show_feature_lab_section():
     if 'feature_lab_bearish_winners' not in st.session_state:
         st.session_state.feature_lab_bearish_winners = []
 
+    if 'feature_lab_outcomes' not in st.session_state:
+        st.session_state.feature_lab_outcomes = {}
+
     # Create tabs
     tab1, tab2, tab3, tab4 = st.tabs([
         "📅 Historical Backfill",
@@ -161,6 +164,7 @@ def run_historical_scan(scan_date: date):
     try:
         from pages.scanner.logic import run_enhanced_stock_scan
         from utils.watchlist import get_active_watchlist
+        from .target_outcome import calculate_outcomes_for_scan
 
         with st.spinner(f"🔄 Scanning {scan_date.strftime('%d/%m/%Y')}..."):
             # Get watchlist
@@ -180,6 +184,12 @@ def run_historical_scan(scan_date: date):
                 results_df = add_ranking_columns(results_df)
 
                 st.session_state.feature_lab_scan_results = results_df
+                
+                # Calculate target outcomes
+                with st.spinner("Calculating target outcomes..."):
+                    outcomes = calculate_outcomes_for_scan(scan_date, results_df)
+                    st.session_state.feature_lab_outcomes = outcomes
+
                 st.success(f"✅ Scan completed! Found {len(results_df)} signals.")
                 st.rerun()
             else:
@@ -194,6 +204,7 @@ def show_scan_results_and_winner_selection(scan_date: date):
     Display scan results and allow winner selection
     """
     results_df = st.session_state.feature_lab_scan_results
+    outcomes = st.session_state.get('feature_lab_outcomes', {})
 
     if results_df is None or results_df.empty:
         st.warning("No scan results available.")
@@ -207,6 +218,11 @@ def show_scan_results_and_winner_selection(scan_date: date):
     bullish_signals = len(results_df[results_df['Signal_Bias'] == '🟢 BULLISH'])
     bearish_signals = len(results_df[results_df['Signal_Bias'] == '🔴 BEARISH'])
 
+    # Outcome stats
+    true_breaks = sum(1 for o in outcomes.values() if o.get('outcome') == 'TRUE_BREAK')
+    invalidations = sum(1 for o in outcomes.values() if o.get('outcome') == 'INVALIDATION')
+    timeouts = sum(1 for o in outcomes.values() if o.get('outcome') == 'TIMEOUT')
+
     col1, col2, col3, col4 = st.columns(4)
     with col1:
         st.metric("Total Signals", total_signals)
@@ -215,11 +231,31 @@ def show_scan_results_and_winner_selection(scan_date: date):
     with col3:
         st.metric("🔴 Bearish", bearish_signals)
     with col4:
-        st.metric("⚪ Neutral", total_signals - bullish_signals - bearish_signals)
+        st.metric("✅ True Breaks", true_breaks)
 
     # Winner Selection
     st.markdown("#### 🏆 Select Your Top Winners")
     st.info("💡 **Instructions:** Check the boxes next to stocks that actually performed well. Focus on stocks you would have traded based on the signals.")
+
+    def get_outcome_badge(ticker):
+        if ticker not in outcomes:
+            return "❓"
+        
+        outcome = outcomes[ticker].get('outcome')
+        return_pct = outcomes[ticker].get('return_pct', 0.0)
+        day = outcomes[ticker].get('day', 0)
+        
+        badge = "❓"
+        if outcome == 'TRUE_BREAK':
+            badge = "✅"
+        elif outcome == 'INVALIDATION':
+            badge = "❌"
+        elif outcome == 'TIMEOUT':
+            badge = "⏱️"
+        elif outcome == 'INSUFFICIENT_DATA':
+            badge = "⚠️"
+            
+        return f"{badge} {outcome} (Day {day}, {return_pct:+.1f}%)"
 
     # Bullish Signals Selection
     if bullish_signals > 0:
@@ -233,8 +269,9 @@ def show_scan_results_and_winner_selection(scan_date: date):
             name = row.get('Name', ticker)
             score = row.get('Signal_Score', 0)
             rank = row.get('Trade_Rank', 999)  # Use 999 for unranked
-
-            option_text = f"{ticker} - {name} (Score: {score:.1f}, Rank: #{rank})"
+            
+            outcome_text = get_outcome_badge(ticker)
+            option_text = f"{ticker} - {name} (Score: {score:.1f}, Rank: #{rank}) | {outcome_text}"
 
             # Use callback for proper state management
             def toggle_bullish_winner(ticker=ticker):
@@ -263,7 +300,8 @@ def show_scan_results_and_winner_selection(scan_date: date):
             score = row.get('Signal_Score', 0)
             rank = row.get('Trade_Rank', 999)  # Use 999 for unranked
 
-            option_text = f"{ticker} - {name} (Score: {score:.1f}, Rank: #{rank})"
+            outcome_text = get_outcome_badge(ticker)
+            option_text = f"{ticker} - {name} (Score: {score:.1f}, Rank: #{rank}) | {outcome_text}"
 
             # Use callback for proper state management
             def toggle_bearish_winner(ticker=ticker):
@@ -338,7 +376,8 @@ def save_winners_and_continue(scan_date: date, notes: str):
             bullish_winners=st.session_state.feature_lab_bullish_winners,
             bearish_winners=st.session_state.feature_lab_bearish_winners,
             selection_notes=notes,
-            scoring_system="production"
+            scoring_system="production",
+            target_outcomes=st.session_state.get('feature_lab_outcomes', {})
         )
 
         if success:
@@ -353,6 +392,7 @@ def save_winners_and_continue(scan_date: date, notes: str):
 
             # Clear scan results to force re-scan
             st.session_state.feature_lab_scan_results = None
+            st.session_state.feature_lab_outcomes = {}
 
             st.rerun()
         else:
@@ -367,6 +407,7 @@ def clear_selections():
     st.session_state.feature_lab_bullish_winners = []
     st.session_state.feature_lab_bearish_winners = []
     st.session_state.feature_lab_notes = ""
+    # Don't clear outcomes here as they might be needed if user clears just selections
 
 
 def show_recent_selections():

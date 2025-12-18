@@ -47,7 +47,7 @@ class FeatureTracker:
     def _create_initial_selection_history(self) -> None:
         """Create initial selection_history.json file"""
         initial_data = {
-            "version": "1.0",
+            "version": "1.1",
             "created_date": datetime.now().isoformat(),
             "last_modified": datetime.now().isoformat(),
             "dates": {},
@@ -212,7 +212,8 @@ class FeatureTracker:
         bullish_winners: List[str],
         bearish_winners: List[str],
         selection_notes: str,
-        scoring_system: str = "production"
+        scoring_system: str = "production",
+        target_outcomes: Optional[Dict[str, Dict[str, Any]]] = None
     ) -> bool:
         """
         Record winner selections for a historical date
@@ -224,6 +225,7 @@ class FeatureTracker:
             bearish_winners: List of bearish winner tickers
             selection_notes: Your commentary on why these worked
             scoring_system: "production" or "candidate"
+            target_outcomes: Dict mapping ticker to outcome data
 
         Returns:
             True if saved successfully, False otherwise
@@ -249,6 +251,7 @@ class FeatureTracker:
             date_str = scan_date.isoformat()
             date_entry = {
                 "scan_results": features,
+                "target_outcomes": target_outcomes or {},
                 "bullish_winners": bullish_winners,
                 "bearish_winners": bearish_winners,
                 "selection_notes": selection_notes,
@@ -347,6 +350,29 @@ class FeatureTracker:
         data = self._load_selection_history()
         return data.get("summary", {})
 
+    def get_outcomes_for_date(self, scan_date: date) -> Optional[Dict[str, Dict[str, Any]]]:
+        """
+        Retrieve target outcomes for a specific date.
+        
+        Args:
+            scan_date: Date to retrieve outcomes for
+        
+        Returns:
+            Dictionary mapping ticker to outcome data, or None if not found
+        """
+        try:
+            data = self._load_selection_history()
+            date_str = scan_date.isoformat()
+            
+            if date_str in data["dates"]:
+                return data["dates"][date_str].get("target_outcomes", {})
+            
+            return None
+            
+        except Exception as e:
+            logger.error(f"Failed to get outcomes for {scan_date}: {e}")
+            return None
+
     def delete_date_selection(self, scan_date: date) -> bool:
         """
         Remove a historical selection (for corrections)
@@ -411,6 +437,7 @@ class FeatureTracker:
 
             for date_str, date_data in data["dates"].items():
                 scan_results = date_data.get("scan_results", {})
+                target_outcomes = date_data.get("target_outcomes", {})
                 bullish_winners = date_data.get("bullish_winners", [])
                 bearish_winners = date_data.get("bearish_winners", [])
                 notes = date_data.get("selection_notes", "")
@@ -419,12 +446,18 @@ class FeatureTracker:
                 for ticker, features in scan_results.items():
                     is_bullish_winner = ticker in bullish_winners
                     is_bearish_winner = ticker in bearish_winners
+                    
+                    # Get outcome data for this ticker
+                    outcome_data = target_outcomes.get(ticker, {})
 
                     row = {
                         "date": date_str,
                         "ticker": ticker,
                         "is_bullish_winner": is_bullish_winner,
                         "is_bearish_winner": is_bearish_winner,
+                        "outcome": outcome_data.get('outcome', ''),
+                        "outcome_day": outcome_data.get('day', ''),
+                        "return_pct": outcome_data.get('return_pct', ''),
                         "selection_notes": notes,
                         "timestamp": timestamp,
                         **features  # Include all feature values
