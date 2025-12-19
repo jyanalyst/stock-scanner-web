@@ -23,30 +23,91 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
+# ===== FEATURE CONFIGURATION SYSTEM =====
+# Controls which features are calculated in production vs archived for Phase 2 testing
+# Set 'calculate_unused_features' = True to re-enable all archived features for testing
+
+FEATURE_CONFIG = {
+    # Main toggle for Phase 2 testing
+    'calculate_unused_features': False,  # Set True to re-enable all archived features
+
+    # Feature categorization for easy reference
+    'features_in_production': [
+        # Scoring Features (Category A)
+        'Flow_Velocity_Rank', 'Flow_Rank', 'Flow_Percentile', 'Volume_Conviction',
+        'MPI_Percentile', 'IBS_Percentile', 'VPI_Percentile', 'Signal_Bias',
+
+        # Display Features (Category B) - Core UI columns
+        'Signal_Bias', 'Signal_State', 'Conviction_Level', 'MPI_Position',
+        'Is_Triple_Aligned', 'Is_Divergent', 'Is_Accumulation',
+        'Ref_High', 'Ref_Low', 'Purge_Level', 'Entry_Level', 'Bars_Since_Break',
+        'MPI_Percentile', 'IBS_Percentile', 'VPI_Percentile',
+        'IBS_Accel', 'VPI_Accel',
+        'Ticker', 'Name', 'Analysis_Date', 'Close', 'High', 'Low',
+        'IBS', 'Higher_H', 'Higher_HL', 'Lower_L', 'Lower_HL', 'HL_Pattern',
+        'Relative_Volume', 'VPI_Velocity',
+        'MPI', 'MPI_Velocity',
+        'Daily_Flow', 'Flow_10D', 'Flow_Velocity',
+        'Flow_Percentile', 'Flow_Rank', 'Flow_Velocity_Rank',
+        'Volume_Conviction', 'Avg_Vol_Up_10D',
+        'Price_Decimals',
+
+        # Ranking columns (added in logic.py)
+        'Signal_Score', 'Trade_Rank', 'Suggested_Risk', 'Quality_Flag',
+
+        # Analyst/Earnings reports (added in logic.py)
+        'Sentiment_Display', 'Report_Date_Display', 'Report_Count_Display',
+        'Earnings_Period', 'Guidance_Display', 'Rev_YoY_Display', 'EPS_DPU_Display', 'Earnings_Reaction',
+
+        # ML predictions (added in logic.py)
+        'ML_Signal', 'ML_Confidence'
+    ],
+
+    'features_archived': [
+        # Archived Features (Category D) - Removed from production
+        'RVol_Accel', 'RRange_Accel', 'VW_Range_Velocity', 'VW_Range_Percentile', 'Rel_Range_Signal',
+        'RelVol_Velocity', 'RelVol_Trend', 'VPI_Velocity', 'Volume_Conviction_Rank',
+        'Flow_Velocity_Percentile', 'Conviction_Velocity', 'Divergence_Gap', 'Divergence_Severity',
+        'Price_Percentile', 'Flow_Regime', 'MPI_Trend', 'MPI_Zone'
+    ],
+
+    # Dependency tracking for safe removal
+    'calculation_dependencies': {
+        'MPI_Percentile': ['MPI', 'MPI_Velocity'],
+        'IBS_Percentile': ['IBS', 'IBS_Velocity', 'IBS_Accel'],
+        'VPI_Percentile': ['VPI_Accel'],
+        'Flow_Percentile': ['Flow_10D'],
+        'Flow_Velocity_Rank': ['Flow_Velocity'],
+        'Flow_Rank': ['Flow_10D'],
+        'Volume_Conviction': ['Avg_Vol_Up_10D'],
+        'HL_Pattern': ['Higher_H', 'Higher_HL', 'Lower_L', 'Lower_HL']
+    }
+}
+
 def calculate_mpi_expansion(df: pd.DataFrame) -> pd.DataFrame:
     """
     Calculate MPI (Market Positivity Index) with Exponential Weighting
-    
+
     Core Concept: Multi-day trend strength through weighted positive day participation
     - Weighted_MPI: Exponentially weighted sum of positive days (0-1 scale)
     - MPI_Velocity: Day-over-day change in Weighted MPI
     - MPI_Percentile: 100-day rolling percentile of velocity
-    
+
     Args:
         df: DataFrame with OHLCV data
-    
+
     Returns:
         DataFrame with MPI columns added
     """
     # Step 1: Identify positive days
     returns = df['Close'].pct_change()
     positive_days = (returns > 0).astype(float)
-    
+
     # Step 2: Apply exponential weighting (10-day window)
     # Weights: 1, 2, 3, ..., 10 (Sum = 55)
     weights = np.arange(1, 11)
     sum_weights = weights.sum() # 55
-    
+
     def weighted_sum(x):
         if len(x) < 10:
             return np.nan
@@ -55,19 +116,37 @@ def calculate_mpi_expansion(df: pd.DataFrame) -> pd.DataFrame:
     # Step 3: Calculate Weighted MPI
     # Use rolling apply with raw=True for performance
     df['MPI'] = positive_days.rolling(10).apply(weighted_sum, raw=True)
-    
+
     # Step 4: Calculate Velocity (1st Derivative)
     df['MPI_Velocity'] = df['MPI'] - df['MPI'].shift(1)
-    
+
     # Step 5: Percentile Classification (100-day rolling of Velocity)
     # CRITICAL FIX: Use .shift(1) to avoid lookahead bias (don't include current day in ranking)
     df['MPI_Percentile'] = df['MPI_Velocity'].shift(1).rolling(100, min_periods=20).rank(pct=True) * 100
-    
+
     # Fill NaN values
     df['MPI'] = df['MPI'].fillna(0.5)  # Neutral default
     df['MPI_Velocity'] = df['MPI_Velocity'].fillna(0.0)
     df['MPI_Percentile'] = df['MPI_Percentile'].fillna(50.0) # Neutral default
-    
+
+    # ===== ARCHIVED FEATURES: MPI_Trend and MPI_Zone =====
+    # Removed: 2025-12-19 - Trend/zone classifications never used in scoring, display, or dependencies
+    # Archive: data/feature_library/unused_features_library.json
+    # To re-enable: Set FEATURE_CONFIG['calculate_unused_features'] = True
+    if FEATURE_CONFIG['calculate_unused_features']:
+        # Calculate trend classification
+        df['MPI_Trend'] = np.where(
+            df['MPI_Velocity'] > 0.1, 'Expanding',
+            np.where(df['MPI_Velocity'] < -0.1, 'Contracting', 'Flat')
+        )
+
+        # Calculate zone classification
+        df['MPI_Zone'] = df['MPI_Percentile'].apply(get_mpi_zone)
+    else:
+        # PRODUCTION MODE: Add placeholder columns
+        df['MPI_Trend'] = 'Flat'
+        df['MPI_Zone'] = 3
+
     return df
 
 def format_mpi_visual(mpi_value: float) -> str:
@@ -121,23 +200,38 @@ def calculate_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
     """Calculate core technical indicators efficiently"""
     # Daily relative range
     df['Daily_Rel_Range'] = (df['High'] - df['Low']) / df['Close']
-    
+
     # Volume-weighted range (use Relative_Volume instead of Volume_Normalized)
     df['Volume_Weighted_Range'] = df['Daily_Rel_Range'] * df['Relative_Volume']
 
-    # Volume-weighted range percentile (for display/filtering only) - RAW method
-    df['VW_Range_Percentile'] = df['Volume_Weighted_Range']
+    # ===== ARCHIVED FEATURES: VW_Range_Percentile, VW_Range_Velocity, Rel_Range_Signal =====
+    # Removed: 2025-12-19 - Volatility metrics never used in scoring, display, or dependencies
+    # Archive: data/feature_library/unused_features_library.json
+    # To re-enable: Set FEATURE_CONFIG['calculate_unused_features'] = True
+    if FEATURE_CONFIG['calculate_unused_features']:
+        # Volume-weighted range percentile (for display/filtering only) - RAW method
+        df['VW_Range_Percentile'] = df['Volume_Weighted_Range']
 
-    # VW_Range_Velocity calculated from RAW Volume_Weighted_Range (not percentile)
-    df['VW_Range_Velocity'] = df['Volume_Weighted_Range'] - df['Volume_Weighted_Range'].shift(1)
-    
+        # VW_Range_Velocity calculated from RAW Volume_Weighted_Range (not percentile)
+        df['VW_Range_Velocity'] = df['Volume_Weighted_Range'] - df['Volume_Weighted_Range'].shift(1)
+
+        # Range expansion signal based on percentile thresholds
+        df['Rel_Range_Signal'] = np.where(
+            df['VW_Range_Percentile'] > df['VW_Range_Percentile'].shift(1), 1, 0
+        )
+    else:
+        # PRODUCTION MODE: Add placeholder columns
+        df['VW_Range_Percentile'] = 50.0
+        df['VW_Range_Velocity'] = 0.0
+        df['Rel_Range_Signal'] = 0
+
     # IBS calculation
     df['IBS'] = np.where(
         df['High'] != df['Low'],
         (df['Close'] - df['Low']) / (df['High'] - df['Low']),
         1.0
     )
-    
+
     # Higher H pattern - NEW: Only requires higher high
     df['Higher_H'] = (df['High'] > df['High'].shift(1)).astype(int)
 
@@ -155,36 +249,55 @@ def calculate_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
         (df['High'] < df['High'].shift(1)) &
         (df['Low'] < df['Low'].shift(1))
     ).astype(int)
-    
+
     return df
 
 def calculate_relative_volume(df: pd.DataFrame) -> pd.DataFrame:
     """
     Calculate Relative Volume with Velocity tracking for filtering
     Enhanced to match VW Range Velocity and MPI Velocity patterns
-    
+
     Relative Volume = (Current Day Volume) / (14-day Average Volume) × 100
     RelVol Velocity = Day-over-day change in Relative Volume
-    
+
     Args:
         df: DataFrame with OHLCV data
-    
+
     Returns:
         DataFrame with Relative Volume columns and velocity metrics added
     """
     # Calculate 14-day rolling average volume
     df['Volume_14D_Avg'] = df['Volume'].rolling(14, min_periods=7).mean()
-    
+
     # Calculate relative volume as decimal (not percentage)
     df['Relative_Volume'] = df['Volume'] / df['Volume_14D_Avg']
-    
+
     # Fill NaN values
     df['Relative_Volume'] = df['Relative_Volume'].fillna(100.0)
-    
+
     # High activity flags for reference (existing) - decimal scale
     df['High_Rel_Volume_150'] = (df['Relative_Volume'] >= 1.5).astype(int)  # 1.5x average
     df['High_Rel_Volume_200'] = (df['Relative_Volume'] >= 2.0).astype(int)  # 2x average
-    
+
+    # ===== ARCHIVED FEATURES: RelVol_Velocity and RelVol_Trend =====
+    # Removed: 2025-12-19 - Volume metrics never used in scoring, display, or dependencies
+    # Archive: data/feature_library/unused_features_library.json
+    # To re-enable: Set FEATURE_CONFIG['calculate_unused_features'] = True
+    if FEATURE_CONFIG['calculate_unused_features']:
+        # RelVol_Velocity: Day-over-day change in Relative Volume
+        df['RelVol_Velocity'] = df['Relative_Volume'] - df['Relative_Volume'].shift(1)
+        df['RelVol_Velocity'] = df['RelVol_Velocity'].fillna(0.0)
+
+        # RelVol_Trend: Trend classification (Building/Stable/Fading)
+        df['RelVol_Trend'] = np.where(
+            df['Relative_Volume'] > 1.2, 'Building',
+            np.where(df['Relative_Volume'] < 0.8, 'Fading', 'Stable')
+        )
+    else:
+        # PRODUCTION MODE: Add placeholder columns
+        df['RelVol_Velocity'] = 0.0
+        df['RelVol_Trend'] = 'Stable'
+
     return df
 
 
@@ -226,9 +339,7 @@ def add_enhanced_columns(df_daily: pd.DataFrame, ticker: str, rolling_window: in
         # ===== NEW: Break & Reversal Pattern Calculations =====
         # Calculate acceleration metrics (core scoring components)
         df = calculate_ibs_acceleration(df)
-        df = calculate_rrange_acceleration(df)
-        df = calculate_rvol_acceleration(df)
-        
+
         # Calculate VPI System (New Phase 1)
         df = calculate_vpi_system(df)
 
@@ -237,18 +348,59 @@ def add_enhanced_columns(df_daily: pd.DataFrame, ticker: str, rolling_window: in
         df = calculate_institutional_flow(df)
         df = classify_flow_regime(df)
         df = calculate_volume_conviction(df)
-        
-        # ===== NEW: COMPREHENSIVE DIVERGENCE DETECTION =====
-        # Use new divergence module (replaces old broken calculate_price_flow_divergence)
-        from core.divergence_analysis import DivergenceDetector
-        
-        divergence_detector = DivergenceDetector(
-            lookback_percentile=252,
-            lookback_slope=20,
-            min_slope_threshold=0.05,
-            misalignment_threshold=20.0
-        )
-        df = divergence_detector.calculate_all_divergences(df)
+
+        # ===== CONDITIONAL: ARCHIVED FEATURES (PHASE 2 TESTING) =====
+        # Only calculate archived features if FEATURE_CONFIG allows it
+        if FEATURE_CONFIG['calculate_unused_features']:
+            logger.debug(f"{ticker}: Calculating archived features for Phase 2 testing")
+
+            # Archived acceleration metrics
+            df = calculate_rrange_acceleration(df)  # ARCHIVED: RRange_Accel
+            df = calculate_rvol_acceleration(df)    # ARCHIVED: RVol_Accel
+
+            # Archived divergence detection
+            from core.divergence_analysis import DivergenceDetector
+            divergence_detector = DivergenceDetector(
+                lookback_percentile=252,
+                lookback_slope=20,
+                min_slope_threshold=0.05,
+                misalignment_threshold=20.0
+            )
+            df = divergence_detector.calculate_all_divergences(df)  # ARCHIVED: Divergence_Gap, Divergence_Severity, Price_Percentile
+        else:
+            # PRODUCTION MODE: Skip archived calculations and add placeholder columns
+            logger.debug(f"{ticker}: Skipping archived features (production mode)")
+
+            # Add placeholder columns for archived features to prevent KeyErrors
+            archived_features = FEATURE_CONFIG['features_archived']
+
+            for feature in archived_features:
+                if feature not in df.columns:
+                    # Set appropriate default values based on feature type
+                    if 'Percentile' in feature or 'Pct' in feature:
+                        df[feature] = 50.0  # Neutral percentile
+                    elif 'Velocity' in feature or 'Accel' in feature:
+                        df[feature] = 0.0   # Neutral velocity/acceleration
+                    elif 'Rank' in feature:
+                        df[feature] = 50.0  # Neutral rank
+                    elif 'Regime' in feature:
+                        df[feature] = 'Neutral'  # Neutral regime
+                    elif 'Trend' in feature:
+                        df[feature] = 'Flat'  # Neutral trend
+                    elif 'Zone' in feature:
+                        df[feature] = 3      # Neutral zone
+                    elif 'Gap' in feature or 'Severity' in feature:
+                        df[feature] = 0.0   # Neutral divergence
+                    elif 'Signal' in feature:
+                        df[feature] = 0     # No signal
+                    else:
+                        df[feature] = 0.0   # Default numeric
+
+            # Ensure divergence columns exist (they're added by DivergenceDetector)
+            divergence_features = ['Divergence_Gap', 'Divergence_Severity', 'Price_Percentile']
+            for feature in divergence_features:
+                if feature not in df.columns:
+                    df[feature] = 0.0 if 'Gap' in feature or 'Severity' in feature else 50.0
 
         # Note: calculate_percentile_ranks is deprecated as percentiles are now
         # calculated within each indicator function (MPI, IBS, VPI)
@@ -1084,18 +1236,35 @@ def classify_flow_regime(df: pd.DataFrame) -> pd.DataFrame:
     # These compare current values against the stock's own history
     # CRITICAL FIX: Use .shift(1) to avoid lookahead bias (don't include current day in ranking)
     df['Flow_Percentile'] = df['Flow_10D'].shift(1).rolling(window=100, min_periods=20).rank(pct=True) * 100
-    df['Flow_Velocity_Percentile'] = df['Flow_Velocity'].shift(1).rolling(window=100, min_periods=20).rank(pct=True) * 100
 
     # Fill NaN values
     df['Flow_Percentile'] = df['Flow_Percentile'].fillna(50.0)
-    df['Flow_Velocity_Percentile'] = df['Flow_Velocity_Percentile'].fillna(50.0)
 
-    # Classify into regimes based on percentile (now 0-100 scale)
-    df['Flow_Regime'] = 'Neutral'  # Default
-    df.loc[df['Flow_Percentile'] >= 80, 'Flow_Regime'] = 'Strong Accumulation'
-    df.loc[(df['Flow_Percentile'] >= 60) & (df['Flow_Percentile'] < 80), 'Flow_Regime'] = 'Accumulation'
-    df.loc[(df['Flow_Percentile'] <= 40) & (df['Flow_Percentile'] > 20), 'Flow_Regime'] = 'Distribution'
-    df.loc[df['Flow_Percentile'] <= 20, 'Flow_Regime'] = 'Strong Distribution'
+    # ===== ARCHIVED FEATURE: Flow_Velocity_Percentile =====
+    # Removed: 2025-12-19 - Individual percentile never used (Flow_Velocity_Rank used instead)
+    # Archive: data/feature_library/unused_features_library.json
+    # To re-enable: Set FEATURE_CONFIG['calculate_unused_features'] = True
+    if FEATURE_CONFIG['calculate_unused_features']:
+        df['Flow_Velocity_Percentile'] = df['Flow_Velocity'].shift(1).rolling(window=100, min_periods=20).rank(pct=True) * 100
+        df['Flow_Velocity_Percentile'] = df['Flow_Velocity_Percentile'].fillna(50.0)
+    else:
+        # PRODUCTION MODE: Add placeholder column
+        df['Flow_Velocity_Percentile'] = 50.0
+
+    # ===== ARCHIVED FEATURE: Flow_Regime =====
+    # Removed: 2025-12-19 - Regime classification never used in scoring, display, or dependencies
+    # Archive: data/feature_library/unused_features_library.json
+    # To re-enable: Set FEATURE_CONFIG['calculate_unused_features'] = True
+    if FEATURE_CONFIG['calculate_unused_features']:
+        # Classify into regimes based on percentile (now 0-100 scale)
+        df['Flow_Regime'] = 'Neutral'  # Default
+        df.loc[df['Flow_Percentile'] >= 80, 'Flow_Regime'] = 'Strong Accumulation'
+        df.loc[(df['Flow_Percentile'] >= 60) & (df['Flow_Percentile'] < 80), 'Flow_Regime'] = 'Accumulation'
+        df.loc[(df['Flow_Percentile'] <= 40) & (df['Flow_Percentile'] > 20), 'Flow_Regime'] = 'Distribution'
+        df.loc[df['Flow_Percentile'] <= 20, 'Flow_Regime'] = 'Strong Distribution'
+    else:
+        # PRODUCTION MODE: Add placeholder column
+        df['Flow_Regime'] = 'Neutral'
 
     return df
 
@@ -1135,13 +1304,21 @@ def calculate_volume_conviction(df: pd.DataFrame) -> pd.DataFrame:
         1.0  # Neutral if no down-day volume
     )
 
-    # Conviction velocity (day-over-day change)
-    df['Conviction_Velocity'] = df['Volume_Conviction'] - df['Volume_Conviction'].shift(1)
-    
+    # ===== ARCHIVED FEATURE: Conviction_Velocity =====
+    # Removed: 2025-12-19 - Velocity metric never used in scoring, display, or dependencies
+    # Archive: data/feature_library/unused_features_library.json
+    # To re-enable: Set FEATURE_CONFIG['calculate_unused_features'] = True
+    if FEATURE_CONFIG['calculate_unused_features']:
+        # Conviction velocity (day-over-day change)
+        df['Conviction_Velocity'] = df['Volume_Conviction'] - df['Volume_Conviction'].shift(1)
+        df['Conviction_Velocity'] = df['Conviction_Velocity'].fillna(0.0)
+    else:
+        # PRODUCTION MODE: Add placeholder column
+        df['Conviction_Velocity'] = 0.0
+
     # Fill NaN values
     df['Volume_Conviction'] = df['Volume_Conviction'].fillna(1.0)  # Neutral default
     df['Avg_Vol_Up_10D'] = df['Avg_Vol_Up_10D'].fillna(0.0)
-    df['Conviction_Velocity'] = df['Conviction_Velocity'].fillna(0.0)
 
     return df
 
