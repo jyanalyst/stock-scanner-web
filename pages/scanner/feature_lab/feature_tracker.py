@@ -639,6 +639,424 @@ class FeatureTracker:
             logger.error(f"Failed to get features for optimization: {e}")
             return []
 
+    def validate_all_scoring_features(self) -> Dict[str, Any]:
+        """
+        Run enhanced validation on all 7 scoring features currently used in production.
+
+        Returns:
+            Comprehensive validation report for all scoring features
+        """
+        try:
+            from utils.statistical_tests import analyze_feature_complete_enhanced
+
+            # Define the 7 current scoring features
+            scoring_features = [
+                "Flow_Velocity_Rank",
+                "Flow_Rank",
+                "Flow_Percentile",
+                "Volume_Conviction",
+                "MPI_Percentile",
+                "IBS_Percentile",
+                "VPI_Percentile"
+            ]
+
+            # Load selection history
+            selection_history = self._load_selection_history()
+
+            # Validate each feature
+            validation_results = {}
+            summary_stats = {
+                "total_features": len(scoring_features),
+                "analyzed_features": 0,
+                "keep_features": 0,
+                "review_features": 0,
+                "remove_features": 0,
+                "bullish_only_features": 0,
+                "bearish_only_features": 0
+            }
+
+            logger.info(f"Starting enhanced validation of {len(scoring_features)} scoring features...")
+
+            for feature_name in scoring_features:
+                logger.info(f"Analyzing {feature_name}...")
+
+                # Run enhanced analysis
+                analysis = analyze_feature_complete_enhanced(feature_name, selection_history)
+
+                if 'error' in analysis:
+                    logger.warning(f"Analysis failed for {feature_name}: {analysis['error']}")
+                    validation_results[feature_name] = analysis
+                    continue
+
+                validation_results[feature_name] = analysis
+                summary_stats["analyzed_features"] += 1
+
+                # Categorize recommendation
+                recommendation = analysis.get('recommendation', 'UNKNOWN')
+                if recommendation == 'KEEP':
+                    summary_stats["keep_features"] += 1
+                elif recommendation == 'REVIEW':
+                    summary_stats["review_features"] += 1
+                elif recommendation == 'REMOVE':
+                    summary_stats["remove_features"] += 1
+
+                # Check directional bias
+                directional = analysis.get('directional_analysis', {})
+                bullish_sig = directional.get('bullish', {}).get('mann_whitney_significant', False)
+                bearish_sig = directional.get('bearish', {}).get('mann_whitney_significant', False)
+
+                if bullish_sig and not bearish_sig:
+                    summary_stats["bullish_only_features"] += 1
+                elif bearish_sig and not bullish_sig:
+                    summary_stats["bearish_only_features"] += 1
+
+            # Create comprehensive report
+            report = {
+                "report_type": "enhanced_scoring_features_validation",
+                "generated_at": datetime.now().isoformat(),
+                "data_summary": {
+                    "total_dates": len(selection_history.get('dates', {})),
+                    "total_winners": sum(
+                        len(date_data.get('bullish_winners', [])) + len(date_data.get('bearish_winners', []))
+                        for date_data in selection_history.get('dates', {}).values()
+                    )
+                },
+                "validation_results": validation_results,
+                "summary_statistics": summary_stats,
+                "recommendations": self._generate_validation_recommendations(validation_results),
+                "insights": self._generate_validation_insights(validation_results)
+            }
+
+            logger.info(f"Enhanced validation complete. Results: {summary_stats}")
+
+            return report
+
+        except Exception as e:
+            logger.error(f"Failed to validate all scoring features: {e}")
+            return {"error": str(e)}
+
+    def validate_single_feature_enhanced(self, feature_name: str) -> Dict[str, Any]:
+        """
+        Run enhanced validation on a single feature with directional and quintile analysis.
+
+        Args:
+            feature_name: Name of the feature to validate
+
+        Returns:
+            Enhanced validation results for the feature
+        """
+        try:
+            from utils.statistical_tests import analyze_feature_complete_enhanced
+
+            logger.info(f"Running enhanced validation for {feature_name}...")
+
+            # Load selection history
+            selection_history = self._load_selection_history()
+
+            # Run enhanced analysis
+            analysis = analyze_feature_complete_enhanced(feature_name, selection_history)
+
+            if 'error' in analysis:
+                logger.error(f"Enhanced validation failed for {feature_name}: {analysis['error']}")
+                return analysis
+
+            # Add metadata
+            analysis["validation_metadata"] = {
+                "validation_type": "enhanced_single_feature",
+                "generated_at": datetime.now().isoformat(),
+                "data_points": len(selection_history.get('dates', {})),
+                "feature_name": feature_name
+            }
+
+            logger.info(f"Enhanced validation complete for {feature_name}")
+            return analysis
+
+        except Exception as e:
+            logger.error(f"Failed to validate feature {feature_name}: {e}")
+            return {"error": str(e), "feature_name": feature_name}
+
+    def export_validation_report(self, report_data: Dict[str, Any], output_path: Optional[str] = None) -> str:
+        """
+        Export validation report to formatted markdown and JSON.
+
+        Args:
+            report_data: Validation report data
+            output_path: Optional output path (will generate timestamped name if not provided)
+
+        Returns:
+            Path to the exported markdown report
+        """
+        try:
+            import os
+
+            # Generate output paths
+            if not output_path:
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                base_path = f"data/feature_lab/validation_report_{timestamp}"
+                json_path = f"{base_path}.json"
+                md_path = f"{base_path}.md"
+            else:
+                base_path = output_path.replace('.md', '').replace('.json', '')
+                json_path = f"{base_path}.json"
+                md_path = f"{base_path}.md"
+
+            # Ensure directory exists
+            os.makedirs(os.path.dirname(json_path), exist_ok=True)
+
+            # Export JSON
+            with open(json_path, 'w') as f:
+                json.dump(report_data, f, indent=2, default=str)
+
+            # Generate and export markdown
+            markdown_content = self._generate_validation_markdown(report_data)
+            with open(md_path, 'w', encoding='utf-8') as f:
+                f.write(markdown_content)
+
+            logger.info(f"Exported validation report to {md_path} and {json_path}")
+            return md_path
+
+        except Exception as e:
+            logger.error(f"Failed to export validation report: {e}")
+            return ""
+
+    def _generate_validation_recommendations(self, validation_results: Dict[str, Any]) -> Dict[str, Any]:
+        """Generate actionable recommendations based on validation results."""
+        recommendations = {
+            "immediate_actions": [],
+            "feature_weights": {},
+            "directional_adjustments": [],
+            "removal_candidates": [],
+            "review_candidates": []
+        }
+
+        for feature_name, results in validation_results.items():
+            if 'error' in results:
+                continue
+
+            recommendation = results.get('recommendation', 'UNKNOWN')
+
+            if recommendation == 'REMOVE':
+                recommendations["removal_candidates"].append(feature_name)
+                recommendations["immediate_actions"].append(
+                    f"Remove {feature_name} from scoring (weak/no predictive power)"
+                )
+            elif recommendation == 'REVIEW':
+                recommendations["review_candidates"].append(feature_name)
+                recommendations["immediate_actions"].append(
+                    f"Review {feature_name} weighting and directional application"
+                )
+            elif recommendation == 'KEEP':
+                # Check directional insights
+                directional = results.get('directional_analysis', {})
+                bullish_sig = directional.get('bullish', {}).get('mann_whitney_significant', False)
+                bearish_sig = directional.get('bearish', {}).get('mann_whitney_significant', False)
+
+                if bullish_sig and not bearish_sig:
+                    recommendations["directional_adjustments"].append(
+                        f"Apply {feature_name} only to bullish signals"
+                    )
+                elif bearish_sig and not bullish_sig:
+                    recommendations["directional_adjustments"].append(
+                        f"Apply {feature_name} only to bearish signals"
+                    )
+
+                # Check quintile insights for weighting
+                quintile = results.get('quintile_analysis', {})
+                monotonic = quintile.get('monotonic', False)
+                spread = quintile.get('spread', 0)
+
+                if monotonic and spread > 0.1:
+                    recommendations["feature_weights"][feature_name] = "high"
+                elif spread > 0.05:
+                    recommendations["feature_weights"][feature_name] = "medium"
+                else:
+                    recommendations["feature_weights"][feature_name] = "low"
+
+        return recommendations
+
+    def _generate_validation_insights(self, validation_results: Dict[str, Any]) -> List[str]:
+        """Generate key insights from validation results."""
+        insights = []
+
+        # Count by recommendation
+        keep_count = sum(1 for r in validation_results.values() if r.get('recommendation') == 'KEEP')
+        review_count = sum(1 for r in validation_results.values() if r.get('recommendation') == 'REVIEW')
+        remove_count = sum(1 for r in validation_results.values() if r.get('recommendation') == 'REMOVE')
+
+        insights.append(f"Feature Portfolio Health: {keep_count} strong, {review_count} review, {remove_count} remove")
+
+        # Check directional patterns
+        bullish_only = []
+        bearish_only = []
+
+        for feature_name, results in validation_results.items():
+            directional = results.get('directional_analysis', {})
+            bullish_sig = directional.get('bullish', {}).get('mann_whitney_significant', False)
+            bearish_sig = directional.get('bearish', {}).get('mann_whitney_significant', False)
+
+            if bullish_sig and not bearish_sig:
+                bullish_only.append(feature_name)
+            elif bearish_sig and not bullish_sig:
+                bearish_only.append(feature_name)
+
+        if bullish_only:
+            insights.append(f"Bullish-specialized features: {', '.join(bullish_only)}")
+        if bearish_only:
+            insights.append(f"Bearish-specialized features: {', '.join(bearish_only)}")
+
+        # Check quintile performance
+        strong_monotonic = []
+        for feature_name, results in validation_results.items():
+            quintile = results.get('quintile_analysis', {})
+            if quintile.get('monotonic', False) and quintile.get('spread', 0) > 0.1:
+                strong_monotonic.append(feature_name)
+
+        if strong_monotonic:
+            insights.append(f"Strong monotonic features: {', '.join(strong_monotonic)}")
+
+        return insights
+
+    def _generate_validation_markdown(self, report_data: Dict[str, Any]) -> str:
+        """Generate formatted markdown report from validation data."""
+        lines = []
+
+        # Header
+        lines.append("# Enhanced Feature Validation Report")
+        lines.append("")
+        lines.append(f"**Generated:** {report_data.get('generated_at', 'Unknown')}")
+        lines.append("")
+
+        # Data Summary
+        data_summary = report_data.get('data_summary', {})
+        lines.append("## Data Summary")
+        lines.append("")
+        lines.append(f"- **Historical Dates:** {data_summary.get('total_dates', 0)}")
+        lines.append(f"- **Total Winners:** {data_summary.get('total_winners', 0)}")
+        lines.append("")
+
+        # Summary Statistics
+        summary = report_data.get('summary_statistics', {})
+        lines.append("## Summary Statistics")
+        lines.append("")
+        lines.append(f"- **Features Analyzed:** {summary.get('analyzed_features', 0)}/{summary.get('total_features', 0)}")
+        lines.append(f"- **Keep:** {summary.get('keep_features', 0)}")
+        lines.append(f"- **Review:** {summary.get('review_features', 0)}")
+        lines.append(f"- **Remove:** {summary.get('remove_features', 0)}")
+        lines.append(f"- **Bullish Only:** {summary.get('bullish_only_features', 0)}")
+        lines.append(f"- **Bearish Only:** {summary.get('bearish_only_features', 0)}")
+        lines.append("")
+
+        # Key Insights
+        insights = report_data.get('insights', [])
+        if insights:
+            lines.append("## Key Insights")
+            lines.append("")
+            for insight in insights:
+                lines.append(f"- {insight}")
+            lines.append("")
+
+        # Individual Feature Results
+        validation_results = report_data.get('validation_results', {})
+        lines.append("## Individual Feature Results")
+        lines.append("")
+
+        for feature_name, results in validation_results.items():
+            if 'error' in results:
+                lines.append(f"### {feature_name}")
+                lines.append(f"❌ **Error:** {results['error']}")
+                lines.append("")
+                continue
+
+            lines.append(f"### {feature_name}")
+            lines.append("")
+
+            # Overall Performance
+            lines.append("#### Overall Performance")
+            lines.append(f"- **Winners:** {results.get('total_winners', 0)} samples")
+            lines.append(f"- **Non-Winners:** {results.get('total_non_winners', 0)} samples")
+            lines.append(f"- **Mann-Whitney p-value:** {results.get('overall_mann_whitney_p', 'N/A'):.4f}")
+            lines.append(f"- **Cohen's d:** {results.get('overall_cohens_d', 'N/A'):.3f} ({results.get('overall_cohens_d_magnitude', 'N/A')})")
+            lines.append("")
+
+            # Directional Analysis
+            directional = results.get('directional_analysis', {})
+            lines.append("#### Directional Analysis")
+            bullish = directional.get('bullish', {})
+            bearish = directional.get('bearish', {})
+
+            lines.append("**Bullish Signals:**")
+            lines.append(f"- Samples: {bullish.get('winner_count', 0)} winners, {bullish.get('non_winner_count', 0)} non-winners")
+            lines.append(f"- Significant: {'✅' if bullish.get('mann_whitney_significant') else '❌'}")
+            lines.append(f"- Cohen's d: {bullish.get('cohens_d', 'N/A'):.3f}")
+
+            lines.append("**Bearish Signals:**")
+            lines.append(f"- Samples: {bearish.get('winner_count', 0)} winners, {bearish.get('non_winner_count', 0)} non-winners")
+            lines.append(f"- Significant: {'✅' if bearish.get('mann_whitney_significant') else '❌'}")
+            lines.append(f"- Cohen's d: {bearish.get('cohens_d', 'N/A'):.3f}")
+
+            lines.append(f"**Directional Insight:** {directional.get('directional_insight', 'N/A')}")
+            lines.append("")
+
+            # Quintile Analysis
+            quintile = results.get('quintile_analysis', {})
+            if 'error' not in quintile:
+                lines.append("#### Quintile Analysis")
+                quintiles = quintile.get('quintiles', {})
+                for q in range(1, 6):
+                    if q in quintiles:
+                        q_data = quintiles[q]
+                        lines.append(f"- **Q{q}** (Win Rate: {q_data['win_rate']:.1%}, Count: {q_data['count']})")
+
+                lines.append(f"- **Monotonic:** {'✅' if quintile.get('monotonic') else '❌'}")
+                lines.append(f"- **Spread:** {quintile.get('spread', 0):.1%}")
+                lines.append(f"- **Interpretation:** {quintile.get('interpretation', 'N/A')}")
+                lines.append("")
+
+            # Win Rate Metrics
+            win_rate = results.get('win_rate_metrics', {})
+            if 'error' not in win_rate:
+                lines.append("#### Win Rate Metrics")
+                lines.append(f"- **Overall Win Rate:** {win_rate.get('overall_win_rate', 0):.1%}")
+                lines.append(f"- **Top 10% Precision:** {win_rate.get('top_10_pct_precision', 0):.1%}")
+                lines.append(f"- **Top 25% Precision:** {win_rate.get('top_25_pct_precision', 0):.1%}")
+                lines.append("")
+
+            # Recommendation
+            recommendation = results.get('recommendation_text', '❓ UNKNOWN')
+            reasoning = results.get('recommendation_reasoning', 'N/A')
+            lines.append(f"#### Recommendation: {recommendation}")
+            lines.append(f"**Reasoning:** {reasoning}")
+            lines.append("")
+
+        # Actionable Recommendations
+        recommendations = report_data.get('recommendations', {})
+        if recommendations:
+            lines.append("## Actionable Recommendations")
+            lines.append("")
+
+            immediate_actions = recommendations.get('immediate_actions', [])
+            if immediate_actions:
+                lines.append("### Immediate Actions")
+                for action in immediate_actions:
+                    lines.append(f"- {action}")
+                lines.append("")
+
+            directional_adjustments = recommendations.get('directional_adjustments', [])
+            if directional_adjustments:
+                lines.append("### Directional Adjustments")
+                for adjustment in directional_adjustments:
+                    lines.append(f"- {adjustment}")
+                lines.append("")
+
+            feature_weights = recommendations.get('feature_weights', {})
+            if feature_weights:
+                lines.append("### Feature Weighting Suggestions")
+                for feature, weight in feature_weights.items():
+                    lines.append(f"- **{feature}:** {weight} weight")
+                lines.append("")
+
+        return "\n".join(lines)
+
     def _update_feature_status(self, feature_name: str, status: str,
                              error_message: str = None, analysis_results: Dict = None) -> None:
         """

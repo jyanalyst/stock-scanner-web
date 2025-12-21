@@ -26,7 +26,7 @@ from utils.date_utils import format_singapore_date
 
 def show_feature_lab_section():
     """
-    Main Feature Lab section with 4 tabs for the complete style learning workflow
+    Main Feature Lab section with 5 tabs for the complete style learning workflow
     """
     create_section_header("🧪 Feature Lab", "Learn and optimize your trading style")
 
@@ -46,13 +46,17 @@ def show_feature_lab_section():
     if 'feature_lab_outcomes' not in st.session_state:
         st.session_state.feature_lab_outcomes = {}
 
-    # Create tabs
-    tab1, tab2, tab3, tab4 = st.tabs([
+    # Create tabs (5 tabs now - added Scoring Feature Health)
+    tab0, tab1, tab2, tab3, tab4 = st.tabs([
+        "🏥 Scoring Feature Health",
         "📅 Historical Backfill",
         "🔬 Features in Testing",
         "⚖️ Weight Optimization",
         "📊 History & Analytics"
     ])
+
+    with tab0:
+        show_scoring_feature_health_tab()
 
     with tab1:
         show_historical_backfill_tab()
@@ -742,6 +746,219 @@ def show_features_testing_tab():
         st.info("Make sure all required files are present: configs/feature_config.yaml, data/feature_lab/features_testing.json")
 
 
+def show_scoring_feature_health_tab():
+    """
+    Tab 0: Scoring Feature Health - Validate current scoring features
+    """
+    st.markdown("### 🏥 Scoring Feature Health")
+    st.markdown("**Goal:** Validate that your current 7 scoring features actually predict winning trades")
+    
+    st.info("💡 **How it works:** Run statistical validation on your scoring features to see which ones distinguish winners from non-winners.")
+    
+    try:
+        from .feature_tracker import FeatureTracker
+        
+        tracker = FeatureTracker()
+        
+        # Section 1: Portfolio Health Dashboard
+        st.markdown("#### 📊 Portfolio Health Dashboard")
+        
+        # Check if we have validation results
+        validation_dir = Path("data/feature_lab")
+        latest_report = None
+        validation_data = None
+        
+        if validation_dir.exists():
+            reports = sorted(validation_dir.glob("validation_report_*.json"), reverse=True)
+            if reports:
+                latest_report = reports[0]
+                with open(latest_report, 'r') as f:
+                    validation_data = json.load(f)
+        
+        if latest_report and validation_data:
+            # Parse recommendations
+            keep_count = 0
+            review_count = 0
+            remove_count = 0
+            
+            # The validation data structure uses 'validation_results' not 'features'
+            for feature_name, feature_data in validation_data.get('validation_results', {}).items():
+                recommendation = feature_data.get('recommendation', 'UNKNOWN')
+                if recommendation == 'KEEP':
+                    keep_count += 1
+                elif recommendation == 'REVIEW':
+                    review_count += 1
+                elif recommendation == 'REMOVE':
+                    remove_count += 1
+            
+            # Health cards
+            col1, col2, col3, col4 = st.columns(4)
+            
+            with col1:
+                st.metric("✅ KEEP", keep_count, help="Features with strong predictive power")
+            with col2:
+                st.metric("⚠️ REVIEW", review_count, help="Features with moderate evidence")
+            with col3:
+                st.metric("❌ REMOVE", remove_count, help="Features with weak/no evidence")
+            with col4:
+                health_score = (keep_count * 100 + review_count * 50) / 7
+                st.metric("Health Score", f"{health_score:.0f}%", help="Overall portfolio health")
+            
+            # Validation timestamp
+            report_time = validation_data.get('timestamp', 'Unknown')
+            st.caption(f"Last validated: {report_time[:19]}")
+            
+        else:
+            st.warning("⚠️ No validation results found. Click 'Run Full Validation' below to analyze your scoring features.")
+        
+        # Section 2: Run Validation
+        st.markdown("---")
+        st.markdown("#### 🔬 Run Validation")
+        
+        col1, col2 = st.columns([3, 1])
+        
+        with col1:
+            st.markdown("**Validate all 7 scoring features** against your historical winner selections.")
+            st.markdown("This will test: Flow_Velocity_Rank, Flow_Rank, Flow_Percentile, Volume_Conviction, MPI_Percentile, IBS_Percentile, VPI_Percentile")
+        
+        with col2:
+            if st.button("🚀 Run Full Validation", type="primary", use_container_width=True):
+                with st.spinner("Running statistical validation on all scoring features..."):
+                    try:
+                        results = tracker.validate_all_scoring_features()
+                        
+                        if results and 'error' not in results:
+                            # Export report
+                            md_path = tracker.export_validation_report(results)
+                            
+                            if md_path:
+                                st.success(f"✅ Validation completed! Report saved to {Path(md_path).name}")
+                                st.balloons()
+                                st.rerun()
+                            else:
+                                st.error("❌ Failed to export validation report")
+                        else:
+                            error_msg = results.get('error', 'Unknown error') if results else 'Validation failed'
+                            st.error(f"❌ Validation failed: {error_msg}")
+                    
+                    except Exception as e:
+                        st.error(f"❌ Error during validation: {e}")
+        
+        # Section 3: Validation Summary Table
+        if latest_report and validation_data:
+            st.markdown("---")
+            st.markdown("#### 📋 Validation Summary")
+            
+            # Create summary table
+            summary_rows = []
+            
+            for feature_name, feature_data in validation_data.get('validation_results', {}).items():
+                recommendation = feature_data.get('recommendation', 'UNKNOWN')
+                
+                # Get key metrics - use direct keys, not nested 'overall_analysis'
+                p_value = feature_data.get('overall_mann_whitney_p', 1.0)
+                cohens_d = feature_data.get('overall_cohens_d', 0.0)
+                
+                # Directional analysis
+                directional = feature_data.get('directional_analysis', {})
+                bullish = directional.get('bullish', {})
+                bearish = directional.get('bearish', {})
+                
+                bullish_sig = "✓" if bullish.get('mann_whitney_p', 1.0) < 0.05 else "✗"
+                bearish_sig = "✓" if bearish.get('mann_whitney_p', 1.0) < 0.05 else "✗"
+                
+                # Recommendation emoji
+                rec_emoji = {
+                    'KEEP': '✅',
+                    'REVIEW': '⚠️',
+                    'REMOVE': '❌',
+                    'UNKNOWN': '❓'
+                }.get(recommendation, '❓')
+                
+                summary_rows.append({
+                    'Feature': feature_name,
+                    'Recommendation': f"{rec_emoji} {recommendation}",
+                    'P-Value': f"{p_value:.4f}",
+                    "Cohen's d": f"{cohens_d:.3f}",
+                    'Bullish': bullish_sig,
+                    'Bearish': bearish_sig
+                })
+            
+            summary_df = pd.DataFrame(summary_rows)
+            st.dataframe(summary_df, use_container_width=True, hide_index=True)
+            
+            # Section 4: Immediate Actions
+            st.markdown("---")
+            st.markdown("#### ⚡ Immediate Actions")
+            
+            # Features to remove
+            remove_features = [
+                name for name, data in validation_data.get('validation_results', {}).items()
+                if data.get('recommendation') == 'REMOVE'
+            ]
+            
+            if remove_features:
+                st.error(f"**🚨 Consider removing these features:** {', '.join(remove_features)}")
+                st.markdown("These features show no statistical evidence of predicting winners.")
+            
+            # Features to review
+            review_features = [
+                name for name, data in validation_data.get('validation_results', {}).items()
+                if data.get('recommendation') == 'REVIEW'
+            ]
+            
+            if review_features:
+                st.warning(f"**⚠️ Review these features:** {', '.join(review_features)}")
+                st.markdown("These features show moderate evidence. Consider testing with more data.")
+            
+            # Features to keep
+            keep_features = [
+                name for name, data in validation_data.get('validation_results', {}).items()
+                if data.get('recommendation') == 'KEEP'
+            ]
+            
+            if keep_features:
+                st.success(f"**✅ Strong features to keep:** {', '.join(keep_features)}")
+                st.markdown("These features show strong predictive power.")
+            
+            # Section 5: Download Reports
+            st.markdown("---")
+            st.markdown("#### 📄 Download Reports")
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                # JSON download
+                json_str = json.dumps(validation_data, indent=2)
+                st.download_button(
+                    label="📥 Download JSON Report",
+                    data=json_str,
+                    file_name=latest_report.name,
+                    mime="application/json",
+                    use_container_width=True
+                )
+            
+            with col2:
+                # Markdown download
+                md_file = latest_report.with_suffix('.md')
+                if md_file.exists():
+                    with open(md_file, 'r', encoding='utf-8') as f:
+                        md_content = f.read()
+                    
+                    st.download_button(
+                        label="📥 Download Markdown Report",
+                        data=md_content,
+                        file_name=md_file.name,
+                        mime="text/markdown",
+                        use_container_width=True
+                    )
+        
+    except Exception as e:
+        st.error(f"Failed to load Scoring Feature Health interface: {e}")
+        import traceback
+        st.code(traceback.format_exc())
+
+
 def show_weight_optimization_tab():
     """Tab 3: Weight Optimization - Placeholder for now"""
     st.markdown("### ⚖️ Weight Optimization")
@@ -750,7 +967,7 @@ def show_weight_optimization_tab():
 
 def show_history_analytics_tab():
     """Tab 4: History & Analytics - Placeholder for now"""
-    st.markdown("### 📊 History & Analytics")
+    st.markdown("### � History & Analytics")
     st.info("🚧 This tab will be implemented in Phase 4. Continue building your historical dataset.")
 
     # Show basic stats for now
