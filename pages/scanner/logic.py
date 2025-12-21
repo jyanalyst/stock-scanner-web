@@ -29,10 +29,11 @@ from core.technical_analysis import (add_enhanced_columns, get_mpi_trend_info,
 logger = logging.getLogger(__name__)
 
 
-def calculate_signal_score(row):
+def calculate_signal_score_v1_legacy(row):
     """
-    Calculate composite signal score (0-100 scale)
-    HANDLES BOTH BULLISH AND BEARISH SIGNALS CORRECTLY
+    LEGACY SCORING FUNCTION - BACKUP COPY (2025-12-21)
+    Original momentum-based scoring that rewards high momentum setups.
+    This was misaligned with actual trading behavior (mean reversion).
 
     Components:
     - Flow_Velocity_Rank: 35% (acceleration)
@@ -40,6 +41,8 @@ def calculate_signal_score(row):
     - Flow_Percentile: 20% (sweet spot positioning)
     - Volume_Conviction: 15% (commitment)
     - Three_Indicator: 5% (confirmation)
+
+    DEPRECATED: Use calculate_signal_score_v2 for data-driven mean reversion scoring.
     """
     # Determine signal direction
     signal_bias = row.get('Signal_Bias', '⚪ NEUTRAL')
@@ -138,6 +141,179 @@ def calculate_signal_score(row):
     return round(total_score, 1)
 
 
+def calculate_signal_score_v2(row):
+    """
+    DATA-DRIVEN SCORING SYSTEM (2025-12-21)
+    Redesigned based on validation analysis of 46 historical dates (266 TRUE_BREAK winners)
+
+    Key Insights from Validation:
+    - MPI_Percentile & IBS_Percentile: INVERTED (lower = better for mean reversion)
+    - Flow_Velocity_Rank: Sweet spot at Q4 (60-80%) - directional confirmation
+    - VPI_Percentile: Higher is better (standard scoring)
+    - Flow_Rank & Flow_Percentile: Directionally specialized
+    - Volume_Conviction: Bullish-only signal
+
+    Validation Results (vs 11.2% baseline):
+    - MPI_Percentile Q1 (0-20%): 15.6% win rate (+39% improvement)
+    - IBS_Percentile Q1 (0-20%): 13.3% win rate (+19% improvement)
+    - Flow_Velocity_Rank Q4 (60-80%): 14.2% win rate (+27% improvement)
+    - VPI_Percentile Q5 (80-100%): 13.5% win rate (+21% improvement)
+    - Volume_Conviction Q4: 13.8% win rate (+23% improvement)
+
+    Args:
+        row: DataFrame row with feature values
+
+    Returns:
+        total_score: 0-100 points
+        components: dict of individual component scores for debugging
+    """
+    # Extract signal direction
+    signal_bias = row.get('Signal_Bias', '⚪ NEUTRAL')
+    is_bullish = '🟢' in signal_bias or 'BULLISH' in signal_bias
+
+    components = {}
+
+    # === 1. MPI_PERCENTILE (25 points max) - INVERTED ===
+    # Q1 (0-20%) = 15.6% win rate (BEST) - coiled spring setups
+    # Q4 (60-80%) = 7.8% win rate (WORST) - too hot
+    # Only use for bullish signals (p=0.033 significant)
+    mpi_pct = row.get('MPI_Percentile', 50)
+    if is_bullish:  # Only predictive for bullish
+        if mpi_pct <= 20:
+            components['mpi'] = 25  # Q1 - coiled spring, ready to release
+        elif mpi_pct <= 40:
+            components['mpi'] = 18  # Q2 - still weak momentum
+        elif mpi_pct <= 60:
+            components['mpi'] = 12  # Q3 - moderate
+        elif mpi_pct <= 80:
+            components['mpi'] = 5   # Q4 - getting hot, avoid
+        else:
+            components['mpi'] = 8   # Q5 - very hot, but can still reverse
+    else:
+        components['mpi'] = 0  # Not significant for bearish
+
+    # === 2. IBS_PERCENTILE (20 points max) - INVERTED ===
+    # Q1 (0-20%) = 13.3% win rate (BEST) - oversold, ready to bounce
+    # Q4 (60-80%) = 7.8% win rate (WORST) - overbought
+    # Only use for bullish signals (p=0.047 significant)
+    ibs_pct = row.get('IBS_Percentile', 50)
+    if is_bullish:  # Only predictive for bullish
+        if ibs_pct <= 20:
+            components['ibs'] = 20  # Q1 - oversold, classic mean reversion
+        elif ibs_pct <= 40:
+            components['ibs'] = 12  # Q2 - still weak
+        elif ibs_pct <= 60:
+            components['ibs'] = 13  # Q3 - moderate, slight edge
+        elif ibs_pct <= 80:
+            components['ibs'] = 5   # Q4 - overbought, avoid
+        else:
+            components['ibs'] = 15  # Q5 - extreme can reverse
+    else:
+        components['ibs'] = 0  # Not significant for bearish
+
+    # === 3. FLOW_VELOCITY_RANK (20 points max) - Q4 SWEET SPOT ===
+    # Q4 (60-80%) = 14.2% win rate (BEST) - moderate directional flow
+    # Q2 (20-40%) = 8.1% win rate (WORST) - too weak
+    flow_vel_rank = row.get('Flow_Velocity_Rank', 50)
+    if flow_vel_rank <= 20:
+        components['flow_vel'] = 12  # Q1 - weak flow
+    elif flow_vel_rank <= 40:
+        components['flow_vel'] = 5   # Q2 - worst performance
+    elif flow_vel_rank <= 60:
+        components['flow_vel'] = 12  # Q3 - moderate
+    elif flow_vel_rank <= 80:
+        components['flow_vel'] = 20  # Q4 - sweet spot!
+    else:
+        components['flow_vel'] = 15  # Q5 - strong but not optimal
+
+    # === 4. VPI_PERCENTILE (15 points max) - HIGHER IS BETTER ===
+    # Q5 (80-100%) = 13.5% win rate (BEST) - institutional buying
+    # Q3 (40-60%) = 7.9% win rate (WORST) - weak volume quality
+    vpi_pct = row.get('VPI_Percentile', 50)
+    if vpi_pct <= 20:
+        components['vpi'] = 8   # Q1 - weak volume
+    elif vpi_pct <= 40:
+        components['vpi'] = 9   # Q2 - moderate
+    elif vpi_pct <= 60:
+        components['vpi'] = 3   # Q3 - worst performance
+    elif vpi_pct <= 80:
+        components['vpi'] = 12  # Q4 - good
+    else:
+        components['vpi'] = 15  # Q5 - best institutional buying
+
+    # === 5. VOLUME_CONVICTION (10 points max) - BULLISH ONLY ===
+    # Q4 = 13.8% win rate (BEST) - balanced conviction
+    # Bullish Cohen's d = 0.328 (significant), Bearish p=0.221 (not significant)
+    vol_conviction = row.get('Volume_Conviction', 1.0)
+    if is_bullish:  # Only predictive for bullish
+        if vol_conviction >= 1.5:
+            components['conviction'] = 10  # Very high conviction
+        elif vol_conviction >= 1.2:
+            components['conviction'] = 8   # High conviction (Q4 sweet spot)
+        elif vol_conviction >= 1.0:
+            components['conviction'] = 5   # Moderate
+        elif vol_conviction >= 0.8:
+            components['conviction'] = 3   # Weak
+        else:
+            components['conviction'] = 1   # Very weak
+    else:
+        components['conviction'] = 0  # Not predictive for bearish
+
+    # === 6. FLOW_RANK (5 points max) - DIRECTIONAL ===
+    # Bullish: Higher is better (Cohen's d = 0.208)
+    # Bearish: Lower is better (Cohen's d = -0.241)
+    flow_rank = row.get('Flow_Rank', 50)
+    if is_bullish:
+        if flow_rank >= 80:
+            components['flow_rank'] = 5
+        elif flow_rank >= 60:
+            components['flow_rank'] = 4
+        elif flow_rank >= 40:
+            components['flow_rank'] = 3
+        else:
+            components['flow_rank'] = 2
+    else:  # Bearish
+        if flow_rank <= 20:
+            components['flow_rank'] = 5
+        elif flow_rank <= 40:
+            components['flow_rank'] = 4
+        elif flow_rank <= 60:
+            components['flow_rank'] = 3
+        else:
+            components['flow_rank'] = 2
+
+    # === 7. FLOW_PERCENTILE (5 points max) - DIRECTIONAL ===
+    # Bullish: Higher is better (Cohen's d = 0.275)
+    # Bearish: Lower is better (Cohen's d = -0.312)
+    flow_pct = row.get('Flow_Percentile', 50)
+    if is_bullish:
+        if flow_pct >= 60:
+            components['flow_pct'] = 5
+        elif flow_pct >= 40:
+            components['flow_pct'] = 3
+        else:
+            components['flow_pct'] = 1
+    else:  # Bearish
+        if flow_pct <= 40:
+            components['flow_pct'] = 5
+        elif flow_pct <= 60:
+            components['flow_pct'] = 3
+        else:
+            components['flow_pct'] = 1
+
+    # === CALCULATE TOTAL SCORE ===
+    total_score = sum(components.values())
+
+    return total_score, components
+
+
+def calculate_signal_score(row):
+    """
+    ACTIVE SCORING FUNCTION - calls v2 data-driven system
+    """
+    return calculate_signal_score_v2(row)[0]  # Return just the score, not components
+
+
 def calculate_suggested_risk(row):
     """
     Calculate suggested position size based on Trade_Rank and Signal_Score
@@ -197,6 +373,8 @@ def add_ranking_columns(df):
 
     This should be called AFTER filtering for bullish/bearish signals
     but BEFORE displaying results
+
+    UPDATED (2025-12-21): Now includes component score debugging columns
     """
     if df.empty:
         return df
@@ -204,8 +382,19 @@ def add_ranking_columns(df):
     # Create explicit copy to avoid SettingWithCopyWarning
     df = df.copy()
 
-    # Calculate signal score for each stock
-    df['Signal_Score'] = df.apply(calculate_signal_score, axis=1)
+    # Calculate signal score for each stock (v2 data-driven system)
+    scores_and_components = df.apply(calculate_signal_score_v2, axis=1)
+    df['Signal_Score'] = scores_and_components.apply(lambda x: x[0])
+    df['Score_Components'] = scores_and_components.apply(lambda x: x[1])
+
+    # Add component score debugging columns (optional - for analysis)
+    df['Score_MPI'] = df['Score_Components'].apply(lambda x: x.get('mpi', 0))
+    df['Score_IBS'] = df['Score_Components'].apply(lambda x: x.get('ibs', 0))
+    df['Score_Flow_Vel'] = df['Score_Components'].apply(lambda x: x.get('flow_vel', 0))
+    df['Score_VPI'] = df['Score_Components'].apply(lambda x: x.get('vpi', 0))
+    df['Score_Conviction'] = df['Score_Components'].apply(lambda x: x.get('conviction', 0))
+    df['Score_Flow_Rank'] = df['Score_Components'].apply(lambda x: x.get('flow_rank', 0))
+    df['Score_Flow_Pct'] = df['Score_Components'].apply(lambda x: x.get('flow_pct', 0))
 
     # Rank by score (descending) - best score gets rank 1
     df['Trade_Rank'] = df['Signal_Score'].rank(method='dense', ascending=False).astype(int)
