@@ -1,24 +1,11 @@
-# File: requirements.txt
-# Core dependencies (UPDATED - scikit-learn can be removed if not used elsewhere)
+# Core dependencies for production scanner
 streamlit
 pandas
 numpy
-sqlalchemy
 plotly
-altair
 python-dotenv
-APScheduler
 requests
 PyYAML
 
-# Statistical analysis (ADDED for Phase 0-1)
-scipy
-
-# Analyst report processing (minimal dependencies)
+# Analyst report processing
 PyPDF2
-
-# Performance monitoring
-psutil
-
-# Progress bars
-tqdm

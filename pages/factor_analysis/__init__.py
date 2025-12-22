@@ -1,1 +1,0 @@
-# Factor analysis module package
